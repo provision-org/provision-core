@@ -1,0 +1,70 @@
+name: Build & Publish Base Docker Images
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * 1' # Weekly on Monday at 6am UTC
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  build-app-base:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/app/Dockerfile.base
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ env.REGISTRY }}/provision-org/app-base:latest
+            ${{ env.REGISTRY }}/provision-org/app-base:${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  build-agent-runtime:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/setup-qemu-action@v3
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/agent-runtime/Dockerfile.base
+          push: true
+          platforms: linux/amd64
+          tags: |
+            ${{ env.REGISTRY }}/provision-org/agent-runtime:latest
+            ${{ env.REGISTRY }}/provision-org/agent-runtime:${{ github.run_number }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

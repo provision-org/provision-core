@@ -1,0 +1,32 @@
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV DISPLAY=:99
+
+# System packages
+RUN apt-get update && apt-get install -y \
+    curl wget git unzip jq sudo ca-certificates gnupg \
+    xvfb x11vnc novnc python3-websockify \
+    && rm -rf /var/lib/apt/lists/*
+
+# Google Chrome
+RUN curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update && apt-get install -y google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+# Node.js 22 (needed for OpenClaw)
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Both agent harnesses (users choose per-team at runtime)
+RUN curl -fsSL https://openclaw.ai/install.sh | bash 2>/dev/null || true
+RUN curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash 2>/dev/null || true
+
+# Agent directories
+RUN mkdir -p /root/.openclaw/agents /root/.openclaw/logs
+
+EXPOSE 6080

@@ -1,0 +1,16 @@
+.git
+.claude
+node_modules
+vendor
+.env
+.env.forge*
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+bootstrap/cache/*
+database/database.sqlite
+*.sqlite
+fix_engine_and_tools.cjs
+rewrite_agent_create.cjs
+opensource_strategy

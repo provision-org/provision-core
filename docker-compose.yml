@@ -1,0 +1,107 @@
+name: provision
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/app/Dockerfile
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - .:/var/www/html
+      - node_modules:/var/www/html/node_modules
+      - vendor:/var/www/html/vendor
+      # Docker socket required for DockerExecutor to manage agent-runtime container.
+      # SECURITY: This grants the app container host Docker access. Only use in local dev.
+      - /var/run/docker.sock:/var/run/docker.sock
+      # SSH keys for cloud server provisioning (read-only mount)
+      - ${SSH_PRIVATE_KEY_PATH:-~/.ssh/id_ed25519}:/root/.ssh/id_ed25519:ro
+      - ${SSH_PRIVATE_KEY_PATH:-~/.ssh/id_ed25519}.pub:/root/.ssh/id_ed25519.pub:ro
+    environment:
+      - APP_NAME=${APP_NAME:-Provision}
+      - APP_ENV=${APP_ENV:-local}
+      - APP_DEBUG=${APP_DEBUG:-false}
+      # APP_KEY is read from the mounted .env file — do not override here
+      - APP_URL=http://localhost:${APP_PORT:-8000}
+      - DB_CONNECTION=sqlite
+      - CACHE_STORE=redis
+      - QUEUE_CONNECTION=redis
+      - SESSION_DRIVER=redis
+      - BROADCAST_CONNECTION=${BROADCAST_CONNECTION:-log}
+      - REVERB_APP_KEY=${REVERB_APP_KEY:-local}
+      - VITE_REVERB_APP_KEY=${REVERB_APP_KEY:-local}
+      - VITE_REVERB_HOST=${REVERB_HOST:-localhost}
+      - VITE_REVERB_PORT=${REVERB_PORT:-8080}
+      - VITE_REVERB_SCHEME=${REVERB_SCHEME:-http}
+      - REDIS_CLIENT=phpredis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - MAIL_MAILER=${MAIL_MAILER:-log}
+      - CLOUD_PROVIDER=${CLOUD_PROVIDER:-docker}
+      - ENABLE_CLOUD_PROVIDER_SELECTION=${ENABLE_CLOUD_PROVIDER_SELECTION:-}
+      - PROVISION_DOCKER_CONTAINER=provision-agent-runtime-1
+      - OPENROUTER_PROVISIONING_API_KEY=${OPENROUTER_PROVISIONING_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - FIRECRAWL_API_KEY=${FIRECRAWL_API_KEY:-}
+      - DIGITALOCEAN_API_TOKEN=${DIGITALOCEAN_API_TOKEN:-}
+      - DIGITALOCEAN_SSH_KEY_ID=${DIGITALOCEAN_SSH_KEY_ID:-}
+      - HETZNER_API_TOKEN=${HETZNER_API_TOKEN:-}
+      - HETZNER_SSH_KEY_ID=${HETZNER_SSH_KEY_ID:-}
+      - LINODE_API_KEY=${LINODE_API_KEY:-}
+      - SSH_PRIVATE_KEY_PATH=/root/.ssh/id_ed25519
+    depends_on:
+      redis:
+        condition: service_healthy
+    entrypoint: ["bash", "-c"]
+    command:
+      - |
+        composer install --no-interaction --quiet 2>/dev/null
+        npm install --silent 2>/dev/null
+        touch database/database.sqlite
+        mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
+        if [ ! -f .env ]; then cp .env.example .env; fi
+        php artisan key:generate --no-interaction 2>/dev/null
+        php artisan migrate --force --no-interaction
+        php artisan wayfinder:generate 2>/dev/null || true
+        if [ ! -d public/build ]; then
+          echo "Building frontend assets (first run)..."
+          npm run build --silent
+        else
+          echo "Frontend assets exist, rebuilding in background..."
+          npm run build --silent &
+        fi
+        npx concurrently -c '#93c5fd,#c4b5fd,#86efac' 'php artisan serve --host=0.0.0.0 --port=8000' 'php artisan horizon' 'php artisan schedule:work' --names=server,horizon,scheduler --kill-others
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 3
+
+  agent-runtime:
+    build:
+      context: .
+      dockerfile: docker/agent-runtime/Dockerfile
+      args:
+        HARNESS: ${HARNESS_TYPE:-openclaw}
+    platform: linux/amd64
+    # Chrome requires SYS_ADMIN for sandboxing. Use --no-sandbox flag instead of privileged mode.
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - agent-data:/root/.openclaw
+    ports:
+      - "${VNC_PORT:-6080}:6080"
+    environment:
+      - DISPLAY=:99
+
+volumes:
+  node_modules:
+  vendor:
+  redis-data:
+  agent-data:

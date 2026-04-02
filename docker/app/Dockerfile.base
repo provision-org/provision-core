@@ -1,0 +1,27 @@
+FROM php:8.4-cli
+
+# System dependencies + PHP extensions
+RUN apt-get update && apt-get install -y \
+    git curl zip unzip libpng-dev libxml2-dev libzip-dev libicu-dev libonig-dev \
+    libsqlite3-dev libcurl4-openssl-dev procps \
+    && docker-php-ext-install pdo_sqlite pdo_mysql gd xml zip bcmath intl mbstring pcntl \
+    && pecl install redis && docker-php-ext-enable redis \
+    && rm -rf /var/lib/apt/lists/*
+
+# Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Node.js 22
+RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Docker CLI (for communicating with agent-runtime container)
+RUN curl -fsSL https://download.docker.com/linux/debian/gpg | gpg --dearmor -o /usr/share/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker.gpg] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list \
+    && apt-get update && apt-get install -y docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /var/www/html
+
+EXPOSE 8000

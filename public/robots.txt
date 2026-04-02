@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /dashboard
+Disallow: /agents
+Disallow: /billing
+Disallow: /settings
+Disallow: /admin
+Disallow: /api
+Disallow: /auth/cli
+Disallow: /auth/extension
+
+Sitemap: https://provision.ai/sitemap.xml
