@@ -35,6 +35,48 @@ function fetchHeaders(): Record<string, string> {
     };
 }
 
+/**
+ * Parse an SSE stream from a fetch Response, calling the handler for each event.
+ */
+async function readSseStream(
+    response: Response,
+    onEvent: (event: string, data: string) => void,
+): Promise<void> {
+    const reader = response.body?.getReader();
+    if (!reader) return;
+
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const parts = buffer.split('\n\n');
+        // Keep the last incomplete chunk in the buffer
+        buffer = parts.pop() ?? '';
+
+        for (const part of parts) {
+            let eventName = 'message';
+            let eventData = '';
+
+            for (const line of part.split('\n')) {
+                if (line.startsWith('event: ')) {
+                    eventName = line.slice(7);
+                } else if (line.startsWith('data: ')) {
+                    eventData = line.slice(6);
+                }
+            }
+
+            if (eventData) {
+                onEvent(eventName, eventData);
+            }
+        }
+    }
+}
+
 export default function Chat({
     agent,
     conversations: initialConversations,
@@ -48,6 +90,7 @@ export default function Chat({
         string | null
     >(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
+    const [streamingText, setStreamingText] = useState<string | null>(null);
     const [isThinking, setIsThinking] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -55,7 +98,7 @@ export default function Chat({
     const activeConversationRef = useRef(activeConversationId);
     activeConversationRef.current = activeConversationId;
 
-    // Real-time events
+    // Real-time events (fallback for non-streaming path)
     useEcho<{
         id: string;
         chat_conversation_id: string;
@@ -64,8 +107,11 @@ export default function Chat({
         sent_at: string;
     }>(`team.${teamId}`, '.chat.message.received', (data) => {
         if (data.chat_conversation_id === activeConversationRef.current) {
-            setMessages((prev) => [...prev, data]);
-            setIsThinking(false);
+            // Only add if we're not actively streaming (streaming handles its own done)
+            if (streamingText === null) {
+                setMessages((prev) => [...prev, data]);
+                setIsThinking(false);
+            }
         }
     });
 
@@ -85,6 +131,7 @@ export default function Chat({
         (data) => {
             if (data.chat_conversation_id === activeConversationRef.current) {
                 setIsThinking(false);
+                setStreamingText(null);
             }
         },
     );
@@ -94,6 +141,7 @@ export default function Chat({
             setActiveConversationId(conversation.id);
             setIsLoading(true);
             setIsThinking(false);
+            setStreamingText(null);
 
             try {
                 const res = await fetch(
@@ -117,7 +165,85 @@ export default function Chat({
         setActiveConversationId(null);
         setMessages([]);
         setIsThinking(false);
+        setStreamingText(null);
     }, []);
+
+    /**
+     * Stream a message to an existing conversation via SSE.
+     */
+    const sendWithStreaming = useCallback(
+        async (conversationId: string, formData: FormData, content: string) => {
+            // Add optimistic user message
+            const optimisticMsg: ChatMessage = {
+                id: `temp-${Date.now()}`,
+                chat_conversation_id: conversationId,
+                role: 'user',
+                content: [{ type: 'text', text: content }],
+                sent_at: new Date().toISOString(),
+            };
+            setMessages((prev) => [...prev, optimisticMsg]);
+            setIsThinking(true);
+
+            try {
+                const res = await fetch(
+                    `/agents/${agent.id}/chat/${conversationId}/stream`,
+                    {
+                        method: 'POST',
+                        body: formData,
+                        headers: fetchHeaders(),
+                    },
+                );
+
+                if (!res.ok || !res.body) {
+                    throw new Error('Stream request failed');
+                }
+
+                await readSseStream(res, (event, data) => {
+                    const parsed = JSON.parse(data);
+
+                    switch (event) {
+                        case 'message':
+                            // Replace optimistic user message with real one
+                            setMessages((prev) =>
+                                prev.map((m) =>
+                                    m.id === optimisticMsg.id ? parsed : m,
+                                ),
+                            );
+                            // Start showing streaming state
+                            setIsThinking(false);
+                            setStreamingText('');
+                            break;
+
+                        case 'token':
+                            setStreamingText(
+                                (prev) => (prev ?? '') + parsed.text,
+                            );
+                            break;
+
+                        case 'done':
+                            // Add the final assistant message and clear streaming
+                            setMessages((prev) => [...prev, parsed]);
+                            setStreamingText(null);
+                            break;
+
+                        case 'error':
+                            setIsThinking(false);
+                            setStreamingText(null);
+                            break;
+                    }
+                });
+
+                // Ensure streaming state is cleared after stream ends
+                setStreamingText(null);
+                setIsThinking(false);
+            } catch {
+                // Fallback: clear streaming and let Reverb handle the response
+                setStreamingText(null);
+                setIsThinking(true);
+            }
+        },
+        [agent.id],
+    );
 
     const handleSend = useCallback(
         async (content: string, files: File[]) => {
@@ -126,39 +252,14 @@ export default function Chat({
             files.forEach((file) => formData.append('attachments[]', file));
 
             if (activeConversationId) {
-                // Send to existing conversation
-                const optimisticMsg: ChatMessage = {
-                    id: `temp-${Date.now()}`,
-                    chat_conversation_id: activeConversationId,
-                    role: 'user',
-                    content: [{ type: 'text', text: content }],
-                    sent_at: new Date().toISOString(),
-                };
-                setMessages((prev) => [...prev, optimisticMsg]);
-                setIsThinking(true);
-
-                try {
-                    const res = await fetch(
-                        `/agents/${agent.id}/chat/${activeConversationId}`,
-                        {
-                            method: 'POST',
-                            body: formData,
-                            headers: fetchHeaders(),
-                        },
-                    );
-                    const data = await res.json();
-
-                    // Replace optimistic message with real one
-                    setMessages((prev) =>
-                        prev.map((m) =>
-                            m.id === optimisticMsg.id ? data.message : m,
-                        ),
-                    );
-                } catch {
-                    setIsThinking(false);
-                }
+                // Use streaming for existing conversations
+                await sendWithStreaming(
+                    activeConversationId,
+                    formData,
+                    content,
+                );
             } else {
-                // Create new conversation
+                // Create new conversation first, then stream
                 setIsThinking(true);
 
                 try {
@@ -173,12 +274,16 @@ export default function Chat({
                     setConversations((prev) => [newConv, ...prev]);
                     setActiveConversationId(newConv.id);
                     setMessages([data.message]);
+
+                    // The job was already dispatched by store(), so use
+                    // Reverb for the response (streaming will be used
+                    // on subsequent messages in this conversation)
                 } catch {
                     setIsThinking(false);
                 }
             }
         },
-        [agent.id, activeConversationId],
+        [agent.id, activeConversationId, sendWithStreaming],
     );
 
     const breadcrumbs: BreadcrumbItem[] = [
@@ -240,6 +345,7 @@ export default function Chat({
                             messages={messages}
                             agent={agent}
                             isThinking={isThinking}
+                            streamingText={streamingText}
                         />
                     )}
 

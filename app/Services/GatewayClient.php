@@ -57,6 +57,45 @@ class GatewayClient
     }
 
     /**
+     * Send a message and stream the assistant response via SSH tail.
+     *
+     * Yields partial text chunks as they arrive from the session JSONL file.
+     * Each yielded value is an associative array with 'type' and optional 'text' keys:
+     *   - ['type' => 'token', 'text' => '...']    partial content chunk
+     *   - ['type' => 'done',  'content' => [...]]  final content blocks
+     *   - ['type' => 'error', 'message' => '...']  error occurred
+     *
+     * @param  list<array{type: string, mimeType: string, fileName: string, path: string}>  $attachments
+     * @return \Generator<int, array{type: string, text?: string, content?: list<array<string, mixed>>, message?: string}>
+     */
+    public function chatSendAndStream(string $sessionKey, string $agentId, string $message, array $attachments = [], int $timeoutSeconds = 300): \Generator
+    {
+        $this->sshService->connect($this->server);
+
+        try {
+            $initialAssistantCount = $this->countAssistantMessages($agentId);
+
+            $escapedMessage = str_replace('"', '\\"', $message);
+            $command = "openclaw agent --agent {$agentId} --message \"{$escapedMessage}\" --deliver";
+
+            $this->sshService->exec($command);
+
+            // Poll the JSONL file for streaming chunks
+            yield from $this->pollForStreamingResponse($agentId, $timeoutSeconds, $initialAssistantCount);
+        } catch (\Throwable $e) {
+            Log::error('GatewayClient chatSendAndStream failed', [
+                'server_id' => $this->server->id,
+                'session_key' => $sessionKey,
+                'error' => $e->getMessage(),
+            ]);
+
+            yield ['type' => 'error', 'message' => 'Failed to communicate with the agent.'];
+        } finally {
+            $this->sshService->disconnect();
+        }
+    }
+
+    /**
      * Fetch chat history for a session from the server.
      *
      * @return list<array{role: string, content: list<array<string, mixed>>, timestamp: string|null}>
@@ -111,6 +150,118 @@ class GatewayClient
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    /**
+     * Poll session JSONL for streaming chunks, yielding partial text as it arrives.
+     *
+     * @return \Generator<int, array{type: string, text?: string, content?: list<array<string, mixed>>, message?: string}>
+     */
+    private function pollForStreamingResponse(string $agentId, int $timeoutSeconds, int $initialAssistantCount = 0): \Generator
+    {
+        $startTime = time();
+        $pollInterval = 1;
+        $lastContentLength = 0;
+        $previousLineCount = 0;
+
+        while ((time() - $startTime) < $timeoutSeconds) {
+            usleep($pollInterval * 500_000); // Start at 0.5s, increase over time
+
+            try {
+                $sessionsPath = "/mnt/openclaw-data/agents/{$agentId}/sessions/sessions.json";
+                $sessionsContent = $this->sshService->readFile($sessionsPath);
+                $sessions = json_decode($sessionsContent, true) ?? [];
+
+                $latestSession = null;
+                $latestTime = '';
+                foreach ($sessions as $session) {
+                    $updatedAt = $session['updatedAt'] ?? '';
+                    if ($updatedAt > $latestTime && ! empty($session['sessionFile'])) {
+                        $latestTime = $updatedAt;
+                        $latestSession = $session;
+                    }
+                }
+
+                if (! $latestSession) {
+                    continue;
+                }
+
+                $content = $this->sshService->readFile($latestSession['sessionFile']);
+                $lines = array_filter(explode("\n", trim($content)));
+                $lineCount = count($lines);
+
+                // Only process new lines
+                if ($lineCount <= $previousLineCount) {
+                    $pollInterval = min($pollInterval + 1, 4);
+
+                    continue;
+                }
+
+                // Reset poll interval when new data arrives
+                $pollInterval = 1;
+                $newLines = array_slice($lines, $previousLineCount);
+                $previousLineCount = $lineCount;
+
+                foreach ($newLines as $line) {
+                    $entry = json_decode($line, true);
+                    if (! $entry) {
+                        continue;
+                    }
+
+                    $msg = $entry['message'] ?? $entry;
+                    $role = $msg['role'] ?? null;
+
+                    if ($role !== 'assistant') {
+                        continue;
+                    }
+
+                    $rawContent = $msg['content'] ?? '';
+                    $contentBlocks = $this->normalizeContentBlocks($rawContent);
+                    $textContent = $this->extractTextFromBlocks($contentBlocks);
+
+                    if (strlen($textContent) > $lastContentLength) {
+                        $newText = substr($textContent, $lastContentLength);
+                        $lastContentLength = strlen($textContent);
+
+                        yield ['type' => 'token', 'text' => $newText];
+                    }
+                }
+
+                // Check if the response is complete — new assistant message with text
+                $messages = $this->parseSessionFile($latestSession['sessionFile']);
+                $assistantWithText = array_filter(
+                    $messages,
+                    fn ($msg) => $msg['role'] === 'assistant' && $this->hasTextContent($msg['content']),
+                );
+
+                if (count($assistantWithText) > $initialAssistantCount) {
+                    $finalMessage = end($assistantWithText);
+
+                    // Check if the entry type indicates completion
+                    $lastLine = end($lines);
+                    $lastEntry = json_decode($lastLine, true);
+                    $entryType = $lastEntry['type'] ?? null;
+
+                    // Consider done if we see a result/complete entry or if content stopped growing
+                    if ($entryType === 'result' || $entryType === 'complete') {
+                        yield ['type' => 'done', 'content' => $finalMessage['content']];
+
+                        return;
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('GatewayClient stream poll error', ['error' => $e->getMessage()]);
+            }
+        }
+
+        // If we timed out but have content, send what we have
+        if ($lastContentLength > 0) {
+            yield ['type' => 'done', 'content' => [['type' => 'text', 'text' => '']]];
+
+            return;
+        }
+
+        yield ['type' => 'error', 'message' => 'The agent did not respond in time.'];
     }
 
     /**
@@ -270,6 +421,23 @@ class GatewayClient
         } catch (\Throwable) {
             return 0;
         }
+    }
+
+    /**
+     * Extract concatenated text from content blocks.
+     *
+     * @param  list<array<string, mixed>>  $blocks
+     */
+    private function extractTextFromBlocks(array $blocks): string
+    {
+        $text = '';
+        foreach ($blocks as $block) {
+            if (($block['type'] ?? null) === 'text' && ! empty($block['text'])) {
+                $text .= $block['text'];
+            }
+        }
+
+        return $text;
     }
 
     /**

@@ -3,6 +3,7 @@
 use App\Http\Controllers\AgentActivityController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentEnvController;
+use App\Http\Controllers\AgentMemoryController;
 use App\Http\Controllers\AgentScheduleController;
 use App\Http\Controllers\AgentWorkspaceController;
 use App\Http\Controllers\ApiKeyController;
@@ -113,6 +114,11 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::delete('agents/{agent}/workspace', [AgentWorkspaceController::class, 'destroy'])->name('agents.workspace.destroy');
         Route::get('agents/{agent}/workspace/download', [AgentWorkspaceController::class, 'download'])->name('agents.workspace.download');
 
+        // Agent memory
+        Route::get('agents/{agent}/memory', [AgentMemoryController::class, 'index'])->name('agents.memory.index');
+        Route::get('agents/{agent}/memory/{filename}', [AgentMemoryController::class, 'show'])->name('agents.memory.show');
+        Route::put('agents/{agent}/memory/{filename}', [AgentMemoryController::class, 'update'])->name('agents.memory.update');
+
         // Team packs — bulk hire
         Route::post('agents/packs/{teamPack}/hire', [TeamPackController::class, 'hire'])->name('agents.packs.hire');
 
@@ -130,6 +136,7 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::post('agents/{agent}/chat', [ChatController::class, 'store'])->name('agents.chat.store');
         Route::get('agents/{agent}/chat/{conversation}', [ChatController::class, 'show'])->name('agents.chat.show');
         Route::post('agents/{agent}/chat/{conversation}', [ChatController::class, 'sendMessage'])->name('agents.chat.send');
+        Route::post('agents/{agent}/chat/{conversation}/stream', [ChatController::class, 'stream'])->name('agents.chat.stream');
         Route::get('chat-attachments/{conversation}/{filename}', [ChatController::class, 'attachment'])->name('agents.chat.attachment')->middleware('signed');
 
         Route::get('agents/{agent}/channels', [AgentController::class, 'channels'])->name('agents.channels');
