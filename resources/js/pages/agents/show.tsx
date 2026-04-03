@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ActivityFeed from '@/components/agents/activity-feed';
+import MemoryBrowser from '@/components/agents/memory-browser';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import {
     TelegramIcon,
@@ -84,6 +85,7 @@ type Tab =
     | 'channels'
     | 'schedules'
     | 'workspace'
+    | 'memory'
     | 'browser'
     | 'settings';
 
@@ -2739,6 +2741,7 @@ export default function ShowAgent({
         'channels',
         'schedules',
         'workspace',
+        'memory',
         'browser',
         'settings',
     ];
@@ -2759,6 +2762,7 @@ export default function ShowAgent({
         { id: 'email', label: 'Email Inbox' },
         { id: 'browser', label: 'Browser' },
         { id: 'workspace', label: 'Workspace' },
+        { id: 'memory', label: 'Memory' },
         { id: 'schedules', label: 'Scheduled Tasks' },
         { id: 'channels', label: 'Channels' },
         { id: 'settings', label: 'Settings' },
@@ -2967,6 +2971,9 @@ export default function ShowAgent({
                                     )}
                                     {activeTab === 'workspace' && (
                                         <WorkspaceTab agent={agent} />
+                                    )}
+                                    {activeTab === 'memory' && (
+                                        <MemoryBrowser agent={agent} />
                                     )}
                                 </div>
                             )}
