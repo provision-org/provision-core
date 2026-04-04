@@ -204,7 +204,7 @@ class ChatController extends Controller
             ]);
 
             try {
-                $client = new GatewayClient($agent->server);
+                $client = (new GatewayClient($agent->server))->forAgent($agent);
                 $fullText = '';
 
                 foreach ($client->chatSendAndStream(
