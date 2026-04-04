@@ -14,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Provision\Skills\Models\Skill;
 
 class Agent extends Model
 {
@@ -41,6 +42,7 @@ class Agent extends Model
         'user_context',
         'config_snapshot',
         'harness_agent_id',
+        'api_server_port',
         'avatar_path',
         'default_password',
         'is_syncing',
@@ -181,8 +183,8 @@ class Agent extends Model
      */
     public function skills(): BelongsToMany
     {
-        $skillModel = class_exists(\Provision\Skills\Models\Skill::class)
-            ? \Provision\Skills\Models\Skill::class
+        $skillModel = class_exists(Skill::class)
+            ? Skill::class
             : self::class; // Fallback to self to avoid crash when module absent
 
         return $this->belongsToMany($skillModel, 'agent_skills')

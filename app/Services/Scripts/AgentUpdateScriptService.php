@@ -781,14 +781,32 @@ class AgentUpdateScriptService
             $lines[] = "{$envVar->key}={$envVar->value}";
         }
 
-        // Hermes API server — enables web chat via OpenAI-compatible HTTP API
+        // Hermes API server — each agent gets its own on a unique port
         $apiServerKey = bin2hex(random_bytes(24));
+        $apiServerPort = $this->resolveHermesApiServerPort($agent);
         $lines[] = 'API_SERVER_ENABLED=true';
         $lines[] = 'API_SERVER_HOST=0.0.0.0';
-        $lines[] = 'API_SERVER_PORT=8642';
+        $lines[] = "API_SERVER_PORT={$apiServerPort}";
         $lines[] = "API_SERVER_KEY={$apiServerKey}";
 
         return implode("\n", $lines);
+    }
+
+    private function resolveHermesApiServerPort(Agent $agent): int
+    {
+        if ($agent->api_server_port) {
+            return $agent->api_server_port;
+        }
+
+        $basePort = 8642;
+        $existingCount = $agent->server
+            ? $agent->server->agents()->whereNotNull('api_server_port')->count()
+            : 0;
+
+        $port = $basePort + $existingCount;
+        $agent->update(['api_server_port' => $port]);
+
+        return $port;
     }
 
     // =========================================================================

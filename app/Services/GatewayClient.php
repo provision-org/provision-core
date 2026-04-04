@@ -46,14 +46,7 @@ class GatewayClient
             }
 
             $data = json_decode($response, true);
-
-            // Extract text from the Responses API output format
             $text = $this->extractTextFromResponsesOutput($data);
-
-            if ($text === null) {
-                // Fallback: try chat completions format
-                $text = $data['choices'][0]['message']['content'] ?? null;
-            }
 
             if ($text === null) {
                 return null;
@@ -88,7 +81,6 @@ class GatewayClient
                 return;
             }
 
-            // Parse SSE output
             $fullText = '';
             $lines = explode("\n", $response);
 
@@ -101,10 +93,7 @@ class GatewayClient
                 $data = substr($line, 6);
 
                 if ($data === '[DONE]') {
-                    yield [
-                        'type' => 'done',
-                        'content' => [['type' => 'text', 'text' => $fullText]],
-                    ];
+                    yield ['type' => 'done', 'content' => [['type' => 'text', 'text' => $fullText]]];
 
                     return;
                 }
@@ -114,7 +103,6 @@ class GatewayClient
                     continue;
                 }
 
-                // Handle both chat completions and responses streaming formats
                 $tokenText = $this->extractStreamingToken($parsed);
 
                 if ($tokenText !== null && $tokenText !== '') {
@@ -124,10 +112,7 @@ class GatewayClient
             }
 
             if ($fullText !== '') {
-                yield [
-                    'type' => 'done',
-                    'content' => [['type' => 'text', 'text' => $fullText]],
-                ];
+                yield ['type' => 'done', 'content' => [['type' => 'text', 'text' => $fullText]]];
             } else {
                 yield ['type' => 'error', 'message' => 'The agent did not respond.'];
             }
@@ -148,7 +133,7 @@ class GatewayClient
     public function health(): bool
     {
         try {
-            $port = $this->isHermes() ? 8642 : 18789;
+            $port = $this->resolveApiPort();
             $output = $this->executor->exec("curl -sf http://127.0.0.1:{$port}/health 2>/dev/null || echo FAIL");
 
             return ! str_contains($output, 'FAIL');
@@ -158,18 +143,12 @@ class GatewayClient
     }
 
     // -------------------------------------------------------------------------
-    // API call via executor (runs curl inside the agent container)
+    // API call via executor
     // -------------------------------------------------------------------------
 
-    /**
-     * Call the Responses API (/v1/responses) on the gateway.
-     *
-     * Uses curl inside the agent container to hit loopback, works for both
-     * Docker (docker exec) and SSH modes.
-     */
     private function callResponsesApi(string $agentId, string $sessionKey, string $message, bool $stream, int $timeoutSeconds): ?string
     {
-        $port = $this->isHermes() ? 8642 : 18789;
+        $port = $this->resolveApiPort();
         $token = $this->resolveApiToken($agentId);
 
         $payload = [
@@ -180,10 +159,8 @@ class GatewayClient
 
         // Session continuity
         if ($this->isHermes()) {
-            // Hermes: use named conversations for automatic session chaining
             $payload['conversation'] = $sessionKey;
         } else {
-            // OpenClaw: use 'user' field to derive stable session key
             $payload['user'] = $sessionKey;
         }
 
@@ -217,16 +194,9 @@ class GatewayClient
     // Response parsing
     // -------------------------------------------------------------------------
 
-    /**
-     * Extract text from the Responses API output format.
-     *
-     * OpenResponses returns: {output: [{type: "message", content: [{type: "output_text", text: "..."}]}]}
-     */
     private function extractTextFromResponsesOutput(array $data): ?string
     {
-        $output = $data['output'] ?? [];
-
-        foreach ($output as $item) {
+        foreach ($data['output'] ?? [] as $item) {
             if (($item['type'] ?? '') !== 'message') {
                 continue;
             }
@@ -241,26 +211,18 @@ class GatewayClient
         return null;
     }
 
-    /**
-     * Extract a streaming token from an SSE chunk.
-     *
-     * Supports both chat completions format (delta.content) and
-     * responses streaming format (delta.text / content_part).
-     */
     private function extractStreamingToken(array $parsed): ?string
     {
-        // Chat completions format: choices[0].delta.content
-        $delta = $parsed['choices'][0]['delta'] ?? null;
-        if ($delta && isset($delta['content'])) {
-            return $delta['content'];
+        // Chat completions format
+        if (isset($parsed['choices'][0]['delta']['content'])) {
+            return $parsed['choices'][0]['delta']['content'];
         }
 
-        // Responses streaming format: type=response.output_text.delta
+        // Responses streaming format
         if (($parsed['type'] ?? '') === 'response.output_text.delta') {
             return $parsed['delta'] ?? null;
         }
 
-        // Responses content part
         if (($parsed['type'] ?? '') === 'response.content_part.delta') {
             return $parsed['delta']['text'] ?? null;
         }
@@ -269,17 +231,30 @@ class GatewayClient
     }
 
     // -------------------------------------------------------------------------
-    // Harness-specific helpers
+    // Harness-specific resolution
     // -------------------------------------------------------------------------
+
+    /**
+     * Resolve the API port for this agent.
+     *
+     * Hermes: per-agent port from DB (each agent runs its own API server)
+     * OpenClaw: always 18789 (gateway handles multi-agent routing)
+     */
+    private function resolveApiPort(): int
+    {
+        if ($this->isHermes() && $this->agent?->api_server_port) {
+            return $this->agent->api_server_port;
+        }
+
+        return $this->isHermes() ? 8642 : 18789;
+    }
 
     private function resolveApiToken(string $agentId): string
     {
         if ($this->isHermes()) {
-            // All Hermes agents on a server share one API server.
-            // Find the API_SERVER_KEY from any agent's .env (the gateway uses whichever started first).
             try {
                 $output = $this->executor->exec(
-                    'grep -rh "^API_SERVER_KEY=" /root/.hermes-*/.env 2>/dev/null | head -1 || echo "API_SERVER_KEY="'
+                    'grep "^API_SERVER_KEY=" '.escapeshellarg("/root/.hermes-{$agentId}/.env").' 2>/dev/null || echo "API_SERVER_KEY="'
                 );
 
                 return trim(str_replace('API_SERVER_KEY=', '', $output)) ?: 'provision-local-dev';
@@ -300,11 +275,7 @@ class GatewayClient
 
     private function resolveModel(string $agentId): string
     {
-        if ($this->isHermes()) {
-            return 'hermes-agent';
-        }
-
-        return "openclaw/{$agentId}";
+        return $this->isHermes() ? 'hermes-agent' : "openclaw/{$agentId}";
     }
 
     private function isHermes(): bool
