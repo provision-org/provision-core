@@ -9,6 +9,7 @@ use App\Http\Middleware\EnsureUserActivated;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SecurityHeaders;
+use App\Http\Middleware\ValidateDaemonToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -44,6 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'ensure-admin' => EnsureAdmin::class,
             'ensure-server-ready' => EnsureServerReady::class,
             'auth.agent-token' => AuthenticateAgentToken::class,
+            'daemon.token' => ValidateDaemonToken::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

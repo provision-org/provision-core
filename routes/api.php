@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AgentInstallScriptController;
 use App\Http\Controllers\Api\AgentUpdateCallbackController;
 use App\Http\Controllers\Api\AgentUpdateScriptController;
+use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\HermesInstallScriptController;
 use App\Http\Controllers\Api\ServerCallbackController;
 use App\Http\Controllers\Api\ServerSetupCallbackController;
@@ -38,4 +39,15 @@ Route::prefix('cli')->middleware(['auth:sanctum'])->group(function () {
     Route::get('/whoami', [CliController::class, 'whoami']);
     Route::get('/agents', [CliController::class, 'listAgents']);
     // Skill routes registered by provision/module-skills package (if installed)
+});
+
+// Daemon API — authenticated via server daemon_token
+Route::prefix('daemon/{token}')->middleware('daemon.token')->group(function () {
+    Route::get('work-queue', [DaemonController::class, 'workQueue']);
+    Route::post('tasks/{task}/checkout', [DaemonController::class, 'checkoutTask']);
+    Route::post('tasks/{task}/result', [DaemonController::class, 'reportResult']);
+    Route::post('tasks/{task}/release', [DaemonController::class, 'releaseTask']);
+    Route::get('resolved-approvals', [DaemonController::class, 'resolvedApprovals']);
+    Route::post('usage-events', [DaemonController::class, 'reportUsage']);
+    Route::post('heartbeat', [DaemonController::class, 'heartbeat']);
 });
