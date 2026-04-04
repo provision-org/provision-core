@@ -275,9 +275,11 @@ class GatewayClient
     private function resolveApiToken(string $agentId): string
     {
         if ($this->isHermes()) {
+            // All Hermes agents on a server share one API server.
+            // Find the API_SERVER_KEY from any agent's .env (the gateway uses whichever started first).
             try {
                 $output = $this->executor->exec(
-                    'grep "^API_SERVER_KEY=" '.escapeshellarg("/root/.hermes-{$agentId}/.env").' 2>/dev/null || echo "API_SERVER_KEY="'
+                    'grep -rh "^API_SERVER_KEY=" /root/.hermes-*/.env 2>/dev/null | head -1 || echo "API_SERVER_KEY="'
                 );
 
                 return trim(str_replace('API_SERVER_KEY=', '', $output)) ?: 'provision-local-dev';
