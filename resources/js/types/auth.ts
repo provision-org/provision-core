@@ -402,7 +402,7 @@ export type Skill = {
     parameters: Record<string, unknown>[] | null;
     skill_content: string | null;
     readme: string | null;
-    visibility: 'public' | 'private';
+    visibility: 'public' | 'team' | 'private';
     is_active: boolean;
     downloads: number;
     team_id: string | null;

@@ -2,6 +2,7 @@
 
 namespace App\Services\Scripts;
 
+use App\Enums\HarnessType;
 use App\Models\Server;
 use App\Services\OpenClawDefaultsService;
 use Illuminate\Support\Str;
@@ -45,8 +46,8 @@ class ServerSetupScriptService
         $vncPassword = Str::random(16);
         $hostname = $this->sslipHostname($server);
         $timezone = $server->team->timezone ?? 'UTC';
-        $harnessType = $server->team->harness_type ?? \App\Enums\HarnessType::Hermes;
-        $isOpenClaw = $harnessType === \App\Enums\HarnessType::OpenClaw;
+        $harnessType = $server->team->harness_type ?? HarnessType::Hermes;
+        $isOpenClaw = $harnessType === HarnessType::OpenClaw;
 
         // Only build OpenClaw config for OpenClaw teams
         $onboardFlags = $isOpenClaw ? implode(' ', config('openclaw.onboard_flags')) : '';
@@ -293,9 +294,15 @@ OVERRIDE
         // Channels — empty, agent install scripts add per-agent accounts
         $config['channels'] = (object) [];
 
-        // Gateway — loopback binding
+        // Gateway — loopback binding + HTTP API for web chat
         $config['gateway'] = [
             'bind' => config('openclaw.gateway_bind'),
+            'http' => [
+                'endpoints' => [
+                    'chatCompletions' => ['enabled' => true],
+                    'responses' => ['enabled' => true],
+                ],
+            ],
         ];
 
         // Logging — redact sensitive data from tool outputs

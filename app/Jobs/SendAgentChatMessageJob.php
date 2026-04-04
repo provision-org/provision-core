@@ -55,7 +55,7 @@ class SendAgentChatMessageJob implements ShouldQueue
         $attachments = $this->buildAttachments();
 
         try {
-            $client = new GatewayClient($agent->server);
+            $client = (new GatewayClient($agent->server))->forAgent($agent);
 
             $responseBlocks = $client->chatSendAndWait(
                 $this->conversation->session_key,

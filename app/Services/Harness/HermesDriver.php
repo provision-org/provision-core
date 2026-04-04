@@ -353,6 +353,12 @@ class HermesDriver implements HarnessDriver
             }
         }
 
+        // Firecrawl API key for web search
+        $firecrawlKey = config('services.firecrawl.api_key');
+        if ($firecrawlKey) {
+            $lines[] = "FIRECRAWL_API_KEY={$firecrawlKey}";
+        }
+
         // MailboxKit credentials if email connected
         if ($agent->emailConnection?->mailboxkit_inbox_id) {
             $lines[] = 'MAILBOXKIT_API_KEY='.config('mailboxkit.api_key');
@@ -366,7 +372,28 @@ class HermesDriver implements HarnessDriver
             $lines[] = "{$envVar->key}={$envVar->value}";
         }
 
+        // Hermes API server — each agent gets its own on a unique port
+        $apiServerKey = bin2hex(random_bytes(24));
+        $apiServerPort = $agent->api_server_port ?? $this->assignApiServerPort($agent);
+        $lines[] = 'API_SERVER_ENABLED=true';
+        $lines[] = 'API_SERVER_HOST=0.0.0.0';
+        $lines[] = "API_SERVER_PORT={$apiServerPort}";
+        $lines[] = "API_SERVER_KEY={$apiServerKey}";
+
         return implode("\n", $lines);
+    }
+
+    private function assignApiServerPort(Agent $agent): int
+    {
+        $basePort = 8642;
+        $existingCount = $agent->server
+            ? $agent->server->agents()->whereNotNull('api_server_port')->count()
+            : 0;
+
+        $port = $basePort + $existingCount;
+        $agent->update(['api_server_port' => $port]);
+
+        return $port;
     }
 
     private function buildConfigYaml(Agent $agent): string
@@ -390,14 +417,35 @@ class HermesDriver implements HarnessDriver
             $lines[] = '';
         }
 
+        $timezone = $agent->server?->team?->timezone ?? 'UTC';
+
         $lines = array_merge($lines, [
+            "timezone: \"{$timezone}\"",
+            '',
             'terminal:',
             '  backend: local',
             "  cwd: \"{$this->agentDir($agent)}/workspace\"",
             '  timeout: 180',
+            '  persistent_shell: true',
             '',
             'memory:',
+            '  memory_enabled: true',
+            '  user_profile_enabled: true',
+            '  memory_char_limit: 2200',
+            '  user_char_limit: 1375',
+            '',
+            'compression:',
             '  enabled: true',
+            '  threshold: 0.50',
+            '  target_ratio: 0.20',
+            '  protect_last_n: 20',
+            '',
+            'agent:',
+            '  max_turns: 120',
+            '  reasoning_effort: ""',
+            '',
+            'approvals:',
+            '  mode: smart',
             '',
             'skills:',
             '  agent_managed: true',
@@ -405,6 +453,24 @@ class HermesDriver implements HarnessDriver
             '',
             'display:',
             '  tool_progress: new',
+            '  tool_progress_command: false',
+            '  bell_on_complete: false',
+            '',
+            'browser:',
+            '  inactivity_timeout: 120',
+            '  command_timeout: 30',
+            '',
+            'group_sessions_per_user: true',
+            '',
+            'checkpoints:',
+            '  enabled: true',
+            '  max_snapshots: 50',
+            '',
+            'privacy:',
+            '  redact_pii: false',
+            '',
+            'security:',
+            '  redact_secrets: true',
             '',
             '# Subagent delegation — parallel task execution with cheaper model',
             'delegation:',

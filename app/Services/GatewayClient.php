@@ -2,47 +2,57 @@
 
 namespace App\Services;
 
+use App\Contracts\CommandExecutor;
+use App\Enums\HarnessType;
+use App\Models\Agent;
 use App\Models\Server;
 use Illuminate\Support\Facades\Log;
 
 class GatewayClient
 {
-    private ?string $host = null;
+    private CommandExecutor $executor;
 
-    private ?string $gatewayToken = null;
+    private ?Agent $agent = null;
 
-    private SshService $sshService;
-
-    public function __construct(private Server $server)
-    {
-        $this->sshService = new SshService;
-        $this->host = $server->ipv4_address;
-        $this->gatewayToken = $server->gatewayConfig?->gateway_token;
+    public function __construct(
+        private Server $server,
+    ) {
+        $this->executor = app(HarnessManager::class)->resolveExecutor($server);
     }
 
     /**
-     * Send a message and wait for the assistant response via SSH CLI fallback.
-     *
-     * Uses `openclaw agent --message --deliver` + polls session for response.
+     * Set the agent context (needed for harness-specific API routing).
+     */
+    public function forAgent(Agent $agent): static
+    {
+        $this->agent = $agent;
+
+        return $this;
+    }
+
+    /**
+     * Send a message and wait for the full assistant response via the gateway Responses API.
      *
      * @param  list<array{type: string, mimeType: string, fileName: string, path: string}>  $attachments
      * @return list<array{type: string, text?: string, path?: string, fileName?: string, mimeType?: string}>|null
      */
     public function chatSendAndWait(string $sessionKey, string $agentId, string $message, array $attachments = [], int $timeoutSeconds = 180): ?array
     {
-        $this->sshService->connect($this->server);
-
         try {
-            // Count existing assistant messages so we can detect a NEW response
-            $initialAssistantCount = $this->countAssistantMessages($agentId);
+            $response = $this->callResponsesApi($agentId, $sessionKey, $message, false, $timeoutSeconds);
 
-            $escapedMessage = str_replace('"', '\\"', $message);
-            $command = "openclaw agent --agent {$agentId} --message \"{$escapedMessage}\" --deliver";
+            if ($response === null) {
+                return null;
+            }
 
-            $this->sshService->exec($command);
+            $data = json_decode($response, true);
+            $text = $this->extractTextFromResponsesOutput($data);
 
-            // Poll for response by reading the latest session JSONL
-            return $this->pollForResponse($agentId, $timeoutSeconds, $initialAssistantCount);
+            if ($text === null) {
+                return null;
+            }
+
+            return [['type' => 'text', 'text' => $text]];
         } catch (\Throwable $e) {
             Log::error('GatewayClient chatSendAndWait failed', [
                 'server_id' => $this->server->id,
@@ -51,49 +61,69 @@ class GatewayClient
             ]);
 
             return null;
-        } finally {
-            $this->sshService->disconnect();
         }
     }
 
     /**
-     * Fetch chat history for a session from the server.
+     * Send a message and stream the assistant response via the gateway SSE API.
      *
-     * @return list<array{role: string, content: list<array<string, mixed>>, timestamp: string|null}>
+     * @param  list<array{type: string, mimeType: string, fileName: string, path: string}>  $attachments
+     * @return \Generator<int, array{type: string, text?: string, content?: list<array<string, mixed>>, message?: string}>
      */
-    public function chatHistory(string $agentId, string $sessionKey): array
+    public function chatSendAndStream(string $sessionKey, string $agentId, string $message, array $attachments = [], int $timeoutSeconds = 300): \Generator
     {
-        $this->sshService->connect($this->server);
-
         try {
-            $sessionsPath = "/mnt/openclaw-data/agents/{$agentId}/sessions/sessions.json";
-            $sessionsContent = $this->sshService->readFile($sessionsPath);
-            $sessions = json_decode($sessionsContent, true) ?? [];
+            $response = $this->callResponsesApi($agentId, $sessionKey, $message, true, $timeoutSeconds);
 
-            // Find the session matching our key
-            $sessionData = null;
-            foreach ($sessions as $session) {
-                if (($session['sessionKey'] ?? null) === $sessionKey || ($session['key'] ?? null) === $sessionKey) {
-                    $sessionData = $session;
-                    break;
+            if ($response === null) {
+                yield ['type' => 'error', 'message' => 'No response from the agent gateway.'];
+
+                return;
+            }
+
+            $fullText = '';
+            $lines = explode("\n", $response);
+
+            foreach ($lines as $line) {
+                $line = trim($line);
+                if ($line === '' || ! str_starts_with($line, 'data: ')) {
+                    continue;
+                }
+
+                $data = substr($line, 6);
+
+                if ($data === '[DONE]') {
+                    yield ['type' => 'done', 'content' => [['type' => 'text', 'text' => $fullText]]];
+
+                    return;
+                }
+
+                $parsed = json_decode($data, true);
+                if (! $parsed) {
+                    continue;
+                }
+
+                $tokenText = $this->extractStreamingToken($parsed);
+
+                if ($tokenText !== null && $tokenText !== '') {
+                    $fullText .= $tokenText;
+                    yield ['type' => 'token', 'text' => $tokenText];
                 }
             }
 
-            if (! $sessionData || empty($sessionData['sessionFile'])) {
-                return [];
+            if ($fullText !== '') {
+                yield ['type' => 'done', 'content' => [['type' => 'text', 'text' => $fullText]]];
+            } else {
+                yield ['type' => 'error', 'message' => 'The agent did not respond.'];
             }
-
-            return $this->parseSessionFile($sessionData['sessionFile']);
         } catch (\Throwable $e) {
-            Log::error('GatewayClient chatHistory failed', [
+            Log::error('GatewayClient chatSendAndStream failed', [
                 'server_id' => $this->server->id,
                 'session_key' => $sessionKey,
                 'error' => $e->getMessage(),
             ]);
 
-            return [];
-        } finally {
-            $this->sshService->disconnect();
+            yield ['type' => 'error', 'message' => 'Failed to communicate with the agent.'];
         }
     }
 
@@ -103,188 +133,157 @@ class GatewayClient
     public function health(): bool
     {
         try {
-            $this->sshService->connect($this->server);
-            $output = $this->sshService->exec('openclaw health');
-            $this->sshService->disconnect();
+            $port = $this->resolveApiPort();
+            $output = $this->executor->exec("curl -sf http://127.0.0.1:{$port}/health 2>/dev/null || echo FAIL");
 
-            return str_contains($output, 'ok') || str_contains($output, 'healthy');
+            return ! str_contains($output, 'FAIL');
         } catch (\Throwable) {
             return false;
         }
     }
 
-    /**
-     * Poll session JSONL for the assistant response after sending a message.
-     *
-     * @return list<array{type: string, text?: string, path?: string, fileName?: string, mimeType?: string}>|null
-     */
-    private function pollForResponse(string $agentId, int $timeoutSeconds, int $initialAssistantCount = 0): ?array
+    // -------------------------------------------------------------------------
+    // API call via executor
+    // -------------------------------------------------------------------------
+
+    private function callResponsesApi(string $agentId, string $sessionKey, string $message, bool $stream, int $timeoutSeconds): ?string
     {
-        $startTime = time();
-        $pollInterval = 3;
+        $port = $this->resolveApiPort();
+        $token = $this->resolveApiToken($agentId);
 
-        while ((time() - $startTime) < $timeoutSeconds) {
-            sleep($pollInterval);
+        $payload = [
+            'model' => $this->resolveModel($agentId),
+            'input' => $message,
+            'stream' => $stream,
+        ];
 
-            try {
-                // Read sessions.json and find the most recently updated session
-                $sessionsPath = "/mnt/openclaw-data/agents/{$agentId}/sessions/sessions.json";
-                $sessionsContent = $this->sshService->readFile($sessionsPath);
-                $sessions = json_decode($sessionsContent, true) ?? [];
+        // Session continuity
+        if ($this->isHermes()) {
+            $payload['conversation'] = $sessionKey;
+        } else {
+            $payload['user'] = $sessionKey;
+        }
 
-                // Find the session with the latest updatedAt
-                $latestSession = null;
-                $latestTime = '';
-                foreach ($sessions as $session) {
-                    $updatedAt = $session['updatedAt'] ?? '';
-                    if ($updatedAt > $latestTime && ! empty($session['sessionFile'])) {
-                        $latestTime = $updatedAt;
-                        $latestSession = $session;
-                    }
-                }
+        $payloadJson = json_encode($payload);
 
-                if (! $latestSession) {
-                    continue;
-                }
+        $headers = implode(' ', array_map('escapeshellarg', [
+            '-H', 'Content-Type: application/json',
+            '-H', "Authorization: Bearer {$token}",
+        ]));
 
-                $messages = $this->parseSessionFile($latestSession['sessionFile']);
+        $escapedPayload = escapeshellarg($payloadJson);
+        $streamFlag = $stream ? '-N' : '';
 
-                // Count assistant messages with text — only return when we have MORE than before
-                $assistantWithText = [];
-                foreach ($messages as $msg) {
-                    if ($msg['role'] === 'assistant' && $this->hasTextContent($msg['content'])) {
-                        $assistantWithText[] = $msg;
-                    }
-                }
+        $command = "curl -sS {$streamFlag} --max-time {$timeoutSeconds} {$headers} -d {$escapedPayload} http://127.0.0.1:{$port}/v1/responses 2>&1";
 
-                if (count($assistantWithText) > $initialAssistantCount) {
-                    return end($assistantWithText)['content'];
-                }
-            } catch (\Throwable $e) {
-                Log::warning('GatewayClient poll error', ['error' => $e->getMessage()]);
+        $output = $this->executor->exec($command);
+
+        if (str_contains($output, 'curl:') || str_contains($output, 'Connection refused')) {
+            Log::error('GatewayClient API call failed', [
+                'server_id' => $this->server->id,
+                'output' => substr($output, 0, 500),
+            ]);
+
+            return null;
+        }
+
+        return $output;
+    }
+
+    // -------------------------------------------------------------------------
+    // Response parsing
+    // -------------------------------------------------------------------------
+
+    private function extractTextFromResponsesOutput(array $data): ?string
+    {
+        foreach ($data['output'] ?? [] as $item) {
+            if (($item['type'] ?? '') !== 'message') {
+                continue;
             }
 
-            // Increase poll interval over time
-            $pollInterval = min($pollInterval + 2, 10);
+            foreach ($item['content'] ?? [] as $block) {
+                if (($block['type'] ?? '') === 'output_text' && ! empty($block['text'])) {
+                    return $block['text'];
+                }
+            }
         }
 
         return null;
     }
 
-    /**
-     * Parse a session JSONL file into structured messages.
-     *
-     * @return list<array{role: string, content: list<array<string, mixed>>, timestamp: string|null}>
-     */
-    private function parseSessionFile(string $filePath): array
+    private function extractStreamingToken(array $parsed): ?string
     {
-        $content = $this->sshService->readFile($filePath);
-        $lines = array_filter(explode("\n", trim($content)));
-
-        $messages = [];
-        foreach ($lines as $line) {
-            $entry = json_decode($line, true);
-            if (! $entry || ($entry['type'] ?? null) !== 'message') {
-                continue;
-            }
-
-            $msg = $entry['message'] ?? $entry;
-            $role = $msg['role'] ?? 'unknown';
-
-            if ($role !== 'user' && $role !== 'assistant') {
-                continue;
-            }
-
-            $rawContent = $msg['content'] ?? '';
-            $contentBlocks = $this->normalizeContentBlocks($rawContent);
-
-            $messages[] = [
-                'role' => $role,
-                'content' => $contentBlocks,
-                'timestamp' => $entry['timestamp'] ?? $msg['timestamp'] ?? null,
-            ];
+        // Chat completions format
+        if (isset($parsed['choices'][0]['delta']['content'])) {
+            return $parsed['choices'][0]['delta']['content'];
         }
 
-        return $messages;
+        // Responses streaming format
+        if (($parsed['type'] ?? '') === 'response.output_text.delta') {
+            return $parsed['delta'] ?? null;
+        }
+
+        if (($parsed['type'] ?? '') === 'response.content_part.delta') {
+            return $parsed['delta']['text'] ?? null;
+        }
+
+        return null;
     }
 
+    // -------------------------------------------------------------------------
+    // Harness-specific resolution
+    // -------------------------------------------------------------------------
+
     /**
-     * Normalize raw content into structured content blocks.
+     * Resolve the API port for this agent.
      *
-     * @return list<array<string, mixed>>
+     * Hermes: per-agent port from DB (each agent runs its own API server)
+     * OpenClaw: always 18789 (gateway handles multi-agent routing)
      */
-    private function normalizeContentBlocks(mixed $rawContent): array
+    private function resolveApiPort(): int
     {
-        if (is_string($rawContent)) {
-            return [['type' => 'text', 'text' => $rawContent]];
+        if ($this->isHermes() && $this->agent?->api_server_port) {
+            return $this->agent->api_server_port;
         }
 
-        if (is_array($rawContent)) {
-            return collect($rawContent)
-                ->map(function ($block) {
-                    if (is_string($block)) {
-                        return ['type' => 'text', 'text' => $block];
-                    }
-
-                    if (is_array($block) && isset($block['type'])) {
-                        return $block;
-                    }
-
-                    return null;
-                })
-                ->filter()
-                ->values()
-                ->all();
-        }
-
-        return [];
+        return $this->isHermes() ? 8642 : 18789;
     }
 
-    /**
-     * Count assistant messages with text content in the latest session.
-     */
-    private function countAssistantMessages(string $agentId): int
+    private function resolveApiToken(string $agentId): string
     {
+        if ($this->isHermes()) {
+            try {
+                $output = $this->executor->exec(
+                    'grep "^API_SERVER_KEY=" '.escapeshellarg("/root/.hermes-{$agentId}/.env").' 2>/dev/null || echo "API_SERVER_KEY="'
+                );
+
+                return trim(str_replace('API_SERVER_KEY=', '', $output)) ?: 'provision-local-dev';
+            } catch (\Throwable) {
+                return 'provision-local-dev';
+            }
+        }
+
         try {
-            $sessionsPath = "/mnt/openclaw-data/agents/{$agentId}/sessions/sessions.json";
-            $sessionsContent = $this->sshService->readFile($sessionsPath);
-            $sessions = json_decode($sessionsContent, true) ?? [];
+            $configContent = $this->executor->exec('cat /root/.openclaw/openclaw.json 2>/dev/null');
+            $config = json_decode($configContent, true);
 
-            $latestSession = null;
-            $latestTime = '';
-            foreach ($sessions as $session) {
-                $updatedAt = $session['updatedAt'] ?? '';
-                if ($updatedAt > $latestTime && ! empty($session['sessionFile'])) {
-                    $latestTime = $updatedAt;
-                    $latestSession = $session;
-                }
-            }
-
-            if (! $latestSession) {
-                return 0;
-            }
-
-            $messages = $this->parseSessionFile($latestSession['sessionFile']);
-
-            return count(array_filter($messages, fn ($msg) => $msg['role'] === 'assistant' && $this->hasTextContent($msg['content'])));
+            return $config['gateway']['auth']['token'] ?? '';
         } catch (\Throwable) {
-            return 0;
+            return '';
         }
     }
 
-    /**
-     * Check if content blocks contain at least one text block.
-     *
-     * @param  list<array<string, mixed>>  $content
-     */
-    private function hasTextContent(array $content): bool
+    private function resolveModel(string $agentId): string
     {
-        foreach ($content as $block) {
-            if (($block['type'] ?? null) === 'text' && ! empty($block['text'])) {
-                return true;
-            }
+        return $this->isHermes() ? 'hermes-agent' : "openclaw/{$agentId}";
+    }
+
+    private function isHermes(): bool
+    {
+        if (isset($this->agent)) {
+            return $this->agent->harness_type === HarnessType::Hermes;
         }
 
-        return false;
+        return $this->server->team?->harness_type === HarnessType::Hermes;
     }
 }

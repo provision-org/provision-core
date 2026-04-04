@@ -21,6 +21,7 @@ import {
     Lock,
     Mail,
     Monitor,
+    MessageSquare,
     MoreHorizontal,
     Paperclip,
     Pause,
@@ -35,6 +36,7 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ActivityFeed from '@/components/agents/activity-feed';
+import MemoryBrowser from '@/components/agents/memory-browser';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import {
     TelegramIcon,
@@ -84,6 +86,7 @@ type Tab =
     | 'channels'
     | 'schedules'
     | 'workspace'
+    | 'memory'
     | 'browser'
     | 'settings';
 
@@ -1068,7 +1071,7 @@ function ChannelsTab({ agent }: { agent: Agent }) {
     const slackConnected = slack?.status === 'connected';
     const discordConnected = discord?.status === 'connected';
     const [resyncing, setResyncing] = useState(false);
-    const hasAnyChannel = tgConnected || slackConnected || discordConnected;
+    const hasAnyChannel = true; // Web chat is always available
 
     return (
         <div>
@@ -1080,6 +1083,38 @@ function ChannelsTab({ agent }: { agent: Agent }) {
             </div>
 
             <div className="space-y-3">
+                {/* Web Chat — always available */}
+                <div className="flex items-start justify-between rounded-lg border border-primary/20 bg-primary/[0.03] px-4 py-3.5">
+                    <div className="flex items-start gap-3">
+                        <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                            <MessageSquare className="size-4 text-primary" />
+                        </div>
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium">Web Chat</p>
+                                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                                    <span className="size-1.5 rounded-full bg-emerald-500" />
+                                    Always on
+                                </span>
+                            </div>
+                            <p className="mt-0.5 text-sm text-muted-foreground">
+                                Chat directly with your agent from the browser. No setup needed.
+                            </p>
+                        </div>
+                    </div>
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-1.5 text-xs"
+                        asChild
+                    >
+                        <Link href={`/agents/${agent.id}/chat`}>
+                            <MessageSquare className="size-3" />
+                            Open Chat
+                        </Link>
+                    </Button>
+                </div>
+
                 {/* Telegram */}
                 <div className="flex items-start justify-between rounded-lg border px-4 py-3.5">
                     <div className="flex items-start gap-3">
@@ -2739,6 +2774,7 @@ export default function ShowAgent({
         'channels',
         'schedules',
         'workspace',
+        'memory',
         'browser',
         'settings',
     ];
@@ -2759,6 +2795,7 @@ export default function ShowAgent({
         { id: 'email', label: 'Email Inbox' },
         { id: 'browser', label: 'Browser' },
         { id: 'workspace', label: 'Workspace' },
+        { id: 'memory', label: 'Memory' },
         { id: 'schedules', label: 'Scheduled Tasks' },
         { id: 'channels', label: 'Channels' },
         { id: 'settings', label: 'Settings' },
@@ -2804,7 +2841,13 @@ export default function ShowAgent({
                             </div>
 
                             <div className="flex items-center gap-2">
-                                {/* Chat button hidden for now — feature in progress */}
+                                <Link
+                                    href={`/agents/${agent.id}/chat`}
+                                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                                >
+                                    <MessageSquare className="size-3.5" />
+                                    Chat
+                                </Link>
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button
@@ -2967,6 +3010,9 @@ export default function ShowAgent({
                                     )}
                                     {activeTab === 'workspace' && (
                                         <WorkspaceTab agent={agent} />
+                                    )}
+                                    {activeTab === 'memory' && (
+                                        <MemoryBrowser agent={agent} />
                                     )}
                                 </div>
                             )}
