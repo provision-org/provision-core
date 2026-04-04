@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import { Hash, MessageSquare, Send } from 'lucide-react';
+import { Hash, MessageCircle, MessageSquare, Send } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
@@ -54,6 +54,34 @@ export default function Channels({ agent }: { agent: Agent }) {
                         </p>
                     </div>
 
+                    {/* Web Chat — always available, no setup */}
+                    <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-4">
+                                <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
+                                    <MessageCircle className="size-5 text-primary" />
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-sm font-medium">
+                                            Web Chat
+                                        </span>
+                                        <Badge
+                                            variant="default"
+                                            className="bg-emerald-500/10 text-[10px] text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+                                        >
+                                            Always on
+                                        </Badge>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                        Chat with your agent directly from the
+                                        browser. No setup needed.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="grid gap-3">
                         {channels.map((channel) => (
                             <Link
@@ -93,13 +121,11 @@ export default function Channels({ agent }: { agent: Agent }) {
                         >
                             Skip for now
                         </Link>
-                        {hasAnyConnection && (
-                            <Button asChild>
-                                <Link href={`/agents/${agent.id}/provisioning`}>
-                                    Continue to deploy
-                                </Link>
-                            </Button>
-                        )}
+                        <Button asChild>
+                            <Link href={`/agents/${agent.id}/provisioning`}>
+                                Continue to deploy
+                            </Link>
+                        </Button>
                     </div>
                 </div>
             </div>
