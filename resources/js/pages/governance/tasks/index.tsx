@@ -1,7 +1,9 @@
-import { Head, Link, router, useForm } from '@inertiajs/react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { ArrowLeft, ArrowRight, Filter, Plus } from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
+import { useEcho } from '@/hooks/use-echo';
+import type { SharedData } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -271,6 +273,14 @@ export default function TasksIndex({
     agents: Agent[];
     goals?: Goal[];
 }) {
+    const { auth } = usePage<SharedData>().props;
+    const teamId = auth.user.current_team_id;
+
+    // Real-time task updates via Reverb
+    useEcho(`team.${teamId}`, '.task.status_changed', () => {
+        router.reload({ only: ['tasks'] });
+    });
+
     const [agentFilter, setAgentFilter] = useState(filters.agent_id ?? '');
     const [priorityFilter, setPriorityFilter] = useState(
         filters.priority ?? '',

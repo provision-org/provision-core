@@ -1,7 +1,9 @@
-import { Head, useForm } from '@inertiajs/react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { Check, Clock, ShieldCheck, X } from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
+import { useEcho } from '@/hooks/use-echo';
+import type { SharedData } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -206,6 +208,17 @@ export default function ApprovalsIndex({
     approvals: Approval[];
     team: Team;
 }) {
+    const { auth } = usePage<SharedData>().props;
+    const teamId = auth.user.current_team_id;
+
+    // Real-time approval updates via Reverb
+    useEcho(`team.${teamId}`, '.approval.requested', () => {
+        router.reload({ only: ['approvals'] });
+    });
+    useEcho(`team.${teamId}`, '.approval.resolved', () => {
+        router.reload({ only: ['approvals'] });
+    });
+
     const [tab, setTab] = useState<Tab>('pending');
 
     const breadcrumbs: BreadcrumbItem[] = [
