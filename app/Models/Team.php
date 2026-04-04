@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\CloudProvider;
+use App\Enums\GovernanceMode;
 use App\Enums\HarnessType;
 use App\Enums\TeamRole;
 use Database\Factories\TeamFactory;
@@ -32,6 +33,7 @@ class Team extends Model
         'company_url',
         'company_description',
         'target_market',
+        'governance_mode',
     ];
 
     /**
@@ -43,6 +45,7 @@ class Team extends Model
             'personal_team' => 'boolean',
             'harness_type' => HarnessType::class,
             'cloud_provider' => CloudProvider::class,
+            'governance_mode' => GovernanceMode::class,
         ];
     }
 
@@ -94,6 +97,38 @@ class Team extends Model
     public function tasks(): HasMany
     {
         return $this->hasMany(Task::class);
+    }
+
+    /**
+     * @return HasMany<Goal, $this>
+     */
+    public function goals(): HasMany
+    {
+        return $this->hasMany(Goal::class);
+    }
+
+    /**
+     * @return HasMany<Approval, $this>
+     */
+    public function approvals(): HasMany
+    {
+        return $this->hasMany(Approval::class);
+    }
+
+    /**
+     * @return HasMany<AuditLog, $this>
+     */
+    public function auditLogs(): HasMany
+    {
+        return $this->hasMany(AuditLog::class);
+    }
+
+    /**
+     * @return HasMany<UsageEvent, $this>
+     */
+    public function usageEvents(): HasMany
+    {
+        return $this->hasMany(UsageEvent::class);
     }
 
     /**

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AgentMode;
 use App\Enums\AgentRole;
 use App\Enums\AgentStatus;
 use App\Enums\HarnessType;
@@ -53,6 +54,11 @@ class Agent extends Model
         'stats_tokens_output',
         'stats_last_active_at',
         'stats_synced_at',
+        'agent_mode',
+        'reports_to',
+        'org_title',
+        'capabilities',
+        'delegation_enabled',
     ];
 
     /**
@@ -63,7 +69,9 @@ class Agent extends Model
         return [
             'status' => AgentStatus::class,
             'role' => AgentRole::class,
+            'agent_mode' => AgentMode::class,
             'harness_type' => HarnessType::class,
+            'delegation_enabled' => 'boolean',
             'model_fallbacks' => 'array',
             'default_password' => 'encrypted',
             'config_snapshot' => 'array',
@@ -176,6 +184,102 @@ class Agent extends Model
     public function chatConversations(): HasMany
     {
         return $this->hasMany(ChatConversation::class);
+    }
+
+    /**
+     * @return BelongsTo<self, $this>
+     */
+    public function manager(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'reports_to');
+    }
+
+    /**
+     * @return HasMany<self, $this>
+     */
+    public function directReports(): HasMany
+    {
+        return $this->hasMany(self::class, 'reports_to');
+    }
+
+    /**
+     * Get the full chain of command from this agent up to the root.
+     *
+     * @return list<Agent>
+     */
+    public function chainOfCommand(): array
+    {
+        $chain = [];
+        $current = $this->manager;
+
+        while ($current) {
+            $chain[] = $current;
+            $current = $current->manager;
+        }
+
+        return $chain;
+    }
+
+    /**
+     * Validate that setting this agent's reports_to would not create a cycle.
+     */
+    public function validateOrgHierarchy(?string $managerId): bool
+    {
+        if ($managerId === null) {
+            return true;
+        }
+
+        if ($managerId === $this->id) {
+            return false;
+        }
+
+        $visited = [$this->id];
+        $current = self::find($managerId);
+
+        while ($current) {
+            if (in_array($current->id, $visited, true)) {
+                return false;
+            }
+
+            $visited[] = $current->id;
+            $current = $current->manager;
+        }
+
+        return true;
+    }
+
+    public function isWorkforce(): bool
+    {
+        return $this->agent_mode === AgentMode::Workforce;
+    }
+
+    public function isChannel(): bool
+    {
+        return $this->agent_mode === AgentMode::Channel;
+    }
+
+    /**
+     * @return HasMany<Goal, $this>
+     */
+    public function ownedGoals(): HasMany
+    {
+        return $this->hasMany(Goal::class, 'owner_agent_id');
+    }
+
+    /**
+     * @return HasMany<UsageEvent, $this>
+     */
+    public function usageEvents(): HasMany
+    {
+        return $this->hasMany(UsageEvent::class);
+    }
+
+    /**
+     * @return HasMany<Approval, $this>
+     */
+    public function approvals(): HasMany
+    {
+        return $this->hasMany(Approval::class, 'requesting_agent_id');
     }
 
     /**
