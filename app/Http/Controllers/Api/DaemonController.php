@@ -211,7 +211,7 @@ class DaemonController extends Controller
                     'type' => ApprovalType::tryFrom($approvalReq['type']) ?? ApprovalType::ExternalAction,
                     'status' => ApprovalStatus::Pending,
                     'title' => $approvalReq['title'],
-                    'payload' => $approvalReq['payload'] ?? null,
+                    'payload' => ['description' => $approvalReq['description'] ?? '', 'raw' => $approvalReq],
                     'linked_task_id' => $task->id,
                     'expires_at' => now()->addHours(72),
                 ]);

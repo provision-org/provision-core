@@ -67,11 +67,14 @@ function ReviewDialog({
     open: boolean;
     onOpenChange: (open: boolean) => void;
 }) {
-    const form = useForm({ status: action, review_note: '' });
+    const form = useForm({ review_note: '' });
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        form.patch(`/governance/approvals/${approval.id}`, {
+        const endpoint = action === 'approved'
+            ? `/governance/approvals/${approval.id}/approve`
+            : `/governance/approvals/${approval.id}/reject`;
+        form.post(endpoint, {
             onSuccess: () => onOpenChange(false),
         });
     }
