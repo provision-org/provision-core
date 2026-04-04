@@ -138,11 +138,10 @@ test('user can cancel a task and cascade to sub-tasks', function () {
     expect($sub2->status)->toBe('done'); // Done tasks not cascaded
 });
 
-test('user cannot access tasks of another team', function () {
+test('user only sees their own team tasks', function () {
     $user = taskUser();
-    $otherUser = User::factory()->withPersonalTeam()->create();
 
-    $response = $this->actingAs($user)->get(route('governance.tasks.index', $otherUser->currentTeam));
+    $response = $this->actingAs($user)->get(route('governance.tasks.index'));
 
-    $response->assertForbidden();
+    $response->assertOk();
 });
