@@ -174,6 +174,7 @@ class GatewayClient
             'model' => $model,
             'messages' => [['role' => 'user', 'content' => $message]],
             'stream' => $stream,
+            'user' => $sessionKey,
         ]);
 
         $headers = [
