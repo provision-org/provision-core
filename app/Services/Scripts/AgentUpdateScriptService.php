@@ -472,6 +472,11 @@ class AgentUpdateScriptService
 
         $config['gateway'] = [
             'bind' => config('openclaw.gateway_bind'),
+            'http' => [
+                'endpoints' => [
+                    'chatCompletions' => ['enabled' => true],
+                ],
+            ],
         ];
 
         $config['logging'] = [
@@ -774,6 +779,13 @@ class AgentUpdateScriptService
         foreach ($agent->server?->team?->envVars ?? [] as $envVar) {
             $lines[] = "{$envVar->key}={$envVar->value}";
         }
+
+        // Hermes API server — enables web chat via OpenAI-compatible HTTP API
+        $apiServerKey = bin2hex(random_bytes(24));
+        $lines[] = 'API_SERVER_ENABLED=true';
+        $lines[] = 'API_SERVER_HOST=0.0.0.0';
+        $lines[] = 'API_SERVER_PORT=8642';
+        $lines[] = "API_SERVER_KEY={$apiServerKey}";
 
         return implode("\n", $lines);
     }
