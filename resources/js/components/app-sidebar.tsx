@@ -1,14 +1,19 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
+    BarChart3,
     Bot,
+    KanbanSquare,
     LayoutDashboard,
     Library,
     Moon,
+    Network,
     Plus,
     PlusCircle,
     Puzzle,
-    ShieldCheck,
+    ScrollText,
+    ShieldCheck as ShieldCheckIcon,
     Sun,
+    Target,
     Wallet,
 } from 'lucide-react';
 import { NavUser } from '@/components/nav-user';
@@ -34,10 +39,23 @@ import type { NavItem, SharedData } from '@/types';
 const platformNavItems: NavItem[] = [
     { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { title: 'My Agents', href: '/agents', icon: Bot },
+    { title: 'Task Board', href: '/governance/tasks', icon: KanbanSquare },
 ];
 
 const exploreNavItems: NavItem[] = [
     { title: 'Agent Library', href: '/agents/library', icon: Library },
+];
+
+const companyNavItems: NavItem[] = [
+    { title: 'Org Chart', href: '/governance/org', icon: Network },
+    { title: 'Goals', href: '/governance/goals', icon: Target },
+    {
+        title: 'Approvals',
+        href: '/governance/approvals',
+        icon: ShieldCheckIcon,
+    },
+    { title: 'Usage', href: '/governance/usage', icon: BarChart3 },
+    { title: 'Audit Log', href: '/governance/audit', icon: ScrollText },
 ];
 
 const trainingNavItems: NavItem[] = [
@@ -200,11 +218,15 @@ export function AppSidebar() {
                     </Button>
                 </div>
                 <NavSection label="Platform" items={platformNavItems} />
+                <NavSection label="Company" items={companyNavItems} />
                 <NavSection label="Explore" items={exploreNavItems} />
                 {(usePage().props as Record<string, unknown>).modules &&
-                    ((usePage().props as Record<string, unknown>).modules as Record<string, boolean>)?.skills && (
-                    <NavSection label="Training" items={trainingNavItems} />
-                )}
+                    (
+                        (usePage().props as Record<string, unknown>)
+                            .modules as Record<string, boolean>
+                    )?.skills && (
+                        <NavSection label="Training" items={trainingNavItems} />
+                    )}
             </SidebarContent>
 
             <SidebarFooter>
@@ -214,7 +236,7 @@ export function AppSidebar() {
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild size="sm">
                                 <Link href="/admin/dashboard" prefetch>
-                                    <ShieldCheck className="size-4" />
+                                    <ShieldCheckIcon className="size-4" />
                                     <span>Admin Panel</span>
                                 </Link>
                             </SidebarMenuButton>
