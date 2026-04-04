@@ -7,6 +7,7 @@ services:
       dockerfile: docker/app/Dockerfile
     ports:
       - "${APP_PORT:-8000}:8000"
+      - "${REVERB_PORT:-8085}:8085"
     volumes:
       - .:/var/www/html
       - node_modules:/var/www/html/node_modules
@@ -27,11 +28,11 @@ services:
       - CACHE_STORE=redis
       - QUEUE_CONNECTION=redis
       - SESSION_DRIVER=redis
-      - BROADCAST_CONNECTION=${BROADCAST_CONNECTION:-log}
+      - BROADCAST_CONNECTION=${BROADCAST_CONNECTION:-reverb}
       - REVERB_APP_KEY=${REVERB_APP_KEY:-local}
       - VITE_REVERB_APP_KEY=${REVERB_APP_KEY:-local}
       - VITE_REVERB_HOST=${REVERB_HOST:-localhost}
-      - VITE_REVERB_PORT=${REVERB_PORT:-8080}
+      - VITE_REVERB_PORT=${REVERB_PORT:-8085}
       - VITE_REVERB_SCHEME=${REVERB_SCHEME:-http}
       - REDIS_CLIENT=phpredis
       - REDIS_HOST=redis
@@ -62,7 +63,7 @@ services:
         touch database/database.sqlite
         mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
         if [ ! -f .env ]; then cp .env.example .env; fi
-        php artisan key:generate --no-interaction 2>/dev/null
+        grep -q '^APP_KEY=base64:' .env || php artisan key:generate --no-interaction 2>/dev/null
         php artisan migrate --force --no-interaction
         php artisan wayfinder:generate 2>/dev/null || true
         if [ ! -d public/build ]; then
@@ -72,7 +73,7 @@ services:
           echo "Frontend assets exist, rebuilding in background..."
           npm run build --silent &
         fi
-        npx concurrently -c '#93c5fd,#c4b5fd,#86efac' 'php artisan serve --host=0.0.0.0 --port=8000' 'php artisan horizon' 'php artisan schedule:work' --names=server,horizon,scheduler --kill-others
+        npx concurrently -c '#93c5fd,#c4b5fd,#86efac,#fca5a5' 'php artisan serve --host=0.0.0.0 --port=8000' 'php artisan horizon' 'php artisan schedule:work' 'php artisan reverb:start --host=0.0.0.0 --port=8085' --names=server,horizon,scheduler,reverb --kill-others
 
   redis:
     image: redis:7-alpine
