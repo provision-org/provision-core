@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Settings;
 
+use App\Enums\AgentMode;
 use App\Enums\AgentRole;
 use App\Http\Controllers\AgentController;
 use App\Models\AgentEmailConnection;
@@ -55,6 +56,9 @@ class CreateAgentRequest extends FormRequest
             'personality' => ['nullable', 'string', 'max:100'],
             'communication_style' => ['nullable', 'string', 'max:100'],
             'backstory' => ['nullable', 'string', 'max:2000'],
+            'agent_mode' => ['nullable', Rule::enum(AgentMode::class)],
+            'org_title' => ['nullable', 'string', 'max:100'],
+            'reports_to' => ['nullable', 'string', 'exists:agents,id'],
             'tools' => ['array', 'max:20'],
             'tools.*.name' => ['required', 'string', 'max:100'],
             'tools.*.url' => ['nullable', 'string', 'url', 'max:255'],

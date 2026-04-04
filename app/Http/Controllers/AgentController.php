@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Concerns\TracksEvents;
 use App\Contracts\Modules\AgentEmailProvider;
 use App\Contracts\Modules\BillingProvider;
+use App\Enums\AgentMode;
 use App\Enums\AgentRole;
 use App\Enums\AgentStatus;
 use App\Enums\HarnessType;
@@ -365,6 +366,11 @@ class AgentController extends Controller
         }
 
         if ($agent->status !== AgentStatus::Pending) {
+            return to_route('agents.provisioning', $agent);
+        }
+
+        // Workforce agents skip channels — go straight to deployment
+        if ($agent->agent_mode === AgentMode::Workforce) {
             return to_route('agents.provisioning', $agent);
         }
 
