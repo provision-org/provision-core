@@ -1,9 +1,13 @@
 import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, ArrowRight, Filter, Plus } from 'lucide-react';
+import {
+    ArrowLeft,
+    ArrowRight,
+    Filter,
+    KanbanSquare,
+    Plus,
+} from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
-import { useEcho } from '@/hooks/use-echo';
-import type { SharedData } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,7 +29,9 @@ import {
     SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useEcho } from '@/hooks/use-echo';
 import AppLayout from '@/layouts/app-layout';
+import type { SharedData } from '@/types';
 import type { Agent, BreadcrumbItem, Goal, GovernanceTask } from '@/types';
 
 type Column = {
@@ -34,7 +40,6 @@ type Column = {
 };
 
 const COLUMNS: Column[] = [
-    { key: 'backlog', label: 'Backlog' },
     { key: 'todo', label: 'To Do' },
     { key: 'in_progress', label: 'In Progress' },
     { key: 'in_review', label: 'In Review' },
@@ -42,14 +47,13 @@ const COLUMNS: Column[] = [
 ];
 
 const PRIORITY_COLORS: Record<string, string> = {
-    low: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+    low: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
+    medium: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
     high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
     urgent: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
 };
 
 const STATUS_ORDER: GovernanceTask['status'][] = [
-    'backlog',
     'todo',
     'in_progress',
     'in_review',
@@ -60,11 +64,16 @@ function TaskCard({ task }: { task: GovernanceTask }) {
     const statusIdx = STATUS_ORDER.indexOf(task.status);
 
     return (
-        <div className="rounded-lg border bg-card p-3 shadow-xs transition-shadow hover:shadow-sm">
+        <Link
+            href={`/governance/tasks/${task.id}`}
+            className="block rounded-lg border bg-card p-3 shadow-xs transition-shadow hover:shadow-sm"
+        >
             <div className="mb-2 flex items-center gap-2">
-                <Badge variant="outline" className="font-mono text-[10px]">
-                    {task.identifier}
-                </Badge>
+                {task.identifier && (
+                    <Badge variant="outline" className="font-mono text-[10px]">
+                        {task.identifier}
+                    </Badge>
+                )}
                 <Badge
                     className={`text-[10px] ${PRIORITY_COLORS[task.priority] ?? ''}`}
                 >
@@ -72,17 +81,19 @@ function TaskCard({ task }: { task: GovernanceTask }) {
                 </Badge>
             </div>
 
-            <Link
-                href={`/governance/tasks/${task.id}`}
-                className="mb-2 block text-sm leading-snug font-medium hover:underline"
-            >
+            <p className="mb-2 text-sm leading-snug font-medium">
                 {task.title}
-            </Link>
+            </p>
 
             {task.assigned_agent && (
-                <p className="mb-1 text-xs text-muted-foreground">
-                    {task.assigned_agent.name}
-                </p>
+                <div className="mb-1 flex items-center gap-2">
+                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                        {task.assigned_agent.name.charAt(0).toUpperCase()}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                        {task.assigned_agent.name}
+                    </span>
+                </div>
             )}
             {task.goal && (
                 <p className="mb-2 truncate text-[11px] text-muted-foreground/70">
@@ -96,11 +107,12 @@ function TaskCard({ task }: { task: GovernanceTask }) {
                         variant="ghost"
                         size="icon"
                         className="size-6"
-                        onClick={() =>
+                        onClick={(e) => {
+                            e.preventDefault();
                             router.patch(`/governance/tasks/${task.id}`, {
                                 status: STATUS_ORDER[statusIdx - 1],
-                            })
-                        }
+                            });
+                        }}
                     >
                         <ArrowLeft className="size-3" />
                     </Button>
@@ -110,17 +122,18 @@ function TaskCard({ task }: { task: GovernanceTask }) {
                         variant="ghost"
                         size="icon"
                         className="size-6"
-                        onClick={() =>
+                        onClick={(e) => {
+                            e.preventDefault();
                             router.patch(`/governance/tasks/${task.id}`, {
                                 status: STATUS_ORDER[statusIdx + 1],
-                            })
-                        }
+                            });
+                        }}
                     >
                         <ArrowRight className="size-3" />
                     </Button>
                 )}
             </div>
-        </div>
+        </Link>
     );
 }
 
@@ -287,7 +300,7 @@ export default function TasksIndex({
     );
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Governance', href: '/governance/tasks' },
+        { title: 'Company', href: '/governance/tasks' },
         { title: 'Tasks', href: '/governance/tasks' },
     ];
 
@@ -301,6 +314,8 @@ export default function TasksIndex({
         }
         router.get('/governance/tasks', params, { preserveState: true });
     }
+
+    const hasAnyTasks = tasks.length > 0;
 
     const filtered = tasks.filter((t) => {
         if (agentFilter && t.agent_id !== agentFilter) {
@@ -370,36 +385,55 @@ export default function TasksIndex({
                     </Select>
                 </div>
 
-                {/* Kanban columns */}
-                <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-5">
-                    {COLUMNS.map((col) => {
-                        const colTasks = filtered.filter(
-                            (t) => t.status === col.key,
-                        );
-                        return (
-                            <div key={col.key} className="min-w-0">
-                                <div className="mb-3 flex items-center justify-between">
-                                    <h3 className="text-sm font-medium">
-                                        {col.label}
-                                    </h3>
-                                    <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                                        {colTasks.length}
-                                    </span>
+                {/* Empty state */}
+                {!hasAnyTasks ? (
+                    <div className="mt-8 flex flex-col items-center rounded-lg border border-dashed py-16 text-center">
+                        <KanbanSquare className="size-10 text-muted-foreground/40" />
+                        <p className="mt-4 text-sm font-medium text-foreground">
+                            No tasks yet
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                            Create your first task to get your agents working.
+                        </p>
+                        <div className="mt-4">
+                            <CreateTaskDialog agents={agents} goals={goals} />
+                        </div>
+                    </div>
+                ) : (
+                    /* Kanban columns */
+                    <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                        {COLUMNS.map((col) => {
+                            const colTasks = filtered.filter(
+                                (t) => t.status === col.key,
+                            );
+                            return (
+                                <div key={col.key} className="min-w-0">
+                                    <div className="mb-3 flex items-center justify-between">
+                                        <h3 className="text-sm font-medium">
+                                            {col.label}
+                                        </h3>
+                                        <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                                            {colTasks.length}
+                                        </span>
+                                    </div>
+                                    <div className="space-y-3">
+                                        {colTasks.map((task) => (
+                                            <TaskCard
+                                                key={task.id}
+                                                task={task}
+                                            />
+                                        ))}
+                                        {colTasks.length === 0 && (
+                                            <div className="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground">
+                                                No tasks
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="space-y-3">
-                                    {colTasks.map((task) => (
-                                        <TaskCard key={task.id} task={task} />
-                                    ))}
-                                    {colTasks.length === 0 && (
-                                        <div className="rounded-lg border border-dashed py-8 text-center text-xs text-muted-foreground">
-                                            No tasks
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                            );
+                        })}
+                    </div>
+                )}
             </div>
         </AppLayout>
     );

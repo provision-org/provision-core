@@ -10,7 +10,7 @@
  * 6. Report result back to Provision
  * 7. On error: release checkout, log error
  */
+import type { ProvisionApiClient } from './provision-api.js';
 import type { Config, WorkQueueTask } from './types.js';
-import { ProvisionApiClient } from './provision-api.js';
 export declare function executeTask(task: WorkQueueTask, config: Config, api: ProvisionApiClient): Promise<void>;
 //# sourceMappingURL=executor.d.ts.map

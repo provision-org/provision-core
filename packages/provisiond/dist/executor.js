@@ -12,9 +12,9 @@
  */
 import { randomUUID } from 'node:crypto';
 import { sendMessage } from './gateway-client.js';
+import { logger } from './logger.js';
 import { buildPrompt } from './prompt-builder.js';
 import { parseResponse } from './response-parser.js';
-import { logger } from './logger.js';
 const OPENCLAW_DEFAULT_PORT = 18789;
 export async function executeTask(task, config, api) {
     const runId = randomUUID();

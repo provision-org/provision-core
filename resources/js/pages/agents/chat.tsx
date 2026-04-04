@@ -226,9 +226,11 @@ export default function Chat({
 
                         case 'done':
                             // Add the final assistant message and clear streaming
-                            if (parsed.id) lastStreamedMessageId.current = parsed.id;
+                            if (parsed.id)
+                                lastStreamedMessageId.current = parsed.id;
                             setMessages((prev) => {
-                                if (prev.some((m) => m.id === parsed.id)) return prev;
+                                if (prev.some((m) => m.id === parsed.id))
+                                    return prev;
                                 return [...prev, parsed];
                             });
                             setStreamingText(null);

@@ -7,8 +7,8 @@
  * agents through the gateway API, and reporting results.
  */
 import { loadConfig } from './config.js';
-import { startPolling, requestStop, getActiveRunCount } from './poller.js';
 import { logger } from './logger.js';
+import { startPolling, requestStop, getActiveRunCount } from './poller.js';
 const VERSION = '0.1.0';
 function printBanner() {
     console.log(`provisiond v${VERSION} — Provision Workforce Agent Daemon`);

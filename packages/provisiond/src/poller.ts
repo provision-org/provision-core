@@ -5,10 +5,10 @@
  * Manages concurrent task execution up to maxConcurrent limit.
  */
 
-import type { Config } from './types.js';
-import { ProvisionApiClient } from './provision-api.js';
 import { executeTask } from './executor.js';
 import { logger } from './logger.js';
+import { ProvisionApiClient } from './provision-api.js';
+import type { Config } from './types.js';
 
 /**
  * Tracks active task runs so we can enforce max concurrency

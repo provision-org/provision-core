@@ -9,8 +9,8 @@
  */
 
 import { readFileSync, existsSync } from 'node:fs';
-import type { Config } from './types.js';
 import { logger } from './logger.js';
+import type { Config } from './types.js';
 
 const DEFAULTS = {
   pollInterval: 30,

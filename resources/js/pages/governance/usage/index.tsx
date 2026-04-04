@@ -1,6 +1,7 @@
 import { Head, router } from '@inertiajs/react';
-import { BarChart3 } from 'lucide-react';
+import { BarChart3, ExternalLink } from 'lucide-react';
 import Heading from '@/components/heading';
+import { Button } from '@/components/ui/button';
 import {
     Select,
     SelectContent,
@@ -28,10 +29,7 @@ function formatTokens(n: number): string {
     if (n >= 1_000_000) {
         return `${(n / 1_000_000).toFixed(1)}M`;
     }
-    if (n >= 1_000) {
-        return `${(n / 1_000).toFixed(1)}k`;
-    }
-    return String(n);
+    return n.toLocaleString();
 }
 
 function StatCard({ label, value }: { label: string; value: string }) {
@@ -100,7 +98,7 @@ export default function UsageIndex({
     team: Team;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Governance', href: '/governance/tasks' },
+        { title: 'Company', href: '/governance/tasks' },
         { title: 'Usage', href: '/governance/usage' },
     ];
 
@@ -121,25 +119,41 @@ export default function UsageIndex({
                         title="Usage Overview"
                         description="Monitor token consumption across your team."
                     />
-                    <Select
-                        value={period}
-                        onValueChange={(v) =>
-                            router.get(
-                                '/governance/usage',
-                                { period: v },
-                                { preserveState: true },
-                            )
-                        }
-                    >
-                        <SelectTrigger className="w-[140px]">
-                            <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="7d">Last 7 days</SelectItem>
-                            <SelectItem value="30d">Last 30 days</SelectItem>
-                            <SelectItem value="90d">Last 90 days</SelectItem>
-                        </SelectContent>
-                    </Select>
+                    <div className="flex items-center gap-3">
+                        <Button variant="outline" size="sm" asChild>
+                            <a
+                                href="https://openrouter.ai/activity"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                <ExternalLink className="mr-1.5 size-3.5" />
+                                View costs on OpenRouter
+                            </a>
+                        </Button>
+                        <Select
+                            value={period}
+                            onValueChange={(v) =>
+                                router.get(
+                                    '/governance/usage',
+                                    { period: v },
+                                    { preserveState: true },
+                                )
+                            }
+                        >
+                            <SelectTrigger className="w-[140px]">
+                                <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="7d">Last 7 days</SelectItem>
+                                <SelectItem value="30d">
+                                    Last 30 days
+                                </SelectItem>
+                                <SelectItem value="90d">
+                                    Last 90 days
+                                </SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
                 </div>
 
                 {/* Summary cards */}

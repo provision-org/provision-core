@@ -24,8 +24,8 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const PRIORITY_COLORS: Record<string, string> = {
-    low: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
-    medium: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
+    low: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400',
+    medium: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
     high: 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
     urgent: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
 };
@@ -34,10 +34,7 @@ function formatTokens(n: number): string {
     if (n >= 1_000_000) {
         return `${(n / 1_000_000).toFixed(1)}M`;
     }
-    if (n >= 1_000) {
-        return `${(n / 1_000).toFixed(1)}k`;
-    }
-    return String(n);
+    return n.toLocaleString();
 }
 
 function formatDate(d: string): string {
@@ -63,7 +60,7 @@ export default function TaskShow({
     auditEntries?: AuditEntry[];
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Governance', href: '/governance/tasks' },
+        { title: 'Company', href: '/governance/tasks' },
         { title: 'Tasks', href: '/governance/tasks' },
         { title: task.identifier, href: `/governance/tasks/${task.id}` },
     ];
@@ -107,7 +104,37 @@ export default function TaskShow({
                         </span>
                     )}
                     {task.delegated_by && (
-                        <span>Delegated by {task.delegated_by}</span>
+                        <span>
+                            Delegated by{' '}
+                            {(
+                                task as GovernanceTask & {
+                                    delegated_by_agent?: {
+                                        id: string;
+                                        name: string;
+                                    };
+                                }
+                            ).delegated_by_agent ? (
+                                <Link
+                                    href={`/agents/${(task as GovernanceTask & { delegated_by_agent?: { id: string; name: string } }).delegated_by_agent!.id}`}
+                                    className="font-medium text-foreground hover:underline"
+                                >
+                                    {
+                                        (
+                                            task as GovernanceTask & {
+                                                delegated_by_agent?: {
+                                                    id: string;
+                                                    name: string;
+                                                };
+                                            }
+                                        ).delegated_by_agent!.name
+                                    }
+                                </Link>
+                            ) : (
+                                <span className="font-mono text-xs">
+                                    {task.delegated_by.slice(0, 8)}
+                                </span>
+                            )}
+                        </span>
                     )}
                     {task.started_at && (
                         <span className="flex items-center gap-1">
@@ -268,7 +295,11 @@ export default function TaskShow({
                                             {entry.actor_type}
                                         </Badge>
                                         <span className="font-medium">
-                                            {entry.action}
+                                            {entry.action
+                                                .replace(/[._]/g, ' ')
+                                                .replace(/\b\w/g, (c) =>
+                                                    c.toUpperCase(),
+                                                )}
                                         </span>
                                         {entry.target_type && (
                                             <span className="text-muted-foreground">

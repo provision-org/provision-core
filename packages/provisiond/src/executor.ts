@@ -12,12 +12,12 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import type { Config, WorkQueueTask, TaskResult } from './types.js';
-import { ProvisionApiClient } from './provision-api.js';
 import { sendMessage } from './gateway-client.js';
-import { buildPrompt } from './prompt-builder.js';
-import { parseResponse } from './response-parser.js';
 import { logger } from './logger.js';
+import { buildPrompt } from './prompt-builder.js';
+import type { ProvisionApiClient } from './provision-api.js';
+import { parseResponse } from './response-parser.js';
+import type { Config, WorkQueueTask, TaskResult } from './types.js';
 
 const OPENCLAW_DEFAULT_PORT = 18789;
 

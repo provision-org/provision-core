@@ -10,8 +10,8 @@
  * - Everything else becomes the result summary.
  */
 
-import type { ParsedResponse } from './types.js';
 import { logger } from './logger.js';
+import type { ParsedResponse } from './types.js';
 
 const DELEGATE_PREFIX = 'DELEGATE:';
 const APPROVAL_PREFIX = 'APPROVAL_REQUEST:';

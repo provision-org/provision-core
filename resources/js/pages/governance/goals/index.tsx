@@ -90,23 +90,46 @@ function GoalRow({ goal, depth = 0 }: { goal: Goal; depth?: number }) {
                     )}
                 </div>
 
-                {/* Progress bar */}
-                <div className="flex w-32 shrink-0 items-center gap-2">
-                    <div className="h-1.5 flex-1 rounded-full bg-muted">
+                {/* Child/linked counts */}
+                <div className="flex shrink-0 items-center gap-2">
+                    {goal.children && goal.children.length > 0 && (
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            {goal.children.length} sub-goal
+                            {goal.children.length !== 1 ? 's' : ''}
+                        </span>
+                    )}
+                </div>
+
+                {/* Progress bar with gradient */}
+                <div className="flex w-36 shrink-0 items-center gap-2">
+                    <div className="h-2 flex-1 rounded-full bg-muted">
                         <div
-                            className="h-1.5 rounded-full bg-primary transition-all"
-                            style={{ width: `${goal.progress_pct}%` }}
+                            className={`h-2 rounded-full transition-all ${
+                                goal.progress_pct >= 70
+                                    ? 'bg-emerald-500'
+                                    : goal.progress_pct >= 30
+                                      ? 'bg-amber-500'
+                                      : 'bg-red-500'
+                            }`}
+                            style={{
+                                width: `${Math.max(goal.progress_pct, 2)}%`,
+                            }}
                         />
                     </div>
-                    <span className="w-8 text-right text-[11px] text-muted-foreground">
+                    <span className="w-8 text-right text-[11px] font-medium text-muted-foreground">
                         {goal.progress_pct}%
                     </span>
                 </div>
 
                 {goal.owner_agent && (
-                    <span className="shrink-0 truncate text-xs text-muted-foreground">
-                        {goal.owner_agent.name}
-                    </span>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                        <span className="flex size-5 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+                            {goal.owner_agent.name.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="truncate text-xs text-muted-foreground">
+                            {goal.owner_agent.name}
+                        </span>
+                    </div>
                 )}
 
                 {goal.target_date && (
@@ -321,7 +344,7 @@ export default function GoalsIndex({
     team: Team;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Governance', href: '/governance/tasks' },
+        { title: 'Company', href: '/governance/tasks' },
         { title: 'Goals', href: '/governance/goals' },
     ];
 

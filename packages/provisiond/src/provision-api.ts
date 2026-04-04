@@ -5,8 +5,8 @@
  * Uses Node's built-in fetch API (Node 22+).
  */
 
-import type { Config, WorkQueueTask, TaskResult, ResolvedApproval, UsageEvent } from './types.js';
 import { logger } from './logger.js';
+import type { Config, WorkQueueTask, TaskResult, ResolvedApproval, UsageEvent } from './types.js';
 
 export class ProvisionApiClient {
   private readonly baseUrl: string;

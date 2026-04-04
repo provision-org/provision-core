@@ -5,8 +5,8 @@
  * Supports both OpenClaw (multi-agent) and Hermes (single-agent) modes.
  */
 
-import type { GatewayResponse } from './types.js';
 import { logger } from './logger.js';
+import type { GatewayResponse } from './types.js';
 
 export interface SendMessageOptions {
   port: number;

@@ -4,9 +4,9 @@
  * Runs indefinitely, polling Provision for work at the configured interval.
  * Manages concurrent task execution up to maxConcurrent limit.
  */
-import { ProvisionApiClient } from './provision-api.js';
 import { executeTask } from './executor.js';
 import { logger } from './logger.js';
+import { ProvisionApiClient } from './provision-api.js';
 /**
  * Tracks active task runs so we can enforce max concurrency
  * and report them in heartbeats.

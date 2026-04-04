@@ -21,6 +21,40 @@ const ACTOR_COLORS: Record<string, string> = {
     system: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300',
 };
 
+const POSITIVE_ACTIONS = [
+    'created',
+    'approved',
+    'completed',
+    'activated',
+    'deployed',
+    'connected',
+];
+const NEGATIVE_ACTIONS = [
+    'rejected',
+    'cancelled',
+    'failed',
+    'deleted',
+    'error',
+    'destroyed',
+];
+
+function getActionColor(action: string): string {
+    const lower = action.toLowerCase();
+    if (POSITIVE_ACTIONS.some((a) => lower.includes(a))) {
+        return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300';
+    }
+    if (NEGATIVE_ACTIONS.some((a) => lower.includes(a))) {
+        return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300';
+    }
+    return 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300';
+}
+
+function humanizeAction(action: string): string {
+    return action
+        .replace(/[._]/g, ' ')
+        .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function formatDate(d: string): string {
     return new Date(d).toLocaleString(undefined, {
         month: 'short',
@@ -53,7 +87,7 @@ export default function AuditIndex({
     const [actionFilter, setActionFilter] = useState(filters.action ?? '');
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Governance', href: '/governance/tasks' },
+        { title: 'Company', href: '/governance/tasks' },
         { title: 'Audit Log', href: '/governance/audit' },
     ];
 
@@ -143,39 +177,47 @@ export default function AuditIndex({
                     </div>
                 ) : (
                     <div className="mt-4 space-y-1">
-                        {entryList.map((entry) => (
-                            <div
-                                key={entry.id}
-                                className="flex items-start gap-4 rounded-lg px-4 py-3 transition-colors hover:bg-muted/30"
-                            >
-                                <span className="w-36 shrink-0 text-xs text-muted-foreground">
-                                    {formatDate(entry.created_at)}
-                                </span>
-                                <Badge
-                                    className={`shrink-0 text-[10px] ${ACTOR_COLORS[entry.actor_type] ?? ''}`}
+                        {entryList.map((entry) => {
+                            const actorName =
+                                (entry as AuditEntry & { actor_name?: string })
+                                    .actor_name ?? null;
+
+                            return (
+                                <div
+                                    key={entry.id}
+                                    className="flex items-start gap-4 rounded-lg px-4 py-3 transition-colors hover:bg-muted/30"
                                 >
-                                    {entry.actor_type}
-                                </Badge>
-                                <div className="min-w-0 flex-1">
-                                    <span className="text-sm font-medium">
-                                        {entry.action}
+                                    <span className="w-36 shrink-0 text-xs text-muted-foreground">
+                                        {formatDate(entry.created_at)}
                                     </span>
-                                    {entry.target_type && (
-                                        <span className="ml-2 text-sm text-muted-foreground">
-                                            on {entry.target_type}
-                                            {entry.target_id && (
-                                                <span className="ml-1 font-mono text-xs">
-                                                    {entry.target_id.slice(
-                                                        0,
-                                                        8,
-                                                    )}
-                                                </span>
-                                            )}
-                                        </span>
-                                    )}
+                                    <Badge
+                                        className={`shrink-0 text-[10px] ${ACTOR_COLORS[entry.actor_type] ?? ''}`}
+                                    >
+                                        {actorName ?? entry.actor_type}
+                                    </Badge>
+                                    <div className="min-w-0 flex-1">
+                                        <Badge
+                                            className={`text-[10px] ${getActionColor(entry.action)}`}
+                                        >
+                                            {humanizeAction(entry.action)}
+                                        </Badge>
+                                        {entry.target_type && (
+                                            <span className="ml-2 text-sm text-muted-foreground">
+                                                on {entry.target_type}
+                                                {entry.target_id && (
+                                                    <span className="ml-1 font-mono text-xs">
+                                                        {entry.target_id.slice(
+                                                            0,
+                                                            8,
+                                                        )}
+                                                    </span>
+                                                )}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-                            </div>
-                        ))}
+                            );
+                        })}
                     </div>
                 )}
 

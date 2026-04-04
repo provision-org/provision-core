@@ -1,9 +1,7 @@
-import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { Head, Link, router, useForm, usePage } from '@inertiajs/react';
 import { Check, Clock, ShieldCheck, X } from 'lucide-react';
 import { useState } from 'react';
 import Heading from '@/components/heading';
-import { useEcho } from '@/hooks/use-echo';
-import type { SharedData } from '@/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,7 +13,9 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { useEcho } from '@/hooks/use-echo';
 import AppLayout from '@/layouts/app-layout';
+import type { SharedData } from '@/types';
 import type { Approval, BreadcrumbItem, Team } from '@/types';
 
 type Tab = 'pending' | 'approved' | 'rejected' | 'all';
@@ -71,9 +71,10 @@ function ReviewDialog({
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        const endpoint = action === 'approved'
-            ? `/governance/approvals/${approval.id}/approve`
-            : `/governance/approvals/${approval.id}/reject`;
+        const endpoint =
+            action === 'approved'
+                ? `/governance/approvals/${approval.id}/approve`
+                : `/governance/approvals/${approval.id}/reject`;
         form.post(endpoint, {
             onSuccess: () => onOpenChange(false),
         });
@@ -125,6 +126,12 @@ function ReviewDialog({
     );
 }
 
+const TYPE_LABELS: Record<string, string> = {
+    external_action: 'External Action',
+    hire_agent: 'New Hire',
+    strategy_proposal: 'Strategy',
+};
+
 function ApprovalCard({ approval }: { approval: Approval }) {
     const [reviewAction, setReviewAction] = useState<
         'approved' | 'rejected' | null
@@ -139,7 +146,8 @@ function ApprovalCard({ approval }: { approval: Approval }) {
                             <Badge
                                 className={`text-[10px] ${TYPE_COLORS[approval.type] ?? ''}`}
                             >
-                                {approval.type.replace(/_/g, ' ')}
+                                {TYPE_LABELS[approval.type] ??
+                                    approval.type.replace(/_/g, ' ')}
                             </Badge>
                             <Badge
                                 className={`text-[10px] ${STATUS_COLORS[approval.status] ?? ''}`}
@@ -148,7 +156,15 @@ function ApprovalCard({ approval }: { approval: Approval }) {
                             </Badge>
                         </div>
                         <p className="text-sm font-medium">{approval.title}</p>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+
+                        {/* Description shown directly */}
+                        {approval.payload?.description != null && (
+                            <p className="mt-1.5 text-sm text-muted-foreground">
+                                {String(approval.payload.description)}
+                            </p>
+                        )}
+
+                        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                             {approval.requesting_agent && (
                                 <span>
                                     From {approval.requesting_agent.name}
@@ -158,11 +174,31 @@ function ApprovalCard({ approval }: { approval: Approval }) {
                                 <Clock className="size-3" />
                                 {relativeTime(approval.created_at)}
                             </span>
+                            {approval.linked_task && (
+                                <Link
+                                    href={`/governance/tasks/${approval.linked_task.id}`}
+                                    className="flex items-center gap-1 font-medium text-primary hover:underline"
+                                >
+                                    {approval.linked_task.identifier}
+                                </Link>
+                            )}
                         </div>
+
+                        {/* Review note with reviewer info */}
                         {approval.review_note && (
-                            <p className="mt-2 rounded bg-muted/50 px-3 py-2 text-xs text-muted-foreground">
-                                {approval.review_note}
-                            </p>
+                            <div className="mt-3 rounded-lg bg-muted/50 px-3 py-2">
+                                <p className="text-xs text-muted-foreground">
+                                    {approval.review_note}
+                                </p>
+                                {approval.reviewed_at && (
+                                    <p className="mt-1 text-[10px] text-muted-foreground/60">
+                                        Reviewed{' '}
+                                        {relativeTime(approval.reviewed_at)}
+                                        {approval.reviewed_by &&
+                                            ` by ${approval.reviewed_by}`}
+                                    </p>
+                                )}
+                            </div>
                         )}
                     </div>
 
@@ -225,7 +261,7 @@ export default function ApprovalsIndex({
     const [tab, setTab] = useState<Tab>('pending');
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Governance', href: '/governance/tasks' },
+        { title: 'Company', href: '/governance/tasks' },
         { title: 'Approvals', href: '/governance/approvals' },
     ];
 

@@ -63,7 +63,15 @@ const trainingNavItems: NavItem[] = [
     { title: 'Create New Skill', href: '/skills/create', icon: PlusCircle },
 ];
 
-function NavSection({ label, items }: { label: string; items: NavItem[] }) {
+function NavSection({
+    label,
+    items,
+    badges = {},
+}: {
+    label: string;
+    items: NavItem[];
+    badges?: Record<string, number>;
+}) {
     const { currentUrl, isCurrentUrl } = useCurrentUrl();
 
     return (
@@ -84,6 +92,7 @@ function NavSection({ label, items }: { label: string; items: NavItem[] }) {
                         );
                     const active =
                         exactMatch || (prefixMatch && !moreSpecificExists);
+                    const badgeCount = badges[item.href] ?? 0;
 
                     return (
                         <SidebarMenuItem key={item.title}>
@@ -95,7 +104,12 @@ function NavSection({ label, items }: { label: string; items: NavItem[] }) {
                             >
                                 <Link href={item.href} prefetch>
                                     {item.icon && <item.icon />}
-                                    <span>{item.title}</span>
+                                    <span className="flex-1">{item.title}</span>
+                                    {badgeCount > 0 && (
+                                        <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-medium text-primary-foreground">
+                                            {badgeCount}
+                                        </span>
+                                    )}
                                 </Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
@@ -175,6 +189,10 @@ function AppearanceToggle() {
 
 export function AppSidebar() {
     const { auth } = usePage<SharedData>().props;
+    const pendingApprovalCount: number =
+        Number(
+            (usePage().props as Record<string, unknown>).pendingApprovalCount,
+        ) || 0;
     const currentTeam = auth.user.current_team;
     const isMobile = useIsMobile();
 
@@ -218,7 +236,13 @@ export function AppSidebar() {
                     </Button>
                 </div>
                 <NavSection label="Platform" items={platformNavItems} />
-                <NavSection label="Company" items={companyNavItems} />
+                <NavSection
+                    label="Company"
+                    items={companyNavItems}
+                    badges={{
+                        '/governance/approvals': pendingApprovalCount,
+                    }}
+                />
                 <NavSection label="Explore" items={exploreNavItems} />
                 {(usePage().props as Record<string, unknown>).modules &&
                     (

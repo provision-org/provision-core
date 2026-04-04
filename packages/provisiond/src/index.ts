@@ -9,8 +9,8 @@
  */
 
 import { loadConfig, type CliOverrides } from './config.js';
-import { startPolling, requestStop, getActiveRunCount } from './poller.js';
 import { logger } from './logger.js';
+import { startPolling, requestStop, getActiveRunCount } from './poller.js';
 
 const VERSION = '0.1.0';
 

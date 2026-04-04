@@ -681,12 +681,14 @@ export default function CreateAgent({
                                                 </span>
                                                 <div>
                                                     <p className="text-sm font-semibold">
-                                                        Channel Agent
+                                                        Chat Agent
                                                     </p>
                                                     <p className="mt-1 text-xs text-muted-foreground">
-                                                        Communicates via Slack,
-                                                        Telegram, Discord, or
-                                                        web chat.
+                                                        Responds to messages in
+                                                        Slack, Telegram,
+                                                        Discord, or web chat.
+                                                        Best for support, Q&A,
+                                                        and communication.
                                                     </p>
                                                 </div>
                                             </button>
@@ -710,12 +712,14 @@ export default function CreateAgent({
                                                 </span>
                                                 <div>
                                                     <p className="text-sm font-semibold">
-                                                        Workforce Agent
+                                                        Task Agent
                                                     </p>
                                                     <p className="mt-1 text-xs text-muted-foreground">
-                                                        Executes tasks
-                                                        autonomously within the
-                                                        org hierarchy.
+                                                        Works autonomously on
+                                                        assigned tasks from the
+                                                        task board. Best for
+                                                        research, engineering,
+                                                        and operations.
                                                     </p>
                                                 </div>
                                             </button>
