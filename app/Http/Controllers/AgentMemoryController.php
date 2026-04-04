@@ -2,20 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\HarnessType;
 use App\Models\Agent;
-use App\Services\SshService;
+use App\Services\HarnessManager;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use RuntimeException;
 
 class AgentMemoryController extends Controller
 {
-    public function __construct(private SshService $sshService) {}
+    public function __construct(private HarnessManager $harnessManager) {}
 
     /**
      * List memory files for an agent.
-     *
-     * Reads ~/.openclaw/memory/ directory and the MEMORY.md index file.
      */
     public function index(Agent $agent, Request $request): JsonResponse
     {
@@ -26,22 +25,24 @@ class AgentMemoryController extends Controller
             return response()->json(['files' => [], 'index' => null]);
         }
 
+        $executor = $this->harnessManager->resolveExecutor($server);
         $basePath = $this->memoryPath($agent);
         $indexPath = $this->indexPath($agent);
-
-        $this->sshService->connect($server);
 
         try {
             // Check if MEMORY.md index exists
             $indexContent = null;
             try {
-                $indexContent = $this->sshService->readFile($indexPath);
+                $indexContent = trim($executor->exec('cat '.escapeshellarg($indexPath).' 2>/dev/null || true'));
+                if ($indexContent === '') {
+                    $indexContent = null;
+                }
             } catch (RuntimeException) {
                 // No index file yet
             }
 
             // List files in memory directory
-            $output = $this->sshService->exec(
+            $output = $executor->exec(
                 'find '.escapeshellarg($basePath)." -maxdepth 1 -type f -printf '%s|%T@|%f\\n' 2>/dev/null || true"
             );
 
@@ -65,8 +66,6 @@ class AgentMemoryController extends Controller
             usort($files, fn (array $a, array $b) => strcasecmp($a['name'], $b['name']));
         } catch (RuntimeException) {
             $files = [];
-        } finally {
-            $this->sshService->disconnect();
         }
 
         return response()->json([
@@ -88,21 +87,20 @@ class AgentMemoryController extends Controller
         $filename = $this->sanitizeFilename($filename);
         abort_unless($filename, 422, 'Invalid filename.');
 
-        // Determine the path: MEMORY.md lives in parent dir, others in memory/
         $filePath = $filename === 'MEMORY.md'
             ? $this->indexPath($agent)
             : $this->memoryPath($agent).'/'.$filename;
 
-        $this->sshService->connect($server);
+        $executor = $this->harnessManager->resolveExecutor($server);
 
         try {
-            $content = $this->sshService->readFile($filePath);
+            $content = trim($executor->exec('cat '.escapeshellarg($filePath)));
         } catch (RuntimeException) {
-            $this->sshService->disconnect();
-
             return response()->json(['message' => 'File not found.'], 404);
-        } finally {
-            $this->sshService->disconnect();
+        }
+
+        if ($content === '') {
+            return response()->json(['message' => 'File not found.'], 404);
         }
 
         $frontmatter = $this->parseFrontmatter($content);
@@ -135,41 +133,37 @@ class AgentMemoryController extends Controller
             ? $this->indexPath($agent)
             : $this->memoryPath($agent).'/'.$filename;
 
-        $this->sshService->connect($server);
+        $executor = $this->harnessManager->resolveExecutor($server);
 
-        try {
-            $encoded = base64_encode($request->input('content'));
-            $this->sshService->exec(
-                'mkdir -p '.escapeshellarg(dirname($filePath))
-                .' && echo '.escapeshellarg($encoded)
-                .' | base64 -d > '.escapeshellarg($filePath)
-            );
-        } finally {
-            $this->sshService->disconnect();
-        }
+        $encoded = base64_encode($request->input('content'));
+        $executor->exec(
+            'mkdir -p '.escapeshellarg(dirname($filePath))
+            .' && echo '.escapeshellarg($encoded)
+            .' | base64 -d > '.escapeshellarg($filePath)
+        );
 
         return response()->json(['success' => true]);
     }
 
-    /**
-     * Base path for the agent's memory directory.
-     */
     private function memoryPath(Agent $agent): string
     {
+        if ($agent->harness_type === HarnessType::Hermes) {
+            return "/root/.hermes-{$agent->harness_agent_id}/memories";
+        }
+
         return "/root/.openclaw/agents/{$agent->harness_agent_id}/memory";
     }
 
-    /**
-     * Path to the MEMORY.md index file (in parent directory).
-     */
     private function indexPath(Agent $agent): string
     {
+        if ($agent->harness_type === HarnessType::Hermes) {
+            return "/root/.hermes-{$agent->harness_agent_id}/memories/MEMORY.md";
+        }
+
         return "/root/.openclaw/agents/{$agent->harness_agent_id}/MEMORY.md";
     }
 
     /**
-     * Parse YAML frontmatter from markdown content.
-     *
      * @return array{name?: string, description?: string, type?: string}|null
      */
     private function parseFrontmatter(string $content): ?array
@@ -200,23 +194,15 @@ class AgentMemoryController extends Controller
         return $frontmatter ?: null;
     }
 
-    /**
-     * Sanitize a filename to prevent path traversal.
-     */
     private function sanitizeFilename(string $filename): string
     {
-        // Remove null bytes
         $filename = str_replace("\0", '', $filename);
-
-        // Only allow the basename (no slashes)
         $filename = basename($filename);
 
-        // Block hidden files (except MEMORY.md is always allowed)
         if ($filename !== 'MEMORY.md' && str_starts_with($filename, '.')) {
             return '';
         }
 
-        // Block directory traversal
         if ($filename === '.' || $filename === '..') {
             return '';
         }
