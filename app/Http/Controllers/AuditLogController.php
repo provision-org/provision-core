@@ -9,9 +9,9 @@ use Inertia\Response;
 
 class AuditLogController extends Controller
 {
-    public function index(Request $request, Team $team): Response
+    public function index(Request $request): Response
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $query = $team->auditLogs();
 
@@ -38,6 +38,7 @@ class AuditLogController extends Controller
         $entries = $query->orderByDesc('created_at')->paginate(50);
 
         return Inertia::render('governance/audit/index', [
+            'team' => $team,
             'entries' => $entries,
             'filters' => $request->only(['actor_type', 'action', 'target_type', 'from', 'to']),
         ]);

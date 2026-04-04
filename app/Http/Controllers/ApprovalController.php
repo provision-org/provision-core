@@ -19,9 +19,9 @@ class ApprovalController extends Controller
         private readonly AuditService $audit,
     ) {}
 
-    public function index(Request $request, Team $team): Response
+    public function index(Request $request): Response
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $query = $team->approvals()->with(['requestingAgent', 'linkedTask']);
 
@@ -33,9 +33,10 @@ class ApprovalController extends Controller
             $query->where('type', $request->string('type'));
         }
 
-        $approvals = $query->orderByDesc('created_at')->paginate(50);
+        $approvals = $query->orderByDesc('created_at')->get();
 
         return Inertia::render('governance/approvals/index', [
+            'team' => $team,
             'approvals' => $approvals,
             'filters' => $request->only(['status', 'type']),
         ]);

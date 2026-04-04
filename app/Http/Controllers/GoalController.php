@@ -20,9 +20,9 @@ class GoalController extends Controller
         private readonly AuditService $audit,
     ) {}
 
-    public function index(Request $request, Team $team): Response
+    public function index(Request $request): Response
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $query = $team->goals()->with(['ownerAgent', 'children', 'parent']);
 
@@ -39,14 +39,16 @@ class GoalController extends Controller
         $goals = $query->orderByDesc('created_at')->get();
 
         return Inertia::render('governance/goals/index', [
+            'team' => $team,
             'goals' => $goals,
+            'agents' => $team->agents()->where('agent_mode', 'workforce')->select(['id', 'name', 'org_title'])->get(),
             'filters' => $request->only(['status', 'parent_id']),
         ]);
     }
 
     public function store(StoreGoalRequest $request, Team $team): RedirectResponse
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $goal = $team->goals()->create([
             ...$request->validated(),

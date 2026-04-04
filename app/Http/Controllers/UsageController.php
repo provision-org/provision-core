@@ -12,9 +12,9 @@ use Inertia\Response;
 
 class UsageController extends Controller
 {
-    public function index(Request $request, Team $team): Response
+    public function index(Request $request): Response
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $byAgent = $team->usageEvents()
             ->select('agent_id', DB::raw('SUM(input_tokens) as total_input'), DB::raw('SUM(output_tokens) as total_output'), DB::raw('COUNT(*) as event_count'))
@@ -34,9 +34,12 @@ class UsageController extends Controller
             ->first();
 
         return Inertia::render('governance/usage/index', [
+            'team' => $team,
+            'totalInputTokens' => (int) ($totals->total_input ?? 0),
+            'totalOutputTokens' => (int) ($totals->total_output ?? 0),
             'byAgent' => $byAgent,
-            'byDay' => $byDay,
-            'totals' => $totals,
+            'daily' => $byDay,
+            'period' => '30d',
         ]);
     }
 

@@ -20,9 +20,9 @@ class GovernanceTaskController extends Controller
         private readonly AuditService $audit,
     ) {}
 
-    public function index(Request $request, Team $team): Response
+    public function index(Request $request): Response
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $query = $team->tasks()->with(['agent', 'goal', 'parentTask']);
 
@@ -42,18 +42,20 @@ class GovernanceTaskController extends Controller
             $query->where('priority', $request->string('priority'));
         }
 
-        $tasks = $query->orderByDesc('created_at')->paginate(50);
+        $tasks = $query->orderByDesc('created_at')->get();
 
         return Inertia::render('governance/tasks/index', [
+            'team' => $team,
             'tasks' => $tasks,
             'filters' => $request->only(['status', 'agent_id', 'goal_id', 'priority']),
             'agents' => $team->agents()->select(['id', 'name', 'agent_mode'])->get(),
+            'goals' => $team->goals()->select(['id', 'title'])->where('status', 'active')->get(),
         ]);
     }
 
-    public function store(StoreTaskRequest $request, Team $team): RedirectResponse
+    public function store(StoreTaskRequest $request): RedirectResponse
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $identifier = $this->generateIdentifier($team);
 

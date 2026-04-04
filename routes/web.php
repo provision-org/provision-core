@@ -167,31 +167,31 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::patch('api-keys/env-vars/{envVar}', [ApiKeyController::class, 'updateEnvVar'])->name('api-keys.env-vars.update');
     Route::delete('api-keys/env-vars/{envVar}', [ApiKeyController::class, 'destroyEnvVar'])->name('api-keys.env-vars.destroy');
 
-    // Governance
-    Route::get('teams/{team}/tasks', [GovernanceTaskController::class, 'index'])->name('governance.tasks.index');
-    Route::post('teams/{team}/tasks', [GovernanceTaskController::class, 'store'])->name('governance.tasks.store');
-    Route::get('tasks/{task}', [GovernanceTaskController::class, 'show'])->name('governance.tasks.show');
-    Route::patch('tasks/{task}', [GovernanceTaskController::class, 'update'])->name('governance.tasks.update');
-    Route::delete('tasks/{task}', [GovernanceTaskController::class, 'destroy'])->name('governance.tasks.destroy');
+    // Governance (team resolved from authenticated user's currentTeam)
+    Route::get('governance/tasks', [GovernanceTaskController::class, 'index'])->name('governance.tasks.index');
+    Route::post('governance/tasks', [GovernanceTaskController::class, 'store'])->name('governance.tasks.store');
+    Route::get('governance/tasks/{task}', [GovernanceTaskController::class, 'show'])->name('governance.tasks.show');
+    Route::patch('governance/tasks/{task}', [GovernanceTaskController::class, 'update'])->name('governance.tasks.update');
+    Route::delete('governance/tasks/{task}', [GovernanceTaskController::class, 'destroy'])->name('governance.tasks.destroy');
 
-    Route::get('teams/{team}/org', [OrgChartController::class, 'index'])->name('governance.org.index');
-    Route::patch('agents/{agent}/reporting', [OrgChartController::class, 'updateReporting'])->name('governance.org.updateReporting');
+    Route::get('governance/org', [OrgChartController::class, 'index'])->name('governance.org.index');
+    Route::patch('governance/agents/{agent}/reporting', [OrgChartController::class, 'updateReporting'])->name('governance.org.updateReporting');
 
-    Route::get('teams/{team}/goals', [GoalController::class, 'index'])->name('governance.goals.index');
-    Route::post('teams/{team}/goals', [GoalController::class, 'store'])->name('governance.goals.store');
-    Route::patch('goals/{goal}', [GoalController::class, 'update'])->name('governance.goals.update');
-    Route::delete('goals/{goal}', [GoalController::class, 'destroy'])->name('governance.goals.destroy');
+    Route::get('governance/goals', [GoalController::class, 'index'])->name('governance.goals.index');
+    Route::post('governance/goals', [GoalController::class, 'store'])->name('governance.goals.store');
+    Route::patch('governance/goals/{goal}', [GoalController::class, 'update'])->name('governance.goals.update');
+    Route::delete('governance/goals/{goal}', [GoalController::class, 'destroy'])->name('governance.goals.destroy');
 
-    Route::get('teams/{team}/approvals', [ApprovalController::class, 'index'])->name('governance.approvals.index');
-    Route::get('approvals/{approval}', [ApprovalController::class, 'show'])->name('governance.approvals.show');
-    Route::post('approvals/{approval}/approve', [ApprovalController::class, 'approve'])->name('governance.approvals.approve');
-    Route::post('approvals/{approval}/reject', [ApprovalController::class, 'reject'])->name('governance.approvals.reject');
-    Route::post('approvals/{approval}/request-revision', [ApprovalController::class, 'requestRevision'])->name('governance.approvals.requestRevision');
+    Route::get('governance/approvals', [ApprovalController::class, 'index'])->name('governance.approvals.index');
+    Route::get('governance/approvals/{approval}', [ApprovalController::class, 'show'])->name('governance.approvals.show');
+    Route::post('governance/approvals/{approval}/approve', [ApprovalController::class, 'approve'])->name('governance.approvals.approve');
+    Route::post('governance/approvals/{approval}/reject', [ApprovalController::class, 'reject'])->name('governance.approvals.reject');
+    Route::post('governance/approvals/{approval}/request-revision', [ApprovalController::class, 'requestRevision'])->name('governance.approvals.requestRevision');
 
-    Route::get('teams/{team}/usage', [UsageController::class, 'index'])->name('governance.usage.index');
-    Route::get('agents/{agent}/usage', [UsageController::class, 'forAgent'])->name('governance.usage.forAgent');
+    Route::get('governance/usage', [UsageController::class, 'index'])->name('governance.usage.index');
+    Route::get('governance/agents/{agent}/usage', [UsageController::class, 'forAgent'])->name('governance.usage.forAgent');
 
-    Route::get('teams/{team}/audit', [AuditLogController::class, 'index'])->name('governance.audit.index');
+    Route::get('governance/audit', [AuditLogController::class, 'index'])->name('governance.audit.index');
 });
 
 require __DIR__.'/settings.php';

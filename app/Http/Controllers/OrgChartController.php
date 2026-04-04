@@ -18,9 +18,9 @@ class OrgChartController extends Controller
         private readonly AuditService $audit,
     ) {}
 
-    public function index(Request $request, Team $team): Response
+    public function index(Request $request): Response
     {
-        $this->authorizeTeam($request, $team);
+        $team = $request->user()->currentTeam;
 
         $agents = $team->agents()
             ->select([
@@ -33,6 +33,7 @@ class OrgChartController extends Controller
 
         return Inertia::render('governance/org/index', [
             'agents' => $agents,
+            'team' => $team,
         ]);
     }
 
@@ -63,7 +64,7 @@ class OrgChartController extends Controller
             payload: $validated,
         );
 
-        return redirect()->route('governance.org.index', $agent->team_id)
+        return redirect()->route('governance.org.index')
             ->with('success', 'Reporting structure updated.');
     }
 
