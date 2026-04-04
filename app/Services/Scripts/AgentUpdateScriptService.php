@@ -475,6 +475,7 @@ class AgentUpdateScriptService
             'http' => [
                 'endpoints' => [
                     'chatCompletions' => ['enabled' => true],
+                    'responses' => ['enabled' => true],
                 ],
             ],
         ];

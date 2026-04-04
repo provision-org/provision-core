@@ -300,6 +300,7 @@ OVERRIDE
             'http' => [
                 'endpoints' => [
                     'chatCompletions' => ['enabled' => true],
+                    'responses' => ['enabled' => true],
                 ],
             ],
         ];

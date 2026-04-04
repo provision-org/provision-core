@@ -31,7 +31,7 @@ class GatewayClient
     }
 
     /**
-     * Send a message and wait for the full assistant response via the gateway HTTP API.
+     * Send a message and wait for the full assistant response via the gateway Responses API.
      *
      * @param  list<array{type: string, mimeType: string, fileName: string, path: string}>  $attachments
      * @return list<array{type: string, text?: string, path?: string, fileName?: string, mimeType?: string}>|null
@@ -39,20 +39,27 @@ class GatewayClient
     public function chatSendAndWait(string $sessionKey, string $agentId, string $message, array $attachments = [], int $timeoutSeconds = 180): ?array
     {
         try {
-            $response = $this->curlApi($agentId, $sessionKey, $message, false, $timeoutSeconds);
+            $response = $this->callResponsesApi($agentId, $sessionKey, $message, false, $timeoutSeconds);
 
             if ($response === null) {
                 return null;
             }
 
             $data = json_decode($response, true);
-            $content = $data['choices'][0]['message']['content'] ?? null;
 
-            if ($content === null) {
+            // Extract text from the Responses API output format
+            $text = $this->extractTextFromResponsesOutput($data);
+
+            if ($text === null) {
+                // Fallback: try chat completions format
+                $text = $data['choices'][0]['message']['content'] ?? null;
+            }
+
+            if ($text === null) {
                 return null;
             }
 
-            return [['type' => 'text', 'text' => $content]];
+            return [['type' => 'text', 'text' => $text]];
         } catch (\Throwable $e) {
             Log::error('GatewayClient chatSendAndWait failed', [
                 'server_id' => $this->server->id,
@@ -67,16 +74,13 @@ class GatewayClient
     /**
      * Send a message and stream the assistant response via the gateway SSE API.
      *
-     * Uses curl inside the agent container to hit the gateway's loopback API,
-     * then parses the SSE output and yields token chunks.
-     *
      * @param  list<array{type: string, mimeType: string, fileName: string, path: string}>  $attachments
      * @return \Generator<int, array{type: string, text?: string, content?: list<array<string, mixed>>, message?: string}>
      */
     public function chatSendAndStream(string $sessionKey, string $agentId, string $message, array $attachments = [], int $timeoutSeconds = 300): \Generator
     {
         try {
-            $response = $this->curlApi($agentId, $sessionKey, $message, true, $timeoutSeconds);
+            $response = $this->callResponsesApi($agentId, $sessionKey, $message, true, $timeoutSeconds);
 
             if ($response === null) {
                 yield ['type' => 'error', 'message' => 'No response from the agent gateway.'];
@@ -84,7 +88,7 @@ class GatewayClient
                 return;
             }
 
-            // Parse SSE output: each line is "data: {...}" or "data: [DONE]"
+            // Parse SSE output
             $fullText = '';
             $lines = explode("\n", $response);
 
@@ -110,8 +114,8 @@ class GatewayClient
                     continue;
                 }
 
-                $delta = $parsed['choices'][0]['delta'] ?? [];
-                $tokenText = $delta['content'] ?? null;
+                // Handle both chat completions and responses streaming formats
+                $tokenText = $this->extractStreamingToken($parsed);
 
                 if ($tokenText !== null && $tokenText !== '') {
                     $fullText .= $tokenText;
@@ -119,7 +123,6 @@ class GatewayClient
                 }
             }
 
-            // If we got content but no [DONE]
             if ($fullText !== '') {
                 yield [
                     'type' => 'done',
@@ -155,54 +158,51 @@ class GatewayClient
     }
 
     // -------------------------------------------------------------------------
-    // Core API call via executor (runs curl inside the agent container)
+    // API call via executor (runs curl inside the agent container)
     // -------------------------------------------------------------------------
 
     /**
-     * Execute a curl request to the gateway API from inside the agent container.
+     * Call the Responses API (/v1/responses) on the gateway.
      *
-     * This works for both Docker and SSH because the gateway binds to loopback
-     * and we run curl on the same machine as the gateway.
+     * Uses curl inside the agent container to hit loopback, works for both
+     * Docker (docker exec) and SSH modes.
      */
-    private function curlApi(string $agentId, string $sessionKey, string $message, bool $stream, int $timeoutSeconds): ?string
+    private function callResponsesApi(string $agentId, string $sessionKey, string $message, bool $stream, int $timeoutSeconds): ?string
     {
         $port = $this->isHermes() ? 8642 : 18789;
         $token = $this->resolveApiToken($agentId);
-        $model = $this->resolveModel($agentId);
 
-        $payload = json_encode([
-            'model' => $model,
-            'messages' => [['role' => 'user', 'content' => $message]],
+        $payload = [
+            'model' => $this->resolveModel($agentId),
+            'input' => $message,
             'stream' => $stream,
-            'user' => $sessionKey,
-        ]);
-
-        $headers = [
-            '-H', 'Content-Type: application/json',
-            '-H', "Authorization: Bearer {$token}",
         ];
 
-        // Add harness-specific session headers
+        // Session continuity
         if ($this->isHermes()) {
-            $headers[] = '-H';
-            $headers[] = "X-Hermes-Session-Id: {$sessionKey}";
+            // Hermes: use named conversations for automatic session chaining
+            $payload['conversation'] = $sessionKey;
         } else {
-            $headers[] = '-H';
-            $headers[] = "x-openclaw-agent-id: {$agentId}";
-            $headers[] = '-H';
-            $headers[] = "x-openclaw-session-key: {$sessionKey}";
+            // OpenClaw: use 'user' field to derive stable session key
+            $payload['user'] = $sessionKey;
         }
 
-        $headerStr = implode(' ', array_map('escapeshellarg', $headers));
-        $escapedPayload = escapeshellarg($payload);
+        $payloadJson = json_encode($payload);
+
+        $headers = implode(' ', array_map('escapeshellarg', [
+            '-H', 'Content-Type: application/json',
+            '-H', "Authorization: Bearer {$token}",
+        ]));
+
+        $escapedPayload = escapeshellarg($payloadJson);
         $streamFlag = $stream ? '-N' : '';
 
-        $command = "curl -sS {$streamFlag} --max-time {$timeoutSeconds} {$headerStr} -d {$escapedPayload} http://127.0.0.1:{$port}/v1/chat/completions 2>&1";
+        $command = "curl -sS {$streamFlag} --max-time {$timeoutSeconds} {$headers} -d {$escapedPayload} http://127.0.0.1:{$port}/v1/responses 2>&1";
 
         $output = $this->executor->exec($command);
 
         if (str_contains($output, 'curl:') || str_contains($output, 'Connection refused')) {
-            Log::error('GatewayClient curl failed', [
+            Log::error('GatewayClient API call failed', [
                 'server_id' => $this->server->id,
                 'output' => substr($output, 0, 500),
             ]);
@@ -214,12 +214,64 @@ class GatewayClient
     }
 
     // -------------------------------------------------------------------------
-    // Harness-specific helpers
+    // Response parsing
     // -------------------------------------------------------------------------
 
     /**
-     * Resolve the API authentication token.
+     * Extract text from the Responses API output format.
+     *
+     * OpenResponses returns: {output: [{type: "message", content: [{type: "output_text", text: "..."}]}]}
      */
+    private function extractTextFromResponsesOutput(array $data): ?string
+    {
+        $output = $data['output'] ?? [];
+
+        foreach ($output as $item) {
+            if (($item['type'] ?? '') !== 'message') {
+                continue;
+            }
+
+            foreach ($item['content'] ?? [] as $block) {
+                if (($block['type'] ?? '') === 'output_text' && ! empty($block['text'])) {
+                    return $block['text'];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract a streaming token from an SSE chunk.
+     *
+     * Supports both chat completions format (delta.content) and
+     * responses streaming format (delta.text / content_part).
+     */
+    private function extractStreamingToken(array $parsed): ?string
+    {
+        // Chat completions format: choices[0].delta.content
+        $delta = $parsed['choices'][0]['delta'] ?? null;
+        if ($delta && isset($delta['content'])) {
+            return $delta['content'];
+        }
+
+        // Responses streaming format: type=response.output_text.delta
+        if (($parsed['type'] ?? '') === 'response.output_text.delta') {
+            return $parsed['delta'] ?? null;
+        }
+
+        // Responses content part
+        if (($parsed['type'] ?? '') === 'response.content_part.delta') {
+            return $parsed['delta']['text'] ?? null;
+        }
+
+        return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Harness-specific helpers
+    // -------------------------------------------------------------------------
+
     private function resolveApiToken(string $agentId): string
     {
         if ($this->isHermes()) {
@@ -234,7 +286,6 @@ class GatewayClient
             }
         }
 
-        // OpenClaw: read token from openclaw.json
         try {
             $configContent = $this->executor->exec('cat /root/.openclaw/openclaw.json 2>/dev/null');
             $config = json_decode($configContent, true);
@@ -245,9 +296,6 @@ class GatewayClient
         }
     }
 
-    /**
-     * Resolve the model name for the API request.
-     */
     private function resolveModel(string $agentId): string
     {
         if ($this->isHermes()) {
