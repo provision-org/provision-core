@@ -91,6 +91,7 @@ export default function Chat({
     >(null);
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [streamingText, setStreamingText] = useState<string | null>(null);
+    const lastStreamedMessageId = useRef<string | null>(null);
     const [isThinking, setIsThinking] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
 
@@ -107,11 +108,14 @@ export default function Chat({
         sent_at: string;
     }>(`team.${teamId}`, '.chat.message.received', (data) => {
         if (data.chat_conversation_id === activeConversationRef.current) {
-            // Only add if we're not actively streaming (streaming handles its own done)
-            if (streamingText === null) {
-                setMessages((prev) => [...prev, data]);
-                setIsThinking(false);
-            }
+            // Skip if we're streaming or if this message was already added by the stream
+            if (streamingText !== null) return;
+            if (data.id && data.id === lastStreamedMessageId.current) return;
+            setMessages((prev) => {
+                if (prev.some((m) => m.id === data.id)) return prev;
+                return [...prev, data];
+            });
+            setIsThinking(false);
         }
     });
 
@@ -222,7 +226,11 @@ export default function Chat({
 
                         case 'done':
                             // Add the final assistant message and clear streaming
-                            setMessages((prev) => [...prev, parsed]);
+                            if (parsed.id) lastStreamedMessageId.current = parsed.id;
+                            setMessages((prev) => {
+                                if (prev.some((m) => m.id === parsed.id)) return prev;
+                                return [...prev, parsed];
+                            });
                             setStreamingText(null);
                             break;
 
