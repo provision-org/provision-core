@@ -29,7 +29,7 @@ fi
 # Start provisiond (workforce agent daemon) if configured
 if [ -f /etc/provisiond/config.json ]; then
     echo "Starting provisiond v$(node -e 'console.log(require("/opt/provisiond/package.json").version)' 2>/dev/null || echo '?')..."
-    nohup node /opt/provisiond/index.js --config /etc/provisiond/config.json >> /var/log/provisiond.log 2>&1 &
+    nohup node /opt/provisiond/provisiond.mjs --config /etc/provisiond/config.json >> /var/log/provisiond.log 2>&1 &
     echo "provisiond started. Log: /var/log/provisiond.log"
 fi
 

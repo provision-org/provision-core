@@ -9,14 +9,15 @@
   },
   "scripts": {
     "build": "tsc",
+    "bundle": "esbuild src/index.ts --bundle --platform=node --target=node22 --format=esm --outfile=bundle/provisiond.mjs",
     "dev": "tsx src/index.ts",
     "test": "vitest run"
   },
-  "dependencies": {},
   "devDependencies": {
-    "typescript": "^5.7.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.28.0",
     "tsx": "^4.0.0",
-    "vitest": "^3.0.0",
-    "@types/node": "^22.0.0"
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
   }
 }
