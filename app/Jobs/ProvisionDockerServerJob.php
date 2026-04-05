@@ -9,6 +9,7 @@ use App\Services\DockerExecutor;
 use App\Services\OpenClawDefaultsService;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Str;
 
 class ProvisionDockerServerJob implements ShouldQueue
 {
@@ -33,7 +34,35 @@ class ProvisionDockerServerJob implements ShouldQueue
             $this->setupOpenClaw($executor, $defaultsService);
         }
 
-        $this->server->update(['status' => ServerStatus::Running]);
+        // Generate daemon token for provisiond
+        $daemonToken = Str::random(48);
+        $this->server->update([
+            'status' => ServerStatus::Running,
+            'daemon_token' => $daemonToken,
+        ]);
+
+        // Write provisiond config to agent-runtime container
+        $this->setupDaemon($executor, $daemonToken);
+    }
+
+    private function setupDaemon(DockerExecutor $executor, string $daemonToken): void
+    {
+        // In Docker, the daemon runs in agent-runtime container and needs to reach
+        // the app container via Docker network hostname, not localhost
+        $appUrl = config('provision.docker.app_url', 'http://provision-app-1:8000');
+
+        $config = json_encode([
+            'api_url' => $appUrl,
+            'api_token' => $daemonToken,
+            'server_id' => $this->server->id,
+            'poll_interval_seconds' => 30,
+            'max_concurrent_tasks' => 2,
+            'task_timeout_seconds' => 600,
+            'checkout_duration_seconds' => 3600,
+        ], JSON_PRETTY_PRINT);
+
+        $executor->exec('mkdir -p /etc/provisiond');
+        $executor->writeFile('/etc/provisiond/config.json', $config);
     }
 
     private function setupOpenClaw(DockerExecutor $executor, OpenClawDefaultsService $defaultsService): void
