@@ -65,7 +65,7 @@ function TaskCard({ task }: { task: GovernanceTask }) {
 
     return (
         <Link
-            href={`/governance/tasks/${task.id}`}
+            href={`/company/tasks/${task.id}`}
             className="block rounded-lg border bg-card p-3 shadow-xs transition-shadow hover:shadow-sm"
         >
             <div className="mb-2 flex items-center gap-2">
@@ -109,7 +109,7 @@ function TaskCard({ task }: { task: GovernanceTask }) {
                         className="size-6"
                         onClick={(e) => {
                             e.preventDefault();
-                            router.patch(`/governance/tasks/${task.id}`, {
+                            router.patch(`/company/tasks/${task.id}`, {
                                 status: STATUS_ORDER[statusIdx - 1],
                             });
                         }}
@@ -124,7 +124,7 @@ function TaskCard({ task }: { task: GovernanceTask }) {
                         className="size-6"
                         onClick={(e) => {
                             e.preventDefault();
-                            router.patch(`/governance/tasks/${task.id}`, {
+                            router.patch(`/company/tasks/${task.id}`, {
                                 status: STATUS_ORDER[statusIdx + 1],
                             });
                         }}
@@ -155,7 +155,7 @@ function CreateTaskDialog({
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        form.post('/governance/tasks', {
+        form.post('/company/tasks', {
             onSuccess: () => {
                 setOpen(false);
                 form.reset();
@@ -300,8 +300,8 @@ export default function TasksIndex({
     );
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Company', href: '/governance/tasks' },
-        { title: 'Tasks', href: '/governance/tasks' },
+        { title: 'Company', href: '/company/tasks' },
+        { title: 'Tasks', href: '/company/tasks' },
     ];
 
     function applyFilters(agent: string, priority: string) {
@@ -312,7 +312,7 @@ export default function TasksIndex({
         if (priority) {
             params.priority = priority;
         }
-        router.get('/governance/tasks', params, { preserveState: true });
+        router.get('/company/tasks', params, { preserveState: true });
     }
 
     const hasAnyTasks = tasks.length > 0;

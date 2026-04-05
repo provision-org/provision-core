@@ -18,10 +18,10 @@ test('user can list approvals for their team', function () {
 
     Approval::factory()->count(3)->create(['team_id' => $team->id, 'requesting_agent_id' => $agent->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.approvals.index', $team));
+    $response = $this->actingAs($user)->get(route('company.approvals.index'));
 
     $response->assertSuccessful();
-    $response->assertInertia(fn ($page) => $page->component('governance/approvals/index'));
+    $response->assertInertia(fn ($page) => $page->component('company/approvals/index'));
 });
 
 test('user can filter approvals by status', function () {
@@ -32,7 +32,7 @@ test('user can filter approvals by status', function () {
     Approval::factory()->create(['team_id' => $team->id, 'requesting_agent_id' => $agent->id, 'status' => ApprovalStatus::Pending]);
     Approval::factory()->approved()->create(['team_id' => $team->id, 'requesting_agent_id' => $agent->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.approvals.index', [
+    $response = $this->actingAs($user)->get(route('company.approvals.index', [
         'team' => $team,
         'status' => 'pending',
     ]));
@@ -46,10 +46,10 @@ test('user can view an approval', function () {
     $agent = Agent::factory()->create(['team_id' => $team->id]);
     $approval = Approval::factory()->create(['team_id' => $team->id, 'requesting_agent_id' => $agent->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.approvals.show', $approval));
+    $response = $this->actingAs($user)->get(route('company.approvals.show', $approval));
 
     $response->assertSuccessful();
-    $response->assertInertia(fn ($page) => $page->component('governance/approvals/show'));
+    $response->assertInertia(fn ($page) => $page->component('company/approvals/show'));
 });
 
 test('user can approve a pending approval', function () {
@@ -62,7 +62,7 @@ test('user can approve a pending approval', function () {
         'status' => ApprovalStatus::Pending,
     ]);
 
-    $response = $this->actingAs($user)->post(route('governance.approvals.approve', $approval), [
+    $response = $this->actingAs($user)->post(route('company.approvals.approve', $approval), [
         'review_note' => 'Looks good.',
     ]);
 
@@ -86,7 +86,7 @@ test('approving an approval unblocks the linked task', function () {
         'status' => ApprovalStatus::Pending,
     ]);
 
-    $this->actingAs($user)->post(route('governance.approvals.approve', $approval));
+    $this->actingAs($user)->post(route('company.approvals.approve', $approval));
 
     $task->refresh();
     expect($task->status)->toBe('todo');
@@ -102,7 +102,7 @@ test('user can reject a pending approval', function () {
         'status' => ApprovalStatus::Pending,
     ]);
 
-    $response = $this->actingAs($user)->post(route('governance.approvals.reject', $approval), [
+    $response = $this->actingAs($user)->post(route('company.approvals.reject', $approval), [
         'review_note' => 'Not aligned with goals.',
     ]);
 
@@ -122,7 +122,7 @@ test('user can request revision on an approval', function () {
         'status' => ApprovalStatus::Pending,
     ]);
 
-    $response = $this->actingAs($user)->post(route('governance.approvals.requestRevision', $approval), [
+    $response = $this->actingAs($user)->post(route('company.approvals.requestRevision', $approval), [
         'review_note' => 'Needs more detail on budget.',
     ]);
 
@@ -143,7 +143,7 @@ test('cannot approve a non-pending approval', function () {
         'reviewed_by' => $user->id,
     ]);
 
-    $response = $this->actingAs($user)->post(route('governance.approvals.approve', $approval));
+    $response = $this->actingAs($user)->post(route('company.approvals.approve', $approval));
 
     $response->assertStatus(422);
 });
@@ -158,7 +158,7 @@ test('approval actions log audit entries', function () {
         'status' => ApprovalStatus::Pending,
     ]);
 
-    $this->actingAs($user)->post(route('governance.approvals.approve', $approval));
+    $this->actingAs($user)->post(route('company.approvals.approve', $approval));
 
     $this->assertDatabaseHas('audit_log', [
         'team_id' => $team->id,

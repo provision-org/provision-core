@@ -58,7 +58,7 @@ it('creates audit log entries without optional fields', function () {
         teamId: $this->team->id,
         actorType: ActorType::System,
         actorId: 'system',
-        action: 'governance.mode_changed',
+        action: 'company.mode_changed',
     );
 
     expect($entry->target_type)->toBeNull()

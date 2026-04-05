@@ -38,7 +38,7 @@ class GoalController extends Controller
 
         $goals = $query->orderByDesc('created_at')->get();
 
-        return Inertia::render('governance/goals/index', [
+        return Inertia::render('company/goals/index', [
             'team' => $team,
             'goals' => $goals,
             'agents' => $team->agents()->where('agent_mode', 'workforce')->select(['id', 'name', 'org_title'])->get(),
@@ -66,7 +66,7 @@ class GoalController extends Controller
             payload: ['title' => $goal->title],
         );
 
-        return redirect()->route('governance.goals.index', $team)
+        return redirect()->route('company.goals.index')
             ->with('success', 'Goal created.');
     }
 
@@ -88,7 +88,7 @@ class GoalController extends Controller
             payload: $request->validated(),
         );
 
-        return redirect()->route('governance.goals.index', $goal->team_id)
+        return redirect()->route('company.goals.index')
             ->with('success', 'Goal updated.');
     }
 
@@ -107,7 +107,7 @@ class GoalController extends Controller
             targetId: $goal->id,
         );
 
-        return redirect()->route('governance.goals.index', $goal->team_id)
+        return redirect()->route('company.goals.index')
             ->with('success', 'Goal abandoned.');
     }
 

@@ -87,8 +87,8 @@ export default function AuditIndex({
     const [actionFilter, setActionFilter] = useState(filters.action ?? '');
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Company', href: '/governance/tasks' },
-        { title: 'Audit Log', href: '/governance/audit' },
+        { title: 'Company', href: '/company/tasks' },
+        { title: 'Audit Log', href: '/company/audit' },
     ];
 
     // Support both paginated and plain array
@@ -106,7 +106,7 @@ export default function AuditIndex({
         if (action) {
             params.action = action;
         }
-        router.get('/governance/audit', params, { preserveState: true });
+        router.get('/company/audit', params, { preserveState: true });
     }
 
     // Collect unique actions for the filter

@@ -44,7 +44,7 @@ class GovernanceTaskController extends Controller
 
         $tasks = $query->orderByDesc('created_at')->get();
 
-        return Inertia::render('governance/tasks/index', [
+        return Inertia::render('company/tasks/index', [
             'team' => $team,
             'tasks' => $tasks,
             'filters' => $request->only(['status', 'agent_id', 'goal_id', 'priority']),
@@ -79,7 +79,7 @@ class GovernanceTaskController extends Controller
 
         event(new TaskStatusChangedEvent($task->load('agent'), '', 'todo'));
 
-        return redirect()->route('governance.tasks.index', $team)
+        return redirect()->route('company.tasks.index')
             ->with('success', 'Task created.');
     }
 
@@ -111,7 +111,7 @@ class GovernanceTaskController extends Controller
             }
         }
 
-        return Inertia::render('governance/tasks/show', [
+        return Inertia::render('company/tasks/show', [
             'task' => $task,
             'auditEntries' => $auditEntries,
             'goalAncestry' => array_reverse($goalAncestry),
@@ -145,7 +145,7 @@ class GovernanceTaskController extends Controller
             payload: $validated,
         );
 
-        return redirect()->route('governance.tasks.show', $task)
+        return redirect()->route('company.tasks.show', $task)
             ->with('success', 'Task updated.');
     }
 
@@ -170,7 +170,7 @@ class GovernanceTaskController extends Controller
             targetId: $task->id,
         );
 
-        return redirect()->route('governance.tasks.index', $task->team_id)
+        return redirect()->route('company.tasks.index')
             ->with('success', 'Task cancelled.');
     }
 

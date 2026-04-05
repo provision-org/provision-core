@@ -26,10 +26,10 @@ test('user can list tasks for their team', function () {
 
     Task::factory()->count(3)->create(['team_id' => $team->id, 'agent_id' => $agent->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.tasks.index', $team));
+    $response = $this->actingAs($user)->get(route('company.tasks.index'));
 
     $response->assertSuccessful();
-    $response->assertInertia(fn ($page) => $page->component('governance/tasks/index'));
+    $response->assertInertia(fn ($page) => $page->component('company/tasks/index'));
 });
 
 test('user can filter tasks by status', function () {
@@ -40,7 +40,7 @@ test('user can filter tasks by status', function () {
     Task::factory()->create(['team_id' => $team->id, 'agent_id' => $agent->id, 'status' => 'todo']);
     Task::factory()->done()->create(['team_id' => $team->id, 'agent_id' => $agent->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.tasks.index', [
+    $response = $this->actingAs($user)->get(route('company.tasks.index', [
         'team' => $team,
         'status' => 'todo',
     ]));
@@ -53,14 +53,14 @@ test('user can create a task', function () {
     $team = $user->currentTeam;
     $agent = workforceAgent($team);
 
-    $response = $this->actingAs($user)->post(route('governance.tasks.store', $team), [
+    $response = $this->actingAs($user)->post(route('company.tasks.store'), [
         'title' => 'Research competitors',
         'description' => 'Analyze top 5 competitors',
         'agent_id' => $agent->id,
         'priority' => TaskPriority::High->value,
     ]);
 
-    $response->assertRedirect(route('governance.tasks.index', $team));
+    $response->assertRedirect(route('company.tasks.index'));
 
     $this->assertDatabaseHas('tasks', [
         'team_id' => $team->id,
@@ -75,7 +75,7 @@ test('task creation logs audit entry', function () {
     $team = $user->currentTeam;
     $agent = workforceAgent($team);
 
-    $this->actingAs($user)->post(route('governance.tasks.store', $team), [
+    $this->actingAs($user)->post(route('company.tasks.store'), [
         'title' => 'Audit test task',
         'agent_id' => $agent->id,
         'priority' => TaskPriority::Medium->value,
@@ -93,10 +93,10 @@ test('user can view a task with details', function () {
     $agent = workforceAgent($team);
     $task = Task::factory()->create(['team_id' => $team->id, 'agent_id' => $agent->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.tasks.show', $task));
+    $response = $this->actingAs($user)->get(route('company.tasks.show', $task));
 
     $response->assertSuccessful();
-    $response->assertInertia(fn ($page) => $page->component('governance/tasks/show'));
+    $response->assertInertia(fn ($page) => $page->component('company/tasks/show'));
 });
 
 test('user can update a task status', function () {
@@ -105,7 +105,7 @@ test('user can update a task status', function () {
     $agent = workforceAgent($team);
     $task = Task::factory()->create(['team_id' => $team->id, 'agent_id' => $agent->id, 'status' => 'todo']);
 
-    $response = $this->actingAs($user)->patch(route('governance.tasks.update', $task), [
+    $response = $this->actingAs($user)->patch(route('company.tasks.update', $task), [
         'status' => 'done',
     ]);
 
@@ -125,7 +125,7 @@ test('user can cancel a task and cascade to sub-tasks', function () {
     $sub1 = Task::factory()->create(['team_id' => $team->id, 'agent_id' => $agent->id, 'parent_task_id' => $parent->id, 'status' => 'todo']);
     $sub2 = Task::factory()->done()->create(['team_id' => $team->id, 'agent_id' => $agent->id, 'parent_task_id' => $parent->id]);
 
-    $response = $this->actingAs($user)->delete(route('governance.tasks.destroy', $parent));
+    $response = $this->actingAs($user)->delete(route('company.tasks.destroy', $parent));
 
     $response->assertRedirect();
 
@@ -141,7 +141,7 @@ test('user can cancel a task and cascade to sub-tasks', function () {
 test('user only sees their own team tasks', function () {
     $user = taskUser();
 
-    $response = $this->actingAs($user)->get(route('governance.tasks.index'));
+    $response = $this->actingAs($user)->get(route('company.tasks.index'));
 
     $response->assertOk();
 });

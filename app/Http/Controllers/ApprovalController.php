@@ -35,7 +35,7 @@ class ApprovalController extends Controller
 
         $approvals = $query->orderByDesc('created_at')->get();
 
-        return Inertia::render('governance/approvals/index', [
+        return Inertia::render('company/approvals/index', [
             'team' => $team,
             'approvals' => $approvals,
             'filters' => $request->only(['status', 'type']),
@@ -48,7 +48,7 @@ class ApprovalController extends Controller
 
         $approval->load(['requestingAgent', 'linkedTask.agent', 'reviewedBy']);
 
-        return Inertia::render('governance/approvals/show', [
+        return Inertia::render('company/approvals/show', [
             'approval' => $approval,
         ]);
     }
@@ -86,7 +86,7 @@ class ApprovalController extends Controller
 
         event(new ApprovalResolvedEvent($approval));
 
-        return redirect()->route('governance.approvals.index', $approval->team_id)
+        return redirect()->route('company.approvals.index')
             ->with('success', 'Approval granted.');
     }
 
@@ -118,7 +118,7 @@ class ApprovalController extends Controller
 
         event(new ApprovalResolvedEvent($approval));
 
-        return redirect()->route('governance.approvals.index', $approval->team_id)
+        return redirect()->route('company.approvals.index')
             ->with('success', 'Approval rejected.');
     }
 
@@ -149,7 +149,7 @@ class ApprovalController extends Controller
             payload: ['note' => $request->input('review_note')],
         );
 
-        return redirect()->route('governance.approvals.index', $approval->team_id)
+        return redirect()->route('company.approvals.index')
             ->with('success', 'Revision requested.');
     }
 

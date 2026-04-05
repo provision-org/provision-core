@@ -176,8 +176,8 @@ export default function OrgIndex({
     team: Team;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Company', href: '/governance/tasks' },
-        { title: 'Org Chart', href: '/governance/org' },
+        { title: 'Company', href: '/company/tasks' },
+        { title: 'Org Chart', href: '/company/org' },
     ];
 
     const workforce = agents.filter((a) => a.agent_mode === 'workforce');

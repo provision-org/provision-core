@@ -37,7 +37,7 @@ class AuditLogController extends Controller
 
         $entries = $query->orderByDesc('created_at')->paginate(50);
 
-        return Inertia::render('governance/audit/index', [
+        return Inertia::render('company/audit/index', [
             'team' => $team,
             'entries' => $entries,
             'filters' => $request->only(['actor_type', 'action', 'target_type', 'from', 'to']),

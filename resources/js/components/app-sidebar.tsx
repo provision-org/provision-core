@@ -39,7 +39,7 @@ import type { NavItem, SharedData } from '@/types';
 const platformNavItems: NavItem[] = [
     { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { title: 'My Agents', href: '/agents', icon: Bot },
-    { title: 'Task Board', href: '/governance/tasks', icon: KanbanSquare },
+    { title: 'Task Board', href: '/company/tasks', icon: KanbanSquare },
 ];
 
 const exploreNavItems: NavItem[] = [
@@ -47,15 +47,15 @@ const exploreNavItems: NavItem[] = [
 ];
 
 const companyNavItems: NavItem[] = [
-    { title: 'Org Chart', href: '/governance/org', icon: Network },
-    { title: 'Goals', href: '/governance/goals', icon: Target },
+    { title: 'Org Chart', href: '/company/org', icon: Network },
+    { title: 'Goals', href: '/company/goals', icon: Target },
     {
         title: 'Approvals',
-        href: '/governance/approvals',
+        href: '/company/approvals',
         icon: ShieldCheckIcon,
     },
-    { title: 'Usage', href: '/governance/usage', icon: BarChart3 },
-    { title: 'Audit Log', href: '/governance/audit', icon: ScrollText },
+    { title: 'Usage', href: '/company/usage', icon: BarChart3 },
+    { title: 'Audit Log', href: '/company/audit', icon: ScrollText },
 ];
 
 const trainingNavItems: NavItem[] = [
@@ -244,7 +244,7 @@ export function AppSidebar() {
                     label="Company"
                     items={companyNavItems}
                     badges={{
-                        '/governance/approvals': pendingApprovalCount,
+                        '/company/approvals': pendingApprovalCount,
                     }}
                 />
                 <NavSection label="Explore" items={exploreNavItems} />

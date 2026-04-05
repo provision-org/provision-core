@@ -170,7 +170,7 @@ function CreateGoalDialog({
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        form.post('/governance/goals', {
+        form.post('/company/goals', {
             onSuccess: () => {
                 setOpen(false);
                 form.reset();
@@ -344,8 +344,8 @@ export default function GoalsIndex({
     team: Team;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Company', href: '/governance/tasks' },
-        { title: 'Goals', href: '/governance/goals' },
+        { title: 'Company', href: '/company/tasks' },
+        { title: 'Goals', href: '/company/goals' },
     ];
 
     return (

@@ -98,8 +98,8 @@ export default function UsageIndex({
     team: Team;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Company', href: '/governance/tasks' },
-        { title: 'Usage', href: '/governance/usage' },
+        { title: 'Company', href: '/company/tasks' },
+        { title: 'Usage', href: '/company/usage' },
     ];
 
     const totalTokens = totalInputTokens + totalOutputTokens;
@@ -134,7 +134,7 @@ export default function UsageIndex({
                             value={period}
                             onValueChange={(v) =>
                                 router.get(
-                                    '/governance/usage',
+                                    '/company/usage',
                                     { period: v },
                                     { preserveState: true },
                                 )

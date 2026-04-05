@@ -73,8 +73,8 @@ function ReviewDialog({
         e.preventDefault();
         const endpoint =
             action === 'approved'
-                ? `/governance/approvals/${approval.id}/approve`
-                : `/governance/approvals/${approval.id}/reject`;
+                ? `/company/approvals/${approval.id}/approve`
+                : `/company/approvals/${approval.id}/reject`;
         form.post(endpoint, {
             onSuccess: () => onOpenChange(false),
         });
@@ -176,7 +176,7 @@ function ApprovalCard({ approval }: { approval: Approval }) {
                             </span>
                             {approval.linked_task && (
                                 <Link
-                                    href={`/governance/tasks/${approval.linked_task.id}`}
+                                    href={`/company/tasks/${approval.linked_task.id}`}
                                     className="flex items-center gap-1 font-medium text-primary hover:underline"
                                 >
                                     {approval.linked_task.identifier}
@@ -261,8 +261,8 @@ export default function ApprovalsIndex({
     const [tab, setTab] = useState<Tab>('pending');
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Company', href: '/governance/tasks' },
-        { title: 'Approvals', href: '/governance/approvals' },
+        { title: 'Company', href: '/company/tasks' },
+        { title: 'Approvals', href: '/company/approvals' },
     ];
 
     const pendingCount = approvals.filter((a) => a.status === 'pending').length;

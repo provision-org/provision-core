@@ -29,9 +29,9 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
     const form = useForm({ status: '' as string, review_note: '' });
 
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Governance', href: '/governance/tasks' },
-        { title: 'Approvals', href: '/governance/approvals' },
-        { title: approval.title, href: `/governance/approvals/${approval.id}` },
+        { title: 'Governance', href: '/company/tasks' },
+        { title: 'Approvals', href: '/company/approvals' },
+        { title: approval.title, href: `/company/approvals/${approval.id}` },
     ];
 
     function handleReview(action: 'approved' | 'rejected') {
@@ -39,7 +39,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
             ...data,
             status: action,
         }));
-        form.patch(`/governance/approvals/${approval.id}`);
+        form.patch(`/company/approvals/${approval.id}`);
     }
 
     return (
@@ -127,7 +127,7 @@ export default function ApprovalShow({ approval }: { approval: Approval }) {
                             Linked Task
                         </h2>
                         <Link
-                            href={`/governance/tasks/${approval.linked_task.id}`}
+                            href={`/company/tasks/${approval.linked_task.id}`}
                             className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm hover:bg-muted/50"
                         >
                             <Badge

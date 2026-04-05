@@ -31,7 +31,7 @@ class OrgChartController extends Controller
             ->with(['manager:id,name', 'directReports:id,name,reports_to'])
             ->get();
 
-        return Inertia::render('governance/org/index', [
+        return Inertia::render('company/org/index', [
             'agents' => $agents,
             'team' => $team,
         ]);
@@ -64,7 +64,7 @@ class OrgChartController extends Controller
             payload: $validated,
         );
 
-        return redirect()->route('governance.org.index')
+        return redirect()->route('company.org.index')
             ->with('success', 'Reporting structure updated.');
     }
 

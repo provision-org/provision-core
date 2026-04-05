@@ -16,11 +16,11 @@ test('user can list goals for their team', function () {
 
     Goal::factory()->count(3)->create(['team_id' => $team->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.goals.index', $team));
+    $response = $this->actingAs($user)->get(route('company.goals.index'));
 
     $response->assertSuccessful();
     $response->assertInertia(fn ($page) => $page
-        ->component('governance/goals/index')
+        ->component('company/goals/index')
         ->has('goals', 3)
     );
 });
@@ -32,7 +32,7 @@ test('user can filter goals by status', function () {
     Goal::factory()->create(['team_id' => $team->id, 'status' => GoalStatus::Active]);
     Goal::factory()->achieved()->create(['team_id' => $team->id]);
 
-    $response = $this->actingAs($user)->get(route('governance.goals.index', [
+    $response = $this->actingAs($user)->get(route('company.goals.index', [
         'team' => $team,
         'status' => 'active',
     ]));
@@ -45,12 +45,12 @@ test('user can create a goal', function () {
     $user = goalUser();
     $team = $user->currentTeam;
 
-    $response = $this->actingAs($user)->post(route('governance.goals.store', $team), [
+    $response = $this->actingAs($user)->post(route('company.goals.store'), [
         'title' => 'Increase MRR to $100k',
         'priority' => GoalPriority::High->value,
     ]);
 
-    $response->assertRedirect(route('governance.goals.index', $team));
+    $response->assertRedirect(route('company.goals.index'));
 
     $this->assertDatabaseHas('goals', [
         'team_id' => $team->id,
@@ -64,7 +64,7 @@ test('creating a goal logs an audit entry', function () {
     $user = goalUser();
     $team = $user->currentTeam;
 
-    $this->actingAs($user)->post(route('governance.goals.store', $team), [
+    $this->actingAs($user)->post(route('company.goals.store'), [
         'title' => 'Audit test goal',
         'priority' => GoalPriority::Medium->value,
     ]);
@@ -81,7 +81,7 @@ test('user can create a child goal', function () {
     $team = $user->currentTeam;
     $parent = Goal::factory()->create(['team_id' => $team->id]);
 
-    $response = $this->actingAs($user)->post(route('governance.goals.store', $team), [
+    $response = $this->actingAs($user)->post(route('company.goals.store'), [
         'title' => 'Sub-goal A',
         'priority' => GoalPriority::Medium->value,
         'parent_id' => $parent->id,
@@ -100,7 +100,7 @@ test('user can update a goal', function () {
     $team = $user->currentTeam;
     $goal = Goal::factory()->create(['team_id' => $team->id]);
 
-    $response = $this->actingAs($user)->patch(route('governance.goals.update', $goal), [
+    $response = $this->actingAs($user)->patch(route('company.goals.update', $goal), [
         'title' => 'Updated title',
         'status' => GoalStatus::Achieved->value,
     ]);
@@ -117,7 +117,7 @@ test('user can soft-abandon a goal', function () {
     $team = $user->currentTeam;
     $goal = Goal::factory()->create(['team_id' => $team->id]);
 
-    $response = $this->actingAs($user)->delete(route('governance.goals.destroy', $goal));
+    $response = $this->actingAs($user)->delete(route('company.goals.destroy', $goal));
 
     $response->assertRedirect();
 
@@ -144,7 +144,7 @@ test('user only sees their own team goals', function () {
     Goal::factory()->create(['team_id' => $otherUser->currentTeam->id]);
 
     // User should only see their own team's goals (none)
-    $response = $this->actingAs($user)->get(route('governance.goals.index'));
+    $response = $this->actingAs($user)->get(route('company.goals.index'));
 
     $response->assertOk();
 });

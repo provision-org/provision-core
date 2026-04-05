@@ -60,9 +60,9 @@ export default function TaskShow({
     auditEntries?: AuditEntry[];
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
-        { title: 'Company', href: '/governance/tasks' },
-        { title: 'Tasks', href: '/governance/tasks' },
-        { title: task.identifier, href: `/governance/tasks/${task.id}` },
+        { title: 'Company', href: '/company/tasks' },
+        { title: 'Tasks', href: '/company/tasks' },
+        { title: task.identifier, href: `/company/tasks/${task.id}` },
     ];
 
     const totalInput = usageEvents.reduce((s, e) => s + e.input_tokens, 0);
@@ -160,7 +160,7 @@ export default function TaskShow({
                                     <ChevronRight className="size-3 text-muted-foreground" />
                                 )}
                                 <Link
-                                    href={`/governance/goals`}
+                                    href={`/company/goals`}
                                     className="hover:underline"
                                 >
                                     {g.title}
@@ -206,7 +206,7 @@ export default function TaskShow({
                             {subTasks.map((st) => (
                                 <Link
                                     key={st.id}
-                                    href={`/governance/tasks/${st.id}`}
+                                    href={`/company/tasks/${st.id}`}
                                     className="flex items-center gap-3 rounded-lg border px-4 py-3 transition-colors hover:bg-muted/50"
                                 >
                                     <Badge

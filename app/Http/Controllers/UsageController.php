@@ -33,7 +33,7 @@ class UsageController extends Controller
             ->select(DB::raw('SUM(input_tokens) as total_input'), DB::raw('SUM(output_tokens) as total_output'), DB::raw('COUNT(*) as event_count'))
             ->first();
 
-        return Inertia::render('governance/usage/index', [
+        return Inertia::render('company/usage/index', [
             'team' => $team,
             'totalInputTokens' => (int) ($totals->total_input ?? 0),
             'totalOutputTokens' => (int) ($totals->total_output ?? 0),
