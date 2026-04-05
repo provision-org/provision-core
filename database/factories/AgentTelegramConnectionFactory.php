@@ -4,10 +4,11 @@ namespace Database\Factories;
 
 use App\Enums\TelegramConnectionStatus;
 use App\Models\Agent;
+use App\Models\AgentTelegramConnection;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\AgentTelegramConnection>
+ * @extends Factory<AgentTelegramConnection>
  */
 class AgentTelegramConnectionFactory extends Factory
 {

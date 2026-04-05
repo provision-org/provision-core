@@ -121,5 +121,5 @@ it('cleans up orphaned volume on failure', function () {
     app()->instance(CloudServiceFactory::class, $factory);
 
     $job = new ProvisionDigitalOceanServerJob($server);
-    $job->failed(new \RuntimeException('Test failure'));
+    $job->failed(new RuntimeException('Test failure'));
 });

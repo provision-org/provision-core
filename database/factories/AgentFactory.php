@@ -2,14 +2,16 @@
 
 namespace Database\Factories;
 
+use App\Enums\AgentMode;
 use App\Enums\AgentRole;
 use App\Enums\AgentStatus;
 use App\Enums\HarnessType;
+use App\Models\Agent;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\Agent>
+ * @extends Factory<Agent>
  */
 class AgentFactory extends Factory
 {
@@ -25,6 +27,7 @@ class AgentFactory extends Factory
             'status' => AgentStatus::Active,
             'model_primary' => 'claude-opus-4-6',
             'harness_type' => HarnessType::OpenClaw,
+            'agent_mode' => AgentMode::Channel,
         ];
     }
 

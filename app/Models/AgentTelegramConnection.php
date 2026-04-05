@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\TelegramConnectionStatus;
 use App\Observers\ChannelConnectionObserver;
+use Database\Factories\AgentTelegramConnectionFactory;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[ObservedBy(ChannelConnectionObserver::class)]
 class AgentTelegramConnection extends Model
 {
-    /** @use HasFactory<\Database\Factories\AgentTelegramConnectionFactory> */
+    /** @use HasFactory<AgentTelegramConnectionFactory> */
     use HasFactory, HasUlids;
 
     /**

@@ -6,9 +6,10 @@ use App\Models\AgentDailyStat;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('it returns daily delta data for an agent', function () {
     Bus::fake();

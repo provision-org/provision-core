@@ -6,7 +6,9 @@ use App\Models\GatewayConfig;
 use App\Models\Server;
 use App\Models\ServerEvent;
 use App\Models\Team;
+use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 
 uses(RefreshDatabase::class);
 
@@ -75,7 +77,7 @@ it('encrypts the gateway_token', function () {
     expect($server->gateway_token)->toBe('secret-token');
 
     // Verify it's stored encrypted in the database
-    $raw = \Illuminate\Support\Facades\DB::table('servers')
+    $raw = DB::table('servers')
         ->where('id', $server->id)
         ->value('gateway_token');
 
@@ -85,6 +87,6 @@ it('encrypts the gateway_token', function () {
 it('casts provisioned_at and last_health_check to datetime', function () {
     $server = Server::factory()->running()->create();
 
-    expect($server->provisioned_at)->toBeInstanceOf(\Carbon\CarbonInterface::class)
-        ->and($server->last_health_check)->toBeInstanceOf(\Carbon\CarbonInterface::class);
+    expect($server->provisioned_at)->toBeInstanceOf(CarbonInterface::class)
+        ->and($server->last_health_check)->toBeInstanceOf(CarbonInterface::class);
 });

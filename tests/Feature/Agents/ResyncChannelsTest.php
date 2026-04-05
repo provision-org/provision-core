@@ -6,9 +6,10 @@ use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('an admin can resync channels for an active agent', function () {
     Bus::fake();

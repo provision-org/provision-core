@@ -5,11 +5,13 @@ use App\Models\Agent;
 use App\Models\Server;
 use App\Models\User;
 use App\Services\SshService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Mockery\MockInterface;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
-function mockSshForWorkspace(Server $server): Mockery\MockInterface
+function mockSshForWorkspace(Server $server): MockInterface
 {
     $mock = Mockery::mock(SshService::class);
     $mock->shouldReceive('connect')

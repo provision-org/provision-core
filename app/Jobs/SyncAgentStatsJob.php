@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\AgentStatus;
+use App\Enums\HarnessType;
 use App\Enums\ServerStatus;
 use App\Events\AgentActivityEvent;
 use App\Events\AgentUpdatedEvent;
@@ -117,7 +118,7 @@ JS;
     {
         try {
             $output = match ($agent->harness_type) {
-                \App\Enums\HarnessType::Hermes => $this->fetchHermesStats($agent, $sshService),
+                HarnessType::Hermes => $this->fetchHermesStats($agent, $sshService),
                 default => $sshService->exec("node /tmp/agent-stats.js {$agent->harness_agent_id}"),
             };
             $stats = json_decode(trim($output), true);

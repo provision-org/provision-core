@@ -9,9 +9,10 @@ use App\Models\TeamApiKey;
 use App\Models\TeamEnvVar;
 use App\Services\OpenClawDefaultsService;
 use App\Services\SshService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 function mockSshWithConfigUpdate(SshService $sshService, ?string &$writtenConfig = null): void
 {

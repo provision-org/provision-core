@@ -36,7 +36,6 @@ import {
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import ActivityFeed from '@/components/agents/activity-feed';
-import MemoryBrowser from '@/components/agents/memory-browser';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import {
     TelegramIcon,
@@ -44,6 +43,7 @@ import {
     DiscordIcon,
 } from '@/components/agents/channel-icons';
 import DebugLogsDialog from '@/components/agents/debug-logs-dialog';
+import MemoryBrowser from '@/components/agents/memory-browser';
 import StatusBadge from '@/components/agents/status-badge';
 import UsageChart from '@/components/agents/usage-chart';
 import DeleteConfirmDialog from '@/components/delete-confirm-dialog';
@@ -1098,7 +1098,8 @@ function ChannelsTab({ agent }: { agent: Agent }) {
                                 </span>
                             </div>
                             <p className="mt-0.5 text-sm text-muted-foreground">
-                                Chat directly with your agent from the browser. No setup needed.
+                                Chat directly with your agent from the browser.
+                                No setup needed.
                             </p>
                         </div>
                     </div>
@@ -2828,7 +2829,9 @@ export default function ShowAgent({
                                         <StatusBadge status={agent.status} />
                                         {agent.harness_type && (
                                             <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-                                                {agent.harness_type === 'hermes' ? 'Hermes' : 'OpenClaw'}
+                                                {agent.harness_type === 'hermes'
+                                                    ? 'Hermes'
+                                                    : 'OpenClaw'}
                                             </span>
                                         )}
                                     </div>
@@ -2960,12 +2963,40 @@ export default function ShowAgent({
                         ) : (
                             <div className="flex flex-col items-center justify-center gap-3 px-4 py-20 text-center">
                                 <div className="flex size-12 items-center justify-center rounded-xl border border-foreground/10 bg-background shadow-sm">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-muted-foreground"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>
+                                    <svg
+                                        xmlns="http://www.w3.org/2000/svg"
+                                        width="20"
+                                        height="20"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="2"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        className="text-muted-foreground"
+                                    >
+                                        <rect
+                                            width="20"
+                                            height="16"
+                                            x="2"
+                                            y="4"
+                                            rx="2"
+                                        />
+                                        <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" />
+                                    </svg>
                                 </div>
-                                <h3 className="text-lg font-semibold">Email Identities</h3>
+                                <h3 className="text-lg font-semibold">
+                                    Email Identities
+                                </h3>
                                 <p className="max-w-sm text-sm text-muted-foreground">
-                                    Email identities are available with Provision Cloud.{' '}
-                                    <a href="https://provision.ai" target="_blank" rel="noopener noreferrer" className="text-primary underline underline-offset-4 hover:text-primary/80">
+                                    Email identities are available with
+                                    Provision Cloud.{' '}
+                                    <a
+                                        href="https://provision.ai"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-primary underline underline-offset-4 hover:text-primary/80"
+                                    >
                                         Learn more at provision.ai
                                     </a>
                                 </p>

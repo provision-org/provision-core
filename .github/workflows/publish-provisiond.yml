@@ -1,0 +1,59 @@
+name: Publish provisiond
+
+on:
+  push:
+    tags:
+      - 'provisiond-v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: packages/provisiond
+        run: npm ci
+
+      - name: Run tests
+        working-directory: packages/provisiond
+        run: npm test
+
+      - name: Bundle
+        working-directory: packages/provisiond
+        run: npm run bundle
+
+      - name: Get version
+        id: version
+        working-directory: packages/provisiond
+        run: echo "version=$(node -e 'console.log(require("./package.json").version)')" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: provisiond v${{ steps.version.outputs.version }}
+          body: |
+            ## provisiond v${{ steps.version.outputs.version }}
+
+            Provision Workforce Agent Daemon — orchestrates task execution for workforce agents.
+
+            ### Install
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/provisiond.mjs -o /opt/provisiond/provisiond.mjs
+            chmod +x /opt/provisiond/provisiond.mjs
+            ```
+
+            ### Run
+            ```bash
+            node /opt/provisiond/provisiond.mjs --config /etc/provisiond/config.json
+            ```
+          files: |
+            packages/provisiond/bundle/provisiond.mjs
+          fail_on_unmatched_files: true

@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Jobs\DestroyTeamJob;
 use App\Models\User;
 use Illuminate\Console\Command;
 use Laravel\Cashier\Cashier;
@@ -54,7 +55,7 @@ class ResetUser extends Command
                 }
 
                 // Dispatch synchronous cleanup (external APIs + DB cascade)
-                \App\Jobs\DestroyTeamJob::dispatchSync($team);
+                DestroyTeamJob::dispatchSync($team);
                 $this->info("  Destroyed team {$team->id} (agents, server, keys, external resources)");
             }
 

@@ -89,9 +89,7 @@ export default function MemoryBrowser({ agent }: { agent: Agent }) {
                 setSelectedFile(filename);
             } catch (err) {
                 setError(
-                    err instanceof Error
-                        ? err.message
-                        : 'Failed to load file.',
+                    err instanceof Error ? err.message : 'Failed to load file.',
                 );
             } finally {
                 setFileLoading(false);
@@ -196,7 +194,7 @@ export default function MemoryBrowser({ agent }: { agent: Agent }) {
                 {/* Left panel: file list */}
                 <div className="w-56 shrink-0 border-r">
                     <div className="border-b px-3 py-2">
-                        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                        <h4 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
                             Memory Files
                         </h4>
                     </div>
@@ -213,12 +211,10 @@ export default function MemoryBrowser({ agent }: { agent: Agent }) {
                                 )}
                             >
                                 <BookOpen className="size-3.5 shrink-0 text-muted-foreground" />
-                                <span className="truncate">
-                                    MEMORY.md
-                                </span>
+                                <span className="truncate">MEMORY.md</span>
                                 <Badge
                                     variant="secondary"
-                                    className="ml-auto shrink-0 text-[10px] px-1 py-0"
+                                    className="ml-auto shrink-0 px-1 py-0 text-[10px]"
                                 >
                                     Index
                                 </Badge>
@@ -257,31 +253,38 @@ export default function MemoryBrowser({ agent }: { agent: Agent }) {
                         <div className="flex h-full flex-col">
                             {/* File header */}
                             <div className="flex items-center justify-between border-b px-4 py-2">
-                                <div className="flex items-center gap-2 min-w-0">
+                                <div className="flex min-w-0 items-center gap-2">
                                     <span className="truncate text-sm font-medium">
                                         {fileDetail.filename}
                                     </span>
                                     {fileDetail.frontmatter && (
-                                        <div className="flex items-center gap-1.5 shrink-0">
+                                        <div className="flex shrink-0 items-center gap-1.5">
                                             {fileDetail.frontmatter.type && (
                                                 <Badge
                                                     variant="secondary"
-                                                    className="text-[10px] px-1.5 py-0"
+                                                    className="px-1.5 py-0 text-[10px]"
                                                 >
-                                                    {fileDetail.frontmatter.type}
+                                                    {
+                                                        fileDetail.frontmatter
+                                                            .type
+                                                    }
                                                 </Badge>
                                             )}
                                             {fileDetail.frontmatter.name &&
                                                 fileDetail.frontmatter.name !==
                                                     fileDetail.filename && (
                                                     <span className="text-xs text-muted-foreground">
-                                                        {fileDetail.frontmatter.name}
+                                                        {
+                                                            fileDetail
+                                                                .frontmatter
+                                                                .name
+                                                        }
                                                     </span>
                                                 )}
                                         </div>
                                     )}
                                 </div>
-                                <div className="flex items-center gap-1.5 shrink-0">
+                                <div className="flex shrink-0 items-center gap-1.5">
                                     {saveSuccess && (
                                         <span className="flex items-center gap-1 text-xs text-green-600">
                                             <Check className="size-3" />
@@ -314,9 +317,7 @@ export default function MemoryBrowser({ agent }: { agent: Agent }) {
                                                 ) : (
                                                     <Save className="mr-1 size-3" />
                                                 )}
-                                                {saving
-                                                    ? 'Saving...'
-                                                    : 'Save'}
+                                                {saving ? 'Saving...' : 'Save'}
                                             </Button>
                                         </>
                                     ) : (
@@ -360,7 +361,7 @@ export default function MemoryBrowser({ agent }: { agent: Agent }) {
                                         placeholder="Enter memory content..."
                                     />
                                 ) : (
-                                    <pre className="max-h-[500px] overflow-y-auto whitespace-pre-wrap break-words p-4 font-mono text-sm leading-relaxed text-foreground/90">
+                                    <pre className="max-h-[500px] overflow-y-auto p-4 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap text-foreground/90">
                                         {fileDetail.content}
                                     </pre>
                                 )}

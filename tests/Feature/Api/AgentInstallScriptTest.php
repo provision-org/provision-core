@@ -4,8 +4,10 @@ use App\Enums\AgentStatus;
 use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
+use App\Services\AgentInstallScriptService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('install script endpoint returns script with valid signature', function () {
     $team = Team::factory()->create();
@@ -100,7 +102,7 @@ test('bootstrap content omits job-specific step when no job description', functi
         'name' => 'Luna',
     ]);
 
-    $content = \App\Services\AgentInstallScriptService::buildBootstrapContent($agent);
+    $content = AgentInstallScriptService::buildBootstrapContent($agent);
     expect($content)
         ->toContain('Welcome to the team, Luna!')
         ->toContain('Introduce yourself')

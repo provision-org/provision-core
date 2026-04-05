@@ -39,6 +39,7 @@ export type Team = {
     user_id: string;
     name: string;
     personal_team: boolean;
+    governance_mode: GovernanceMode;
     company_name: string | null;
     company_url: string | null;
     company_description: string | null;
@@ -123,6 +124,7 @@ export type Agent = {
     team_id: string;
     server_id: string | null;
     harness_type: HarnessType;
+    agent_mode: AgentMode;
     name: string;
     role: AgentRole;
     status: AgentStatus;
@@ -428,4 +430,102 @@ export type SessionMessage = {
     role: string;
     content: string;
     timestamp: string;
+};
+
+// Governance types
+
+export type AgentMode = 'channel' | 'workforce';
+export type GovernanceMode = 'none' | 'standard' | 'strict';
+
+export type Goal = {
+    id: string;
+    team_id: string;
+    parent_id: string | null;
+    owner_agent_id: string | null;
+    title: string;
+    description: string | null;
+    status: 'active' | 'achieved' | 'abandoned' | 'paused';
+    priority: 'low' | 'medium' | 'high' | 'critical';
+    target_date: string | null;
+    progress_pct: number;
+    created_at: string;
+    updated_at: string;
+    owner_agent?: Agent;
+    children?: Goal[];
+    parent?: Goal;
+};
+
+export type GovernanceTask = {
+    id: string;
+    identifier: string;
+    title: string;
+    description: string | null;
+    status:
+        | 'backlog'
+        | 'todo'
+        | 'in_progress'
+        | 'blocked'
+        | 'in_review'
+        | 'done'
+        | 'cancelled';
+    priority: 'low' | 'medium' | 'high' | 'urgent';
+    agent_id: string | null;
+    goal_id: string | null;
+    parent_task_id: string | null;
+    checked_out_by_run: string | null;
+    delegated_by: string | null;
+    request_depth: number;
+    tokens_input: number;
+    tokens_output: number;
+    result_summary: string | null;
+    started_at: string | null;
+    completed_at: string | null;
+    created_at: string;
+    updated_at: string;
+    assigned_agent?: Agent;
+    goal?: Goal;
+    parent_task?: GovernanceTask;
+    sub_tasks?: GovernanceTask[];
+};
+
+export type Approval = {
+    id: string;
+    team_id: string;
+    requesting_agent_id: string;
+    type: 'hire_agent' | 'external_action' | 'strategy_proposal';
+    status: 'pending' | 'approved' | 'rejected' | 'revision_requested';
+    title: string;
+    payload: Record<string, unknown>;
+    linked_task_id: string | null;
+    reviewed_by: string | null;
+    reviewed_at: string | null;
+    review_note: string | null;
+    expires_at: string | null;
+    created_at: string;
+    updated_at: string;
+    requesting_agent?: Agent;
+    linked_task?: GovernanceTask;
+};
+
+export type AuditEntry = {
+    id: string;
+    team_id: string;
+    actor_type: 'user' | 'agent' | 'daemon' | 'system';
+    actor_id: string;
+    action: string;
+    target_type: string | null;
+    target_id: string | null;
+    payload: Record<string, unknown> | null;
+    created_at: string;
+};
+
+export type UsageEvent = {
+    id: string;
+    agent_id: string;
+    task_id: string | null;
+    model: string;
+    input_tokens: number;
+    output_tokens: number;
+    source: 'daemon' | 'channel' | 'web_chat';
+    created_at: string;
 };

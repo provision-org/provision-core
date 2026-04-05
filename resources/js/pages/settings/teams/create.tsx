@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { cn } from '@/lib/utils';
 import AuthLayout from '@/layouts/auth-layout';
+import { cn } from '@/lib/utils';
 import type { SharedData } from '@/types';
 
 const harnessOptions = [
@@ -33,7 +33,11 @@ export default function CreateTeam({
     defaultProvider = 'docker',
 }: {
     cloudProviderSelectionEnabled?: boolean;
-    availableProviders?: { value: string; label: string; description: string }[];
+    availableProviders?: {
+        value: string;
+        label: string;
+        description: string;
+    }[];
     defaultProvider?: string;
 }) {
     const { teams } = usePage<SharedData>().props;
@@ -246,9 +250,7 @@ export default function CreateTeam({
                                     }
                                     placeholder="https://ringing.io"
                                 />
-                                <InputError
-                                    message={form.errors.company_url}
-                                />
+                                <InputError message={form.errors.company_url} />
                             </div>
 
                             <div className="grid gap-2">

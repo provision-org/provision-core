@@ -8,8 +8,9 @@ use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
 use App\Services\HarnessManager;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('it runs install script via signed URL and activates agent', function () {
     $team = Team::factory()->create();
@@ -131,7 +132,7 @@ test('it sets agent to error on failure', function () {
         'server_id' => $server->id,
     ]);
 
-    (new CreateAgentOnServerJob($agent))->failed(new \RuntimeException('SSH failed'));
+    (new CreateAgentOnServerJob($agent))->failed(new RuntimeException('SSH failed'));
 
     expect($agent->fresh()->status)->toBe(AgentStatus::Error);
 });

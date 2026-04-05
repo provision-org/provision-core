@@ -22,6 +22,7 @@ type ModelTierOption = {
 
 type Step =
     | 'name'
+    | 'mode'
     | 'email'
     | 'role'
     | 'tone'
@@ -33,6 +34,7 @@ type Step =
 
 const ALL_STEPS: Step[] = [
     'name',
+    'mode',
     'email',
     'role',
     'tone',
@@ -479,6 +481,7 @@ export default function CreateAgent({
 
     const form = useForm({
         name: '',
+        agent_mode: 'channel' as 'channel' | 'workforce',
         email_prefix: '',
         role: 'custom',
         job_description: '',
@@ -489,12 +492,15 @@ export default function CreateAgent({
         communication_style: '',
         backstory: '',
         tools: [] as { name: string; url: string }[],
+        reports_to: '' as string,
+        org_title: '',
     }).withPrecognition('post', '/agents');
 
     form.setValidationTimeout(500);
 
     const allSteps = useMemo(
-        () => (emailDomain ? ALL_STEPS : ALL_STEPS.filter((s) => s !== 'email')),
+        () =>
+            emailDomain ? ALL_STEPS : ALL_STEPS.filter((s) => s !== 'email'),
         [emailDomain],
     );
 
@@ -584,10 +590,10 @@ export default function CreateAgent({
                         </div>
 
                         <div className="mb-12">
-                            <span className="mb-1 block text-[10px] font-bold uppercase tracking-widest text-primary">
+                            <span className="mb-1 block text-[10px] font-bold tracking-widest text-primary uppercase">
                                 Step {stepIndex + 1} of {allSteps.length}
                             </span>
-                            <h2 className="text-sm font-semibold capitalize tracking-tight text-muted-foreground">
+                            <h2 className="text-sm font-semibold tracking-tight text-muted-foreground capitalize">
                                 {step.replace('_', ' ')}
                             </h2>
                         </div>
@@ -636,6 +642,113 @@ export default function CreateAgent({
                                             onClick={next}
                                             disabled={!form.data.name.trim()}
                                         >
+                                            Continue
+                                        </Button>
+                                    </div>
+                                )}
+
+                                {/* ── Mode ── */}
+                                {step === 'mode' && (
+                                    <div className="flex flex-col items-center gap-6">
+                                        <div className="text-center">
+                                            <h1 className="text-2xl font-bold tracking-tight">
+                                                What type of agent?
+                                            </h1>
+                                            <p className="mt-2 text-sm text-muted-foreground">
+                                                Choose how {form.data.name} will
+                                                work with your team.
+                                            </p>
+                                        </div>
+
+                                        <div className="grid w-full grid-cols-2 gap-4">
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    form.setData(
+                                                        'agent_mode',
+                                                        'channel',
+                                                    )
+                                                }
+                                                className={`flex flex-col items-center gap-3 rounded-xl border-2 p-6 text-center transition-all ${
+                                                    form.data.agent_mode ===
+                                                    'channel'
+                                                        ? 'border-primary bg-primary/5'
+                                                        : 'border-border hover:border-border/80 hover:bg-accent/30'
+                                                }`}
+                                            >
+                                                <span className="text-3xl">
+                                                    {'💬'}
+                                                </span>
+                                                <div>
+                                                    <p className="text-sm font-semibold">
+                                                        Chat Agent
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        Responds to messages in
+                                                        Slack, Telegram,
+                                                        Discord, or web chat.
+                                                        Best for support, Q&A,
+                                                        and communication.
+                                                    </p>
+                                                </div>
+                                            </button>
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    form.setData(
+                                                        'agent_mode',
+                                                        'workforce',
+                                                    )
+                                                }
+                                                className={`flex flex-col items-center gap-3 rounded-xl border-2 p-6 text-center transition-all ${
+                                                    form.data.agent_mode ===
+                                                    'workforce'
+                                                        ? 'border-primary bg-primary/5'
+                                                        : 'border-border hover:border-border/80 hover:bg-accent/30'
+                                                }`}
+                                            >
+                                                <span className="text-3xl">
+                                                    {'⚡'}
+                                                </span>
+                                                <div>
+                                                    <p className="text-sm font-semibold">
+                                                        Task Agent
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        Works autonomously on
+                                                        assigned tasks from the
+                                                        task board. Best for
+                                                        research, engineering,
+                                                        and operations.
+                                                    </p>
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        {form.data.agent_mode ===
+                                            'workforce' && (
+                                            <div className="w-full space-y-3">
+                                                <div className="space-y-1.5">
+                                                    <label className="text-sm font-medium">
+                                                        Org Title
+                                                    </label>
+                                                    <Input
+                                                        value={
+                                                            form.data.org_title
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'org_title',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        placeholder="e.g. VP of Engineering"
+                                                    />
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <Button size="lg" onClick={next}>
                                             Continue
                                         </Button>
                                     </div>

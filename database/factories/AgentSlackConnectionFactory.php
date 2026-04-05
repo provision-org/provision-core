@@ -4,10 +4,11 @@ namespace Database\Factories;
 
 use App\Enums\SlackConnectionStatus;
 use App\Models\Agent;
+use App\Models\AgentSlackConnection;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\AgentSlackConnection>
+ * @extends Factory<AgentSlackConnection>
  */
 class AgentSlackConnectionFactory extends Factory
 {

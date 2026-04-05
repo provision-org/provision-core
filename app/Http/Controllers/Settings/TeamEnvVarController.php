@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Settings;
 
+use App\Enums\ServerStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\StoreEnvVarRequest;
 use App\Http\Requests\Settings\UpdateEnvVarRequest;
@@ -79,7 +80,7 @@ class TeamEnvVarController extends Controller
 
     private function dispatchEnvUpdate(Team $team): void
     {
-        if ($team->server?->status === \App\Enums\ServerStatus::Running) {
+        if ($team->server?->status === ServerStatus::Running) {
             UpdateEnvOnServerJob::dispatch($team->server);
         }
     }

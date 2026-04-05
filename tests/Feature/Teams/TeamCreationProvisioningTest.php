@@ -3,9 +3,10 @@
 use App\Jobs\ProvisionDigitalOceanServerJob;
 use App\Jobs\ProvisionHetznerServerJob;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('creating a team does not dispatch ProvisionHetznerServerJob', function () {
     Bus::fake();

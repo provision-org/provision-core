@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Server;
+use App\Services\Scripts\ServerSetupScriptService;
 use App\Services\SignedScriptUrlService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
@@ -29,7 +30,7 @@ class ServerSetupScriptController extends Controller
             abort(403, 'Invalid or expired signature.');
         }
 
-        $scriptService = app(\App\Services\Scripts\ServerSetupScriptService::class);
+        $scriptService = app(ServerSetupScriptService::class);
 
         return response($scriptService->generateScript($server), 200)
             ->header('Content-Type', 'text/plain');

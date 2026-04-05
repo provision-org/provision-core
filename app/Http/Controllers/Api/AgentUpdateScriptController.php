@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\HarnessType;
 use App\Http\Controllers\Controller;
 use App\Models\Agent;
 use App\Services\Scripts\AgentUpdateScriptService;
@@ -35,7 +36,7 @@ class AgentUpdateScriptController extends Controller
         }
 
         $script = match ($agent->harness_type) {
-            \App\Enums\HarnessType::Hermes => $scriptService->generateHermesScript($agent),
+            HarnessType::Hermes => $scriptService->generateHermesScript($agent),
             default => $scriptService->generateOpenClawScript($agent),
         };
 

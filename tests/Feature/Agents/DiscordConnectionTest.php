@@ -7,9 +7,10 @@ use App\Models\AgentDiscordConnection;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('user can view discord setup page', function () {
     $user = User::factory()->withPersonalTeam()->create();

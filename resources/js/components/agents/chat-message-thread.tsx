@@ -79,19 +79,10 @@ function MessageBubble({
     );
 }
 
-function StreamingBubble({
-    text,
-    agent,
-}: {
-    text: string;
-    agent: Agent;
-}) {
+function StreamingBubble({ text, agent }: { text: string; agent: Agent }) {
     return (
         <div className="flex gap-3">
-            <AgentAvatar
-                agent={agent}
-                className="size-7 shrink-0 text-xs"
-            />
+            <AgentAvatar agent={agent} className="size-7 shrink-0 text-xs" />
 
             <div className="max-w-[75%] space-y-1 rounded-2xl bg-muted px-4 py-2.5 text-sm">
                 <p className="whitespace-pre-wrap">

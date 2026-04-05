@@ -1,14 +1,19 @@
 import { Link, usePage } from '@inertiajs/react';
 import {
+    BarChart3,
     Bot,
+    KanbanSquare,
     LayoutDashboard,
     Library,
     Moon,
+    Network,
     Plus,
     PlusCircle,
     Puzzle,
-    ShieldCheck,
+    ScrollText,
+    ShieldCheck as ShieldCheckIcon,
     Sun,
+    Target,
     Wallet,
 } from 'lucide-react';
 import { NavUser } from '@/components/nav-user';
@@ -34,10 +39,23 @@ import type { NavItem, SharedData } from '@/types';
 const platformNavItems: NavItem[] = [
     { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { title: 'My Agents', href: '/agents', icon: Bot },
+    { title: 'Task Board', href: '/governance/tasks', icon: KanbanSquare },
 ];
 
 const exploreNavItems: NavItem[] = [
     { title: 'Agent Library', href: '/agents/library', icon: Library },
+];
+
+const companyNavItems: NavItem[] = [
+    { title: 'Org Chart', href: '/governance/org', icon: Network },
+    { title: 'Goals', href: '/governance/goals', icon: Target },
+    {
+        title: 'Approvals',
+        href: '/governance/approvals',
+        icon: ShieldCheckIcon,
+    },
+    { title: 'Usage', href: '/governance/usage', icon: BarChart3 },
+    { title: 'Audit Log', href: '/governance/audit', icon: ScrollText },
 ];
 
 const trainingNavItems: NavItem[] = [
@@ -45,7 +63,15 @@ const trainingNavItems: NavItem[] = [
     { title: 'Create New Skill', href: '/skills/create', icon: PlusCircle },
 ];
 
-function NavSection({ label, items }: { label: string; items: NavItem[] }) {
+function NavSection({
+    label,
+    items,
+    badges = {},
+}: {
+    label: string;
+    items: NavItem[];
+    badges?: Record<string, number>;
+}) {
     const { currentUrl, isCurrentUrl } = useCurrentUrl();
 
     return (
@@ -66,6 +92,7 @@ function NavSection({ label, items }: { label: string; items: NavItem[] }) {
                         );
                     const active =
                         exactMatch || (prefixMatch && !moreSpecificExists);
+                    const badgeCount = badges[item.href] ?? 0;
 
                     return (
                         <SidebarMenuItem key={item.title}>
@@ -77,7 +104,12 @@ function NavSection({ label, items }: { label: string; items: NavItem[] }) {
                             >
                                 <Link href={item.href} prefetch>
                                     {item.icon && <item.icon />}
-                                    <span>{item.title}</span>
+                                    <span className="flex-1">{item.title}</span>
+                                    {badgeCount > 0 && (
+                                        <span className="ml-auto rounded-full bg-primary px-1.5 py-0.5 text-[10px] leading-none font-medium text-primary-foreground">
+                                            {badgeCount}
+                                        </span>
+                                    )}
                                 </Link>
                             </SidebarMenuButton>
                         </SidebarMenuItem>
@@ -156,7 +188,15 @@ function AppearanceToggle() {
 }
 
 export function AppSidebar() {
-    const { auth } = usePage<SharedData>().props;
+    const pageProps = usePage<SharedData>().props;
+    const { auth } = pageProps;
+    const pendingApprovalCount: number =
+        Number(
+            (pageProps as Record<string, unknown>).pendingApprovalCount,
+        ) || 0;
+    const modules = (pageProps as Record<string, unknown>).modules as
+        | Record<string, boolean>
+        | undefined;
     const currentTeam = auth.user.current_team;
     const isMobile = useIsMobile();
 
@@ -200,9 +240,15 @@ export function AppSidebar() {
                     </Button>
                 </div>
                 <NavSection label="Platform" items={platformNavItems} />
+                <NavSection
+                    label="Company"
+                    items={companyNavItems}
+                    badges={{
+                        '/governance/approvals': pendingApprovalCount,
+                    }}
+                />
                 <NavSection label="Explore" items={exploreNavItems} />
-                {(usePage().props as Record<string, unknown>).modules &&
-                    ((usePage().props as Record<string, unknown>).modules as Record<string, boolean>)?.skills && (
+                {modules?.skills && (
                     <NavSection label="Training" items={trainingNavItems} />
                 )}
             </SidebarContent>
@@ -214,7 +260,7 @@ export function AppSidebar() {
                         <SidebarMenuItem>
                             <SidebarMenuButton asChild size="sm">
                                 <Link href="/admin/dashboard" prefetch>
-                                    <ShieldCheck className="size-4" />
+                                    <ShieldCheckIcon className="size-4" />
                                     <span>Admin Panel</span>
                                 </Link>
                             </SidebarMenuButton>

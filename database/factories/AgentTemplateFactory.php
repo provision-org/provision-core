@@ -3,10 +3,11 @@
 namespace Database\Factories;
 
 use App\Enums\AgentRole;
+use App\Models\AgentTemplate;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\AgentTemplate>
+ * @extends Factory<AgentTemplate>
  */
 class AgentTemplateFactory extends Factory
 {

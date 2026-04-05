@@ -5,8 +5,9 @@ use App\Models\Server;
 use App\Models\Team;
 use App\Models\TeamApiKey;
 use App\Services\OpenClawDefaultsService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 beforeEach(function () {
     $this->service = new OpenClawDefaultsService;

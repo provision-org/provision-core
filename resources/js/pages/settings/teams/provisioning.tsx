@@ -109,7 +109,10 @@ function getProgressPercent(
     // Phase 2 (configuring) = 50-90% based on setup steps completed
     if (activeIndex === 2) {
         const setupEvents = events.filter(
-            (e) => e.event === 'setup_progress' && e.step && setupSteps.has(e.step),
+            (e) =>
+                e.event === 'setup_progress' &&
+                e.step &&
+                setupSteps.has(e.step),
         );
         const setupProgress = Math.min(setupEvents.length / 7, 1); // 7 setup steps
         return Math.round(50 + setupProgress * 40); // 50% → 90%

@@ -2,11 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\ServerStatus;
 use App\Http\Requests\Settings\StoreApiKeyRequest;
 use App\Http\Requests\Settings\StoreEnvVarRequest;
 use App\Http\Requests\Settings\UpdateApiKeyRequest;
 use App\Http\Requests\Settings\UpdateEnvVarRequest;
 use App\Jobs\UpdateEnvOnServerJob;
+use App\Models\Team;
 use App\Models\TeamApiKey;
 use App\Models\TeamEnvVar;
 use Illuminate\Http\RedirectResponse;
@@ -155,9 +157,9 @@ class ApiKeyController extends Controller
         return back();
     }
 
-    private function dispatchEnvUpdate(\App\Models\Team $team): void
+    private function dispatchEnvUpdate(Team $team): void
     {
-        if ($team->server?->status === \App\Enums\ServerStatus::Running) {
+        if ($team->server?->status === ServerStatus::Running) {
             UpdateEnvOnServerJob::dispatch($team->server);
         }
     }

@@ -22,7 +22,8 @@ export default function Login({
     canResetPassword,
     canRegister,
 }: Props) {
-    const { googleAuthEnabled } = usePage<{ googleAuthEnabled: boolean }>().props;
+    const { googleAuthEnabled } = usePage<{ googleAuthEnabled: boolean }>()
+        .props;
 
     return (
         <AuthLayout
@@ -42,7 +43,12 @@ export default function Login({
                         href="/auth/google"
                         className="inline-flex w-full items-center justify-center gap-3 rounded-xl border border-input bg-background px-4 py-3 text-sm font-semibold shadow-sm transition-all hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
                     >
-                        <svg width="20" height="20" viewBox="0 0 18 18" fill="none">
+                        <svg
+                            width="20"
+                            height="20"
+                            viewBox="0 0 18 18"
+                            fill="none"
+                        >
                             <path
                                 d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844a4.14 4.14 0 01-1.796 2.716v2.259h2.908c1.702-1.567 2.684-3.875 2.684-6.615z"
                                 fill="#4285F4"

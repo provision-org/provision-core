@@ -6,8 +6,9 @@ use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
 use App\Services\Scripts\AgentUpdateScriptService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('update script endpoint returns openclaw script with valid signature', function () {
     $team = Team::factory()->create();

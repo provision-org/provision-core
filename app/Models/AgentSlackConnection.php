@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\SlackConnectionStatus;
 use App\Observers\ChannelConnectionObserver;
+use Database\Factories\AgentSlackConnectionFactory;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -13,7 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 #[ObservedBy(ChannelConnectionObserver::class)]
 class AgentSlackConnection extends Model
 {
-    /** @use HasFactory<\Database\Factories\AgentSlackConnectionFactory> */
+    /** @use HasFactory<AgentSlackConnectionFactory> */
     use HasFactory, HasUlids;
 
     /**

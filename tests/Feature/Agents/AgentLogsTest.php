@@ -6,8 +6,9 @@ use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
 use App\Services\SshService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('it returns logs for an active agent on a running server', function () {
     $user = User::factory()->withPersonalTeam()->create();
@@ -89,7 +90,7 @@ test('it returns 500 when SSH fails', function () {
     ]);
 
     $mock = Mockery::mock(SshService::class);
-    $mock->shouldReceive('connect')->once()->andThrow(new \RuntimeException('Connection refused'));
+    $mock->shouldReceive('connect')->once()->andThrow(new RuntimeException('Connection refused'));
     $mock->shouldReceive('disconnect')->once();
     $this->app->instance(SshService::class, $mock);
 

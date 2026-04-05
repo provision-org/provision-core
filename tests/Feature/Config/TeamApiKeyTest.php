@@ -7,6 +7,7 @@ use App\Models\Server;
 use App\Models\Team;
 use App\Models\TeamApiKey;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
@@ -54,7 +55,7 @@ test('unique constraint on team_id and provider', function () {
     expect(fn () => TeamApiKey::factory()->create([
         'team_id' => $team->id,
         'provider' => LlmProvider::Anthropic,
-    ]))->toThrow(\Illuminate\Database\UniqueConstraintViolationException::class);
+    ]))->toThrow(UniqueConstraintViolationException::class);
 });
 
 test('admin can create an api key', function () {

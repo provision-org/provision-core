@@ -4,10 +4,11 @@ namespace Database\Factories;
 
 use App\Enums\DiscordConnectionStatus;
 use App\Models\Agent;
+use App\Models\AgentDiscordConnection;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\AgentDiscordConnection>
+ * @extends Factory<AgentDiscordConnection>
  */
 class AgentDiscordConnectionFactory extends Factory
 {

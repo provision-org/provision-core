@@ -7,8 +7,9 @@ use App\Models\AgentEmailConnection;
 use App\Models\Server;
 use App\Models\Team;
 use App\Services\SshService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('it skips github setup if agent has no email connection', function () {
     $team = Team::factory()->create();
@@ -72,7 +73,7 @@ test('it creates gh directory and gitconfig for agent', function () {
     $sshService->shouldReceive('readFile')
         ->with('/root/.openclaw/agents/agent-gh-setup/.gh/hosts.yml')
         ->once()
-        ->andThrow(new \RuntimeException('File not found'));
+        ->andThrow(new RuntimeException('File not found'));
     $sshService->shouldReceive('exec')
         ->with('mkdir -p /root/.openclaw/agents/agent-gh-setup/.gh')
         ->once();

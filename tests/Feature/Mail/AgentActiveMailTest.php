@@ -5,9 +5,10 @@ use App\Mail\AgentActiveMail;
 use App\Models\Agent;
 use App\Models\Server;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('agent active email is sent when agent is activated', function () {
     Mail::fake();
@@ -28,7 +29,7 @@ test('agent active email is sent when agent is activated', function () {
         'payload' => ['agent_id' => $agent->id],
     ]);
 
-    \Illuminate\Support\Facades\Mail::to($team->owner->email)->send(new AgentActiveMail($agent));
+    Mail::to($team->owner->email)->send(new AgentActiveMail($agent));
 
     Mail::assertQueued(AgentActiveMail::class, function ($mail) use ($user) {
         return $mail->hasTo($user->email);

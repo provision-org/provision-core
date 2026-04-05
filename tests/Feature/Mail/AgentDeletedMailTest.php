@@ -4,10 +4,11 @@ use App\Enums\AgentStatus;
 use App\Mail\AgentDeletedMail;
 use App\Models\Agent;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Mail;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('agent deleted email is sent when agent is destroyed', function () {
     Bus::fake();

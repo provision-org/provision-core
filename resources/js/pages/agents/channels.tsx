@@ -36,8 +36,6 @@ export default function Channels({ agent }: { agent: Agent }) {
         },
     ];
 
-    const hasAnyConnection = channels.some((c) => c.connected);
-
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Connect a Channel" />

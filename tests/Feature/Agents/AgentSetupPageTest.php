@@ -5,8 +5,9 @@ use App\Enums\TeamRole;
 use App\Models\Agent;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('pending agent redirects to channel setup', function () {
     $user = User::factory()->withPersonalTeam()->create();

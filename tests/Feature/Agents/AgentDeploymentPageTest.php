@@ -7,9 +7,10 @@ use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('provisioning page renders with agent status props', function () {
     $user = User::factory()->withPersonalTeam()->create();

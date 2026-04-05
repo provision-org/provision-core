@@ -65,8 +65,8 @@ export default function AuthSplitLayout({
                 <div className="relative z-10 flex h-full flex-col justify-end p-12 lg:p-16 xl:p-24">
                     <div className="max-w-xl">
                         <p className="font-editorial text-4xl leading-[1.15] tracking-tight text-white/90 lg:text-[2.8rem]">
-                            Provision helps you run a team of agents for
-                            your company.
+                            Provision helps you run a team of agents for your
+                            company.
                         </p>
                     </div>
                 </div>

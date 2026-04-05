@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Concerns\BuildsServerCallbackUrl;
+use App\Enums\HarnessType;
 use App\Models\Server;
 use App\Services\CloudInitScriptBuilder;
 use App\Services\CloudServiceFactory;
@@ -38,7 +39,7 @@ class ProvisionDigitalOceanServerJob implements ShouldQueue
         $callbackUrl = $this->buildCallbackUrl();
         $devicePath = "/dev/disk/by-id/scsi-0DO_Volume_{$volumeName}";
         $timezone = $team->timezone ?? 'UTC';
-        $harnessType = $team->harness_type ?? \App\Enums\HarnessType::Hermes;
+        $harnessType = $team->harness_type ?? HarnessType::Hermes;
         $cloudInit = $scriptBuilder->build($callbackUrl, $devicePath, $timezone, $harnessType);
 
         $response = $doService->createDroplet(

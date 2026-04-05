@@ -245,8 +245,18 @@ OVERRIDE
             $lines[] = '';
         }
 
-        // 10. Final ready callback
-        $lines[] = '# --- Step 10: Signal Completion ---';
+        // 10. Install provisiond (workforce agent daemon)
+        $provisiondVersion = config('provision.provisiond_version', '0.1.0');
+        $provisiondUrl = "https://github.com/provision-org/provision-core/releases/download/provisiond-v{$provisiondVersion}/provisiond.mjs";
+        $lines[] = '# --- Step 10: Install provisiond ---';
+        $lines[] = 'ping_progress "installing_daemon"';
+        $lines[] = 'mkdir -p /opt/provisiond';
+        $lines[] = "curl -fsSL '{$provisiondUrl}' -o /opt/provisiond/provisiond.mjs || echo 'provisiond download failed (non-fatal)'";
+        $lines[] = "echo '{\"version\":\"{$provisiondVersion}\"}' > /opt/provisiond/package.json";
+        $lines[] = '';
+
+        // 11. Final ready callback
+        $lines[] = '# --- Step 11: Signal Completion ---';
         $lines[] = 'if [ "$GATEWAY_READY" -eq 1 ]; then';
         $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d 'status=ready' || true";
         $lines[] = 'else';

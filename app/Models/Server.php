@@ -27,6 +27,7 @@ class Server extends Model
         'root_password',
         'gateway_token',
         'vnc_password',
+        'daemon_token',
     ];
 
     protected $fillable = [
@@ -43,6 +44,7 @@ class Server extends Model
         'provisioned_at',
         'openclaw_version',
         'last_health_check',
+        'daemon_token',
     ];
 
     // Secrets set explicitly in jobs, never via mass assignment
@@ -59,6 +61,7 @@ class Server extends Model
             'gateway_token' => 'encrypted',
             'root_password' => 'encrypted',
             'vnc_password' => 'encrypted',
+            'daemon_token' => 'encrypted',
             'provisioned_at' => 'datetime',
             'last_health_check' => 'datetime',
         ];

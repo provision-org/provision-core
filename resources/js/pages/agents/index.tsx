@@ -217,7 +217,9 @@ function AgentList({ agents }: { agents: Agent[] }) {
                                     </span>
                                     {agent.harness_type && (
                                         <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground">
-                                            {agent.harness_type === 'hermes' ? 'Hermes' : 'OpenClaw'}
+                                            {agent.harness_type === 'hermes'
+                                                ? 'Hermes'
+                                                : 'OpenClaw'}
                                         </span>
                                     )}
                                 </div>
