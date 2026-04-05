@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\TeamEnvVarFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -9,7 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TeamEnvVar extends Model
 {
-    /** @use HasFactory<\Database\Factories\TeamEnvVarFactory> */
+    /** @use HasFactory<TeamEnvVarFactory> */
     use HasFactory, HasUlids;
 
     /**

@@ -2,8 +2,9 @@
 
 use App\Models\AgentTemplate;
 use Database\Seeders\AgentTemplateSeeder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('seeder creates all templates', function () {
     $this->seed(AgentTemplateSeeder::class);

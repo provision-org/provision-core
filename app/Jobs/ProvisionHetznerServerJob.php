@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Concerns\BuildsServerCallbackUrl;
+use App\Enums\HarnessType;
 use App\Models\Server;
 use App\Services\CloudInitScriptBuilder;
 use App\Services\CloudServiceFactory;
@@ -39,7 +40,7 @@ class ProvisionHetznerServerJob implements ShouldQueue
         $callbackUrl = $this->buildCallbackUrl();
         $devicePath = "/dev/disk/by-id/scsi-0HC_Volume_{$volumeId}";
         $timezone = $team->timezone ?? 'UTC';
-        $harnessType = $team->harness_type ?? \App\Enums\HarnessType::Hermes;
+        $harnessType = $team->harness_type ?? HarnessType::Hermes;
         $cloudInit = $scriptBuilder->build($callbackUrl, $devicePath, $timezone, $harnessType);
 
         $response = $hetznerService->createServer(

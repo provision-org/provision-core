@@ -2,8 +2,9 @@
 
 use App\Models\AgentSlackConnection;
 use App\Services\ConfigPatchService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('config patch uses custom slack settings', function () {
     $slack = AgentSlackConnection::factory()->connected()->create([

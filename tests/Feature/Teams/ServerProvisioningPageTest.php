@@ -5,9 +5,10 @@ use App\Enums\TeamRole;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('team creation redirects to agents', function () {
     Bus::fake();

@@ -3,10 +3,11 @@
 namespace Database\Factories;
 
 use App\Models\Agent;
+use App\Models\AgentEmailConnection;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\AgentEmailConnection>
+ * @extends Factory<AgentEmailConnection>
  */
 class AgentEmailConnectionFactory extends Factory
 {

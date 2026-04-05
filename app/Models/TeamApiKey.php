@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\LlmProvider;
+use Database\Factories\TeamApiKeyFactory;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class TeamApiKey extends Model
 {
-    /** @use HasFactory<\Database\Factories\TeamApiKeyFactory> */
+    /** @use HasFactory<TeamApiKeyFactory> */
     use HasFactory, HasUlids;
 
     /**

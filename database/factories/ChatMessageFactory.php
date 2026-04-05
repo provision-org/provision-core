@@ -4,10 +4,11 @@ namespace Database\Factories;
 
 use App\Enums\ChatMessageRole;
 use App\Models\ChatConversation;
+use App\Models\ChatMessage;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\ChatMessage>
+ * @extends Factory<ChatMessage>
  */
 class ChatMessageFactory extends Factory
 {

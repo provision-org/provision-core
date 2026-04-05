@@ -10,6 +10,7 @@ use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Laravel\Cashier\Subscription;
 use Provision\MailboxKit\Services\MailboxKitService;
+use Stripe\StripeClient;
 
 class ResetProduction extends Command
 {
@@ -71,7 +72,7 @@ class ResetProduction extends Command
 
             // 3. Cancel Stripe subscriptions via API
             $subscriptions = Subscription::all();
-            $stripe = new \Stripe\StripeClient(config('cashier.secret'));
+            $stripe = new StripeClient(config('cashier.secret'));
             foreach ($subscriptions as $sub) {
                 if ($sub->stripe_id) {
                     $this->info("Canceling Stripe subscription {$sub->stripe_id}");

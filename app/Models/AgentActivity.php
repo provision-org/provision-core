@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\AgentActivityFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AgentActivity extends Model
 {
-    /** @use HasFactory<\Database\Factories\AgentActivityFactory> */
+    /** @use HasFactory<AgentActivityFactory> */
     use HasFactory, HasUlids;
 
     /**

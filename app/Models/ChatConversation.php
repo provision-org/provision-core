@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\ChatConversationFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class ChatConversation extends Model
 {
-    /** @use HasFactory<\Database\Factories\ChatConversationFactory> */
+    /** @use HasFactory<ChatConversationFactory> */
     use HasFactory, HasUlids;
 
     /**

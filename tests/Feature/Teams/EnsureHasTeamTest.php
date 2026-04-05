@@ -2,9 +2,10 @@
 
 use App\Http\Middleware\EnsureHasTeam;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Request;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('middleware redirects to team creation when current_team_id is null', function () {
     $user = User::factory()->create();

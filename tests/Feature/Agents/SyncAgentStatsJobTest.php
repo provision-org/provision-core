@@ -8,8 +8,9 @@ use App\Models\AgentDailyStat;
 use App\Models\Server;
 use App\Models\Team;
 use App\Services\SshService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('it syncs stats for active agents on running servers', function () {
     $team = Team::factory()->create();

@@ -4,10 +4,11 @@ namespace Database\Factories;
 
 use App\Enums\LlmProvider;
 use App\Models\Team;
+use App\Models\TeamApiKey;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\TeamApiKey>
+ * @extends Factory<TeamApiKey>
  */
 class TeamApiKeyFactory extends Factory
 {

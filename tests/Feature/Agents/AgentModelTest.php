@@ -7,8 +7,9 @@ use App\Models\AgentEmailConnection;
 use App\Models\AgentSlackConnection;
 use App\Models\Server;
 use App\Models\Team;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('agent belongs to a team', function () {
     $team = Team::factory()->create();

@@ -3,8 +3,9 @@
 use App\Ai\CompanyExtractorAgent;
 use App\Models\User;
 use App\Services\FirecrawlService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('returns extracted data on success', function () {
     $firecrawlMock = Mockery::mock(FirecrawlService::class);
@@ -45,7 +46,7 @@ test('returns 422 on firecrawl failure', function () {
     $firecrawlMock = Mockery::mock(FirecrawlService::class);
     $firecrawlMock->shouldReceive('scrape')
         ->once()
-        ->andThrow(new \RuntimeException('API error'));
+        ->andThrow(new RuntimeException('API error'));
     $this->app->instance(FirecrawlService::class, $firecrawlMock);
 
     $user = User::factory()->withCompletedProfile()->withPersonalTeam()->create();

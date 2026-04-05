@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\AgentRole;
+use Database\Factories\AgentTemplateFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -11,7 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AgentTemplate extends Model
 {
-    /** @use HasFactory<\Database\Factories\AgentTemplateFactory> */
+    /** @use HasFactory<AgentTemplateFactory> */
     use HasFactory, HasUlids;
 
     /**

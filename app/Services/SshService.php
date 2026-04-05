@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\CommandExecutor;
 use App\Models\Server;
 use phpseclib3\Crypt\Common\AsymmetricKey;
 use phpseclib3\Crypt\PublicKeyLoader;
@@ -9,7 +10,7 @@ use phpseclib3\Net\SFTP;
 use phpseclib3\Net\SSH2;
 use RuntimeException;
 
-class SshService implements \App\Contracts\CommandExecutor
+class SshService implements CommandExecutor
 {
     private ?string $host = null;
 

@@ -8,9 +8,10 @@ use App\Models\Server;
 use App\Models\Team;
 use App\Services\ChannelConfigBuilder;
 use App\Services\SshService;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('it passes verification when config matches database', function () {
     Bus::fake([RestartGatewayJob::class]);

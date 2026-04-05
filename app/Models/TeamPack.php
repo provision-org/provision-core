@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\TeamPackFactory;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -10,7 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class TeamPack extends Model
 {
-    /** @use HasFactory<\Database\Factories\TeamPackFactory> */
+    /** @use HasFactory<TeamPackFactory> */
     use HasFactory, HasUlids;
 
     /**

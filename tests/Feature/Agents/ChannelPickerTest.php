@@ -6,8 +6,9 @@ use App\Models\AgentSlackConnection;
 use App\Models\AgentTelegramConnection;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('user can view channel picker page', function () {
     $user = User::factory()->withPersonalTeam()->create();

@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Database\Factories\AgentApiTokenFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -10,7 +11,7 @@ use Illuminate\Support\Str;
 
 class AgentApiToken extends Model
 {
-    /** @use HasFactory<\Database\Factories\AgentApiTokenFactory> */
+    /** @use HasFactory<AgentApiTokenFactory> */
     use HasFactory, HasUlids;
 
     /**

@@ -6,6 +6,7 @@ use App\Models\Server;
 use App\Models\Team;
 use App\Models\TeamEnvVar;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
@@ -59,7 +60,7 @@ test('unique constraint on team_id and key', function () {
     expect(fn () => TeamEnvVar::factory()->create([
         'team_id' => $team->id,
         'key' => 'MY_VAR',
-    ]))->toThrow(\Illuminate\Database\UniqueConstraintViolationException::class);
+    ]))->toThrow(UniqueConstraintViolationException::class);
 });
 
 test('admin can create an env var', function () {

@@ -2,11 +2,12 @@
 
 namespace Database\Factories;
 
+use App\Models\SlackConfigurationToken;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\SlackConfigurationToken>
+ * @extends Factory<SlackConfigurationToken>
  */
 class SlackConfigurationTokenFactory extends Factory
 {

@@ -4,12 +4,13 @@ namespace Database\Factories;
 
 use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
+use App\Models\Server;
 use App\Models\Team;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Str;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\Server>
+ * @extends Factory<Server>
  */
 class ServerFactory extends Factory
 {

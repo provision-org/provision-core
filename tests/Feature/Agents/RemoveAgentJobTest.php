@@ -9,9 +9,10 @@ use App\Models\Server;
 use App\Models\Team;
 use App\Services\ConfigPatchService;
 use App\Services\HarnessManager;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('it removes agent from config and workspace directory via SSH', function () {
     Bus::fake([RestartGatewayJob::class]);

@@ -1,9 +1,10 @@
 <?php
 
 use App\Mail\WelcomeMail;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Mail;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('welcome email is sent when a user registers', function () {
     Mail::fake();

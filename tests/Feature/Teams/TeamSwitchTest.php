@@ -3,8 +3,9 @@
 use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('a user can switch to a team they belong to', function () {
     $user = User::factory()->withPersonalTeam()->create();

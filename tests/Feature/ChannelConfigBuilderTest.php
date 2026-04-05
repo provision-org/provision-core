@@ -6,8 +6,9 @@ use App\Models\AgentTelegramConnection;
 use App\Models\Server;
 use App\Models\Team;
 use App\Services\ChannelConfigBuilder;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('single agent gets named account id', function () {
     $team = Team::factory()->subscribed()->create();

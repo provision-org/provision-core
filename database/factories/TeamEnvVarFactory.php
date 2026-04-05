@@ -3,10 +3,11 @@
 namespace Database\Factories;
 
 use App\Models\Team;
+use App\Models\TeamEnvVar;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
 /**
- * @extends \Illuminate\Database\Eloquent\Factories\Factory<\App\Models\TeamEnvVar>
+ * @extends Factory<TeamEnvVar>
  */
 class TeamEnvVarFactory extends Factory
 {

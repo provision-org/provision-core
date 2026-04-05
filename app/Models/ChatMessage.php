@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ChatMessageRole;
+use Database\Factories\ChatMessageFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -11,7 +12,7 @@ use Illuminate\Support\Facades\URL;
 
 class ChatMessage extends Model
 {
-    /** @use HasFactory<\Database\Factories\ChatMessageFactory> */
+    /** @use HasFactory<ChatMessageFactory> */
     use HasFactory, HasUlids;
 
     /**

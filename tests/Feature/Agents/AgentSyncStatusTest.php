@@ -2,13 +2,15 @@
 
 use App\Contracts\CommandExecutor;
 use App\Contracts\HarnessDriver;
+use App\Jobs\RestartGatewayJob;
 use App\Jobs\UpdateAgentOnServerJob;
 use App\Models\Agent;
 use App\Models\Server;
 use App\Services\HarnessManager;
+use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
 
-uses(\Illuminate\Foundation\Testing\RefreshDatabase::class);
+uses(RefreshDatabase::class);
 
 test('UpdateAgentOnServerJob clears is_syncing and sets last_synced_at on success', function () {
     $server = Server::factory()->running()->create();
@@ -34,7 +36,7 @@ test('UpdateAgentOnServerJob clears is_syncing and sets last_synced_at on succes
     $harnessManager->shouldReceive('resolveExecutor')->andReturn($executor);
     $harnessManager->shouldReceive('forAgent')->andReturn($driver);
 
-    Bus::fake([\App\Jobs\RestartGatewayJob::class]);
+    Bus::fake([RestartGatewayJob::class]);
 
     (new UpdateAgentOnServerJob($agent))->handle($harnessManager);
 
@@ -53,7 +55,7 @@ test('UpdateAgentOnServerJob clears is_syncing on failure', function () {
     ]);
 
     $job = new UpdateAgentOnServerJob($agent);
-    $job->failed(new \RuntimeException('SSH connection failed'));
+    $job->failed(new RuntimeException('SSH connection failed'));
 
     expect($agent->fresh()->is_syncing)->toBeFalse();
 });
