@@ -62,6 +62,11 @@ class AgentMemoryController extends Controller
                 ];
             }
 
+            // Filter out MEMORY.md from the files list since it's shown separately as the index
+            if ($indexContent !== null) {
+                $files = array_values(array_filter($files, fn (array $f) => $f['name'] !== 'MEMORY.md'));
+            }
+
             // Sort alphabetically
             usort($files, fn (array $a, array $b) => strcasecmp($a['name'], $b['name']));
         } catch (RuntimeException) {

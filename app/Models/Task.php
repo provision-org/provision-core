@@ -21,6 +21,7 @@ class Task extends Model
     protected $fillable = [
         'team_id',
         'agent_id',
+        'identifier',
         'created_by_type',
         'created_by_id',
         'title',

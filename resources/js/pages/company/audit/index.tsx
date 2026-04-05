@@ -204,14 +204,15 @@ export default function AuditIndex({
                                         {entry.target_type && (
                                             <span className="ml-2 text-sm text-muted-foreground">
                                                 on {entry.target_type}
-                                                {entry.target_id && (
-                                                    <span className="ml-1 font-mono text-xs">
-                                                        {entry.target_id.slice(
-                                                            0,
-                                                            8,
-                                                        )}
+                                                {(entry as AuditEntry & { target_name?: string }).target_name ? (
+                                                    <span className="ml-1 font-medium text-foreground">
+                                                        {(entry as AuditEntry & { target_name?: string }).target_name}
                                                     </span>
-                                                )}
+                                                ) : entry.target_id ? (
+                                                    <span className="ml-1 font-mono text-xs">
+                                                        {entry.target_id.slice(0, 8)}
+                                                    </span>
+                                                ) : null}
                                             </span>
                                         )}
                                     </div>

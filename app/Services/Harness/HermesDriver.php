@@ -173,9 +173,9 @@ class HermesDriver implements HarnessDriver
         }
 
         return match ($provider) {
-            LlmProvider::Anthropic => "anthropic:{$agent->model_primary}",
-            LlmProvider::OpenAi => "openai:{$agent->model_primary}",
-            LlmProvider::OpenRouter => "openrouter:{$agent->model_primary}",
+            LlmProvider::Anthropic => "anthropic/{$agent->model_primary}",
+            LlmProvider::OpenAi => "openai/{$agent->model_primary}",
+            LlmProvider::OpenRouter => $agent->model_primary,
         };
     }
 

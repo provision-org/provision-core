@@ -2798,7 +2798,7 @@ export default function ShowAgent({
         { id: 'workspace', label: 'Workspace' },
         { id: 'memory', label: 'Memory' },
         { id: 'schedules', label: 'Scheduled Tasks' },
-        { id: 'channels', label: 'Channels' },
+        ...(agent.agent_mode !== 'workforce' ? [{ id: 'channels' as Tab, label: 'Channels' }] : []),
         { id: 'settings', label: 'Settings' },
     ];
 
@@ -2844,13 +2844,15 @@ export default function ShowAgent({
                             </div>
 
                             <div className="flex items-center gap-2">
-                                <Link
-                                    href={`/agents/${agent.id}/chat`}
-                                    className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-                                >
-                                    <MessageSquare className="size-3.5" />
-                                    Chat
-                                </Link>
+                                {agent.agent_mode !== 'workforce' && (
+                                    <Link
+                                        href={`/agents/${agent.id}/chat`}
+                                        className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+                                    >
+                                        <MessageSquare className="size-3.5" />
+                                        Chat
+                                    </Link>
+                                )}
                                 <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                         <Button

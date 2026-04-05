@@ -203,6 +203,11 @@ function AgentList({ agents }: { agents: Agent[] }) {
                                     {agent.role?.replace(/_/g, ' ') ??
                                         'AI Team Member'}
                                 </p>
+                                {agent.agent_mode && (
+                                    <span className="mt-1 inline-block rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-medium text-primary">
+                                        {agent.agent_mode === 'workforce' ? 'Task Agent' : 'Chat Agent'}
+                                    </span>
+                                )}
                             </div>
 
                             {/* Body */}

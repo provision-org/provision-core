@@ -61,6 +61,7 @@ class GovernanceTaskController extends Controller
 
         $task = $team->tasks()->create([
             ...$request->validated(),
+            'identifier' => $identifier,
             'created_by_type' => 'user',
             'created_by_id' => $request->user()->id,
             'status' => 'todo',
@@ -89,6 +90,8 @@ class GovernanceTaskController extends Controller
 
         $task->load([
             'agent',
+            'assignedAgent',
+            'delegatedByAgent',
             'goal',
             'parentTask',
             'subTasks.agent',

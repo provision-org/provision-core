@@ -25,6 +25,19 @@ export default function AgentAvatar({
         );
     }
 
+    if (agent.emoji) {
+        return (
+            <div
+                className={cn(
+                    'flex items-center justify-center rounded-full bg-muted',
+                    className,
+                )}
+            >
+                <span className="text-lg">{agent.emoji}</span>
+            </div>
+        );
+    }
+
     return (
         <div
             className={cn(

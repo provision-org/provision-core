@@ -362,7 +362,7 @@ export default function MemoryBrowser({ agent }: { agent: Agent }) {
                                     />
                                 ) : (
                                     <pre className="max-h-[500px] overflow-y-auto p-4 font-mono text-sm leading-relaxed break-words whitespace-pre-wrap text-foreground/90">
-                                        {fileDetail.content}
+                                        {fileDetail.content.replace(/^§$/gm, '')}
                                     </pre>
                                 )}
                             </div>

@@ -43,6 +43,9 @@ class ProvisionDockerServerJob implements ShouldQueue
 
         // Write provisiond config to agent-runtime container
         $this->setupDaemon($executor, $daemonToken);
+
+        // Sync API keys to the agent container
+        UpdateEnvOnServerJob::dispatch($this->server);
     }
 
     private function setupDaemon(DockerExecutor $executor, string $daemonToken): void

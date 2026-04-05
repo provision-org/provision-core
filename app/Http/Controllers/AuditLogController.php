@@ -2,6 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Agent;
+use App\Models\Goal;
+use App\Models\Task;
 use App\Models\Team;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -37,11 +40,37 @@ class AuditLogController extends Controller
 
         $entries = $query->orderByDesc('created_at')->paginate(50);
 
+        // Enrich entries with human-readable target names
+        $entries->getCollection()->transform(function ($entry) {
+            $entry->target_name = $this->resolveTargetName($entry->target_type, $entry->target_id, $entry->payload);
+
+            return $entry;
+        });
+
         return Inertia::render('company/audit/index', [
             'team' => $team,
             'entries' => $entries,
             'filters' => $request->only(['actor_type', 'action', 'target_type', 'from', 'to']),
         ]);
+    }
+
+    private function resolveTargetName(?string $targetType, ?string $targetId, ?array $payload): ?string
+    {
+        if (! $targetType || ! $targetId) {
+            return null;
+        }
+
+        // Check if the payload already has a title
+        if (! empty($payload['title'])) {
+            return $payload['title'];
+        }
+
+        return match ($targetType) {
+            'task' => Task::find($targetId)?->title,
+            'goal' => Goal::find($targetId)?->title,
+            'agent' => Agent::find($targetId)?->name,
+            default => null,
+        };
     }
 
     private function authorizeTeam(Request $request, Team $team): void

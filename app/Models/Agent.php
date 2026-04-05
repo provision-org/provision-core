@@ -31,6 +31,7 @@ class Agent extends Model
         'agent_template_id',
         'harness_type',
         'name',
+        'emoji',
         'role',
         'job_description',
         'status',
