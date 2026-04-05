@@ -65,7 +65,7 @@ export default [
         },
     },
     {
-        ignores: ['vendor', 'node_modules', 'public', 'bootstrap/ssr', 'resources/skills', 'storage/app/skills', 'tailwind.config.js', 'vite.config.ts'],
+        ignores: ['vendor', 'node_modules', 'public', 'bootstrap/ssr', 'resources/skills', 'storage/app/skills', 'packages/provisiond', 'tailwind.config.js', 'vite.config.ts'],
     },
     prettier, // Turn off all rules that might conflict with Prettier
 ];

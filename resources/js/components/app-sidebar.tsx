@@ -188,11 +188,15 @@ function AppearanceToggle() {
 }
 
 export function AppSidebar() {
-    const { auth } = usePage<SharedData>().props;
+    const pageProps = usePage<SharedData>().props;
+    const { auth } = pageProps;
     const pendingApprovalCount: number =
         Number(
-            (usePage().props as Record<string, unknown>).pendingApprovalCount,
+            (pageProps as Record<string, unknown>).pendingApprovalCount,
         ) || 0;
+    const modules = (pageProps as Record<string, unknown>).modules as
+        | Record<string, boolean>
+        | undefined;
     const currentTeam = auth.user.current_team;
     const isMobile = useIsMobile();
 
@@ -244,13 +248,9 @@ export function AppSidebar() {
                     }}
                 />
                 <NavSection label="Explore" items={exploreNavItems} />
-                {(usePage().props as Record<string, unknown>).modules &&
-                    (
-                        (usePage().props as Record<string, unknown>)
-                            .modules as Record<string, boolean>
-                    )?.skills && (
-                        <NavSection label="Training" items={trainingNavItems} />
-                    )}
+                {modules?.skills && (
+                    <NavSection label="Training" items={trainingNavItems} />
+                )}
             </SidebarContent>
 
             <SidebarFooter>
