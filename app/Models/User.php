@@ -4,6 +4,7 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use App\Enums\TeamRole;
+use App\Support\Provision;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -90,7 +91,7 @@ class User extends Authenticatable
      */
     public function currentTeam(): BelongsTo
     {
-        return $this->belongsTo(Team::class, 'current_team_id');
+        return $this->belongsTo(Provision::teamModel(), 'current_team_id');
     }
 
     public function switchTeam(Team $team): void
