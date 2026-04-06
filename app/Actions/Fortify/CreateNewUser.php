@@ -38,7 +38,7 @@ class CreateNewUser implements CreatesNewUsers
             'password' => $input['password'],
             'profile_completed_at' => now(),
             'activated_at' => $hasBilling ? null : now(),
-            'email_verified_at' => $hasBilling ? null : now(),
+            'email_verified_at' => now(),
         ]);
 
         Mail::to($user->email)->send(new WelcomeMail($user));
