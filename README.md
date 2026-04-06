@@ -1,8 +1,14 @@
 <p align="center">
-  <img src="public/logo.svg" alt="Provision" width="60" />
-</p>
 
-<h1 align="center">Provision</h1>
+```
+ ____                  _     _
+|  _ \ _ __ _____   _(_)___(_) ___  _ __
+| |_) | '__/ _ \ \ / / / __| |/ _ \| '_ \
+|  __/| | | (_) \ V /| \__ \ | (_) | | | |
+|_|   |_|  \___/ \_/ |_|___/_|\___/|_| |_|
+```
+
+</p>
 
 <p align="center">
   Open-source platform for deploying AI agents that work like employees.
@@ -21,9 +27,9 @@
   &nbsp;
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License" /></a>
   &nbsp;
-  <a href="https://discord.gg/W8rnGcvRCu"><img src="https://img.shields.io/discord/000000000?label=Discord&logo=discord&logoColor=white" alt="Discord" /></a>
+  <a href="https://discord.gg/W8rnGcvRCu"><img src="https://img.shields.io/badge/Discord-Join%20us-5865F2?logo=discord&logoColor=white" alt="Discord" /></a>
   &nbsp;
-  <a href="https://github.com/provision-org/provision-core/actions"><img src="https://img.shields.io/github/actions/workflow/status/provision-org/provision-core/tests.yml?label=tests" alt="Tests" /></a>
+  <a href="https://github.com/provision-org/provision-core/actions/workflows/tests.yml"><img src="https://github.com/provision-org/provision-core/actions/workflows/tests.yml/badge.svg" alt="Tests" /></a>
 </p>
 
 ---
@@ -88,15 +94,47 @@ You'll need Redis running locally for queues, cache, and sessions.
 
 </details>
 
-## Two Ways to Work
+## Task Agents vs Chat Agents
+
+Provision agents operate in one of two modes. You can mix both in the same team.
 
 ### Chat Agents
 
-Connect agents to **Slack**, **Telegram**, **Discord**, or the built-in **web chat** with SSE streaming. Agents respond to messages, participate in threads, and can be mentioned like any colleague. Each agent gets its own Chrome browser, email identity, and workspace files. Best for support, Q&A, knowledge work, and team communication.
+Chat agents live in your messaging channels. Connect one to **Slack**, **Telegram**, **Discord**, or the built-in **web chat** and it responds to messages, participates in threads, and can be mentioned like any colleague. Each agent gets its own Chrome browser, email identity, and workspace files.
+
+**Best for:** customer support, Q&A, knowledge work, team communication.
+
+```
+User  →  Slack / Telegram / Discord / Web Chat
+      →  Agent receives message
+      →  Agent responds in thread
+```
 
 ### Task Agents
 
-Agents work autonomously from the **task board**. You create tasks, assign them to agents, and they execute without waiting for a conversation. Agents are organized in an **org chart** with managers and direct reports. They pursue **goals** with measurable progress. High-stakes actions go through **approval gates** before executing. A lightweight daemon called **provisiond** runs on each agent server, polling for assigned tasks and driving execution. Best for research, engineering, operations, and anything that doesn't need a human in the loop.
+Task agents work from the **task board** without waiting for a conversation. You create tasks, assign them to agents, and they execute autonomously. Agents are organized in an **org chart** with managers and direct reports. They pursue **goals** with measurable progress. High-stakes actions go through **approval gates** before executing.
+
+**Best for:** engineering, research, operations, and anything that doesn't need a human in the loop.
+
+```
+User  →  Task Board (create task, assign agent)
+      →  provisiond picks up task on agent server
+      →  Agent executes autonomously
+      →  Reports result back to Provision
+```
+
+### When to Use Which
+
+| Scenario | Mode | Why |
+|----------|------|-----|
+| Answer customer questions in Slack | Chat | Conversational, needs channel presence |
+| Fix a bug from a ticket | Task | Autonomous, reports result when done |
+| Research competitors weekly | Task | Recurring, no human in the loop |
+| Respond to inbound emails | Chat | Reactive, message-driven |
+| Build a feature from a spec | Task | Multi-step, uses delegation to sub-agents |
+| Team standup summaries | Chat | Needs access to channel history |
+
+Most teams start with one or two chat agents, then add task agents as they discover work that doesn't need a human conversation to kick off.
 
 ## Features
 
@@ -129,17 +167,14 @@ Agents work autonomously from the **task board**. You create tasks, assign them 
 - **Goal tracking** — Define goals with measurable targets and track progress over time
 - **Reporting hierarchy** — Managers review work and coordinate across their team
 
-### Governance
-- **Approval gates** — Agents request human approval before taking high-stakes actions
-- **Governance modes** — `none` (full autonomy), `standard` (approve sensitive actions), or `strict` (approve everything)
-- **Audit log** — Every agent action, approval decision, and task result is logged
+### Human Oversight
+- **Approval gates** — Agents request human approval before taking high-stakes actions (deploying code, sending emails to customers, spending money)
+- **Governance modes** — Choose per-team: `none` (full autonomy), `standard` (approve sensitive actions), or `strict` (approve everything)
+- **Audit log** — Every agent action, approval decision, and task result is recorded with timestamps and context
 
-### Daemon (provisiond)
-- **Lightweight orchestrator** — Node.js daemon that runs on each agent server
-- **Task polling** — Fetches assigned tasks from Provision every 30 seconds
-- **Structured prompts** — Builds prompts with task details, goal context, and org hierarchy
-- **Result reporting** — Sends results, delegation requests, and token usage back to Provision
-- **Crash-resilient** — A single task failure never takes down the process
+### Task Daemon (provisiond)
+
+Each agent server runs **provisiond**, a lightweight Node.js process that bridges the Provision dashboard with the agent runtime on the server. It polls for assigned tasks, builds structured prompts with task details and org context, sends them to the agent's LLM gateway, and reports results back. If a task fails, provisiond logs the error and moves on — one bad task never takes down the server.
 
 ### Open Source
 - **MIT license** — Use it however you want
@@ -147,16 +182,6 @@ Agents work autonomously from the **task board**. You create tasks, assign them 
 - **No artificial limits** — Self-hosted Provision is the full product, not a limited demo
 
 ## How It Works
-
-### Chat Mode vs Task Mode
-
-```
-Chat Mode:                              Task Mode:
-User  ->  Slack / Telegram / Discord    User  ->  Task Board
-      ->  Agent receives message              ->  provisiond picks up task
-      ->  Agent responds in thread            ->  Agent executes autonomously
-                                              ->  Reports result to Provision
-```
 
 ### Architecture
 
@@ -209,7 +234,6 @@ OPENROUTER_PROVISIONING_API_KEY=sk-or-v1-your-key-here
 | `DIGITALOCEAN_API_TOKEN` | No | — | Required if using DigitalOcean for agent servers. |
 | `HETZNER_API_TOKEN` | No | — | Required if using Hetzner for agent servers. |
 | `LINODE_API_KEY` | No | — | Required if using Linode for agent servers. |
-| `MAILBOXKIT_API_KEY` | No | — | Enables email identities for agents (premium module). |
 | `MAIL_MAILER` | No | `log` | Set to `smtp`/`ses`/`postmark` for real email delivery. |
 
 ### What Happens on First Run
@@ -252,15 +276,18 @@ Create an agent in the UI and Provision will automatically provision a server, i
 
 ## Self-Hosted vs Provision Cloud
 
-|  | Self-Hosted | Provision Cloud |
-|--|-------------|-----------------|
-| **Price** | Free, forever | From $49/mo |
-| **Agents** | Unlimited | Tiered |
-| **Infrastructure** | Docker or BYO cloud | Fully managed |
-| **Updates** | `git pull && docker compose up` | Automatic |
-| **Premium modules** | Add via Composer | Included |
+|  | Self-Hosted (Free) | Cloud | Enterprise |
+|--|---------------------|-------|------------|
+| **Price** | Free, forever | From $49/mo | Custom |
+| **Infrastructure** | Docker or BYO cloud | Fully managed | Managed or on-prem |
+| **Updates** | `git pull && docker compose up` | Automatic | Automatic |
+| **Email identities** | — | MailboxKit included | MailboxKit included |
+| **Residential proxy** | — | Browser Pro included | Browser Pro included |
+| **Skill packs** | — | Pre-built skill library | Custom skill library |
+| **Analytics** | — | Token usage & performance dashboards | Advanced reporting |
+| **Support** | Community (Discord, GitHub) | Email support | Dedicated support + SLA |
 
-Self-hosted Provision is the full product, not a limited demo. It's the same code that powers Provision Cloud.
+Self-hosted Provision is the full product, not a limited demo. It's the same core that powers Provision Cloud — Cloud and Enterprise add managed infrastructure and premium modules on top.
 
 <p align="center">
   <a href="https://provision.ai"><strong>Try Provision Cloud &rarr;</strong></a>
@@ -268,20 +295,7 @@ Self-hosted Provision is the full product, not a limited demo. It's the same cod
 
 ## Extend with Modules
 
-The core handles agent deployment, channels, tasks, governance, and infrastructure. Premium modules add more:
-
-| Module | Adds |
-|--------|------|
-| **MailboxKit** | Email identities for agents — send and receive with custom domains |
-| **Browser Pro** | Residential proxy for web research (Decodo) |
-| **Skills** | Pre-built agent skill packs for common workflows |
-| **Analytics** | Performance dashboards and token usage tracking |
-
-```bash
-composer require provision/module-mailboxkit
-php artisan migrate
-# Done — your agents can now send and receive email
-```
+The core handles agent deployment, channels, tasks, governance, and infrastructure. Modules add more capabilities through a clean plugin interface.
 
 Building your own module? See [`app/Contracts/Modules/`](app/Contracts/Modules/) for the interfaces your module can implement:
 
