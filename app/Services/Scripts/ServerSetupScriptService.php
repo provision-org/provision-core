@@ -150,8 +150,8 @@ CADDY);
         // 6. Credential wrappers
         $lines[] = '# --- Step 6: Credential Wrappers ---';
         $lines[] = 'ping_progress "installing_credential_wrappers"';
-        $lines[] = 'test -f /usr/bin/gh && ! -f /usr/bin/gh.real && cp /usr/bin/gh /usr/bin/gh.real || true';
-        $lines[] = 'test -f /usr/bin/git && ! -f /usr/bin/git.real && cp /usr/bin/git /usr/bin/git.real || true';
+        $lines[] = '[ -f /usr/bin/gh ] && [ ! -f /usr/bin/gh.real ] && cp /usr/bin/gh /usr/bin/gh.real || true';
+        $lines[] = '[ -f /usr/bin/git ] && [ ! -f /usr/bin/git.real ] && cp /usr/bin/git /usr/bin/git.real || true';
         $lines[] = '';
 
         $lines[] = $this->buildHeredoc('/usr/bin/gh', <<<'WRAPPER'
