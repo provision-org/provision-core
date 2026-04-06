@@ -33,6 +33,7 @@ use App\Services\AgentInstallScriptService;
 use App\Services\AgentTemplateService;
 use App\Services\Harness\HermesDriver;
 use App\Services\ModuleRegistry;
+use App\Services\ServerProvisioningDispatcher;
 use App\Services\SlackAppCleanupService;
 use App\Services\SshService;
 use App\Support\Provision;
@@ -915,6 +916,23 @@ class AgentController extends Controller
             ->flatMap(fn (LlmProvider $provider) => $provider->models())
             ->values()
             ->all();
+    }
+
+    /**
+     * Ensure the team has a server, provisioning one if needed.
+     */
+    private function ensureTeamHasServer(Team $team): void
+    {
+        if ($team->server) {
+            return;
+        }
+
+        $server = $team->server()->create([
+            'name' => "provision-{$team->id}",
+            'cloud_provider' => $team->cloudProvider(),
+        ]);
+
+        ServerProvisioningDispatcher::dispatch($server);
     }
 
     /**

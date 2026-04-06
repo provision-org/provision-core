@@ -6,6 +6,12 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 
 uses(RefreshDatabase::class);
 
+beforeEach(function () {
+    if (! file_exists(app_path('Ai/Agents/CrewAdvisor.php'))) {
+        $this->markTestSkipped('CrewAdvisor class not available');
+    }
+});
+
 function advisorUser(): User
 {
     $user = User::factory()->withPersonalTeam()->create();

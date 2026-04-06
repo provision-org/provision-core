@@ -50,6 +50,10 @@ test('install script patches openclaw.json env section with BYOK api keys', func
 });
 
 test('install script patches openclaw.json env section with managed key when no BYOK', function () {
+    if (! class_exists('Provision\Billing\Models\ManagedOpenRouterKey')) {
+        $this->markTestSkipped('Requires billing module');
+    }
+
     $team = Team::factory()->create();
     ManagedOpenRouterKey::factory()->create([
         'team_id' => $team->id,

@@ -6,10 +6,6 @@ use App\Services\ModuleRegistry;
 use App\Support\Provision;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Mockery\MockInterface;
-use Provision\Billing\Enums\SubscriptionPlan;
-use Provision\MailboxKit\MailboxKitModule;
-use Provision\MailboxKit\Services\EmailProvisioningService;
-use Provision\MailboxKit\Services\MailboxKitService;
 use Tests\TestCase;
 
 /*
@@ -61,15 +57,23 @@ function something()
 /**
  * Subscribe a team to a plan using the billing module's BillableTeam model.
  * This creates the necessary Stripe-like subscription records for tests.
+ *
+ * No-op when the billing module is not installed.
  */
 function subscribeTeam(Team $team, string $plan = 'starter'): void
 {
+    $planClass = 'Provision\Billing\Enums\SubscriptionPlan';
+
+    if (! class_exists($planClass)) {
+        return;
+    }
+
     $billingModel = Provision::teamModel();
     $bt = ($billingModel !== Team::class)
         ? $billingModel::find($team->id)
         : $team;
 
-    $planEnum = SubscriptionPlan::from($plan);
+    $planEnum = $planClass::from($plan);
     $bt->forceFill(['plan' => $planEnum, 'stripe_id' => 'cus_test_'.uniqid()])->save();
     $bt->subscriptions()->create([
         'type' => 'default',
@@ -90,16 +94,20 @@ function subscribeTeam(Team $team, string $plan = 'starter'): void
  */
 function registerMailboxKitModule(MockInterface $mailboxKitMock): void
 {
-    if (! class_exists(MailboxKitModule::class)) {
+    $moduleClass = 'Provision\MailboxKit\MailboxKitModule';
+    $serviceClass = 'Provision\MailboxKit\Services\MailboxKitService';
+    $provisioningClass = 'Provision\MailboxKit\Services\EmailProvisioningService';
+
+    if (! class_exists($moduleClass)) {
         return;
     }
 
     config(['mailboxkit.api_key' => 'mbk-test-key']);
 
-    app()->instance(MailboxKitService::class, $mailboxKitMock);
+    app()->instance($serviceClass, $mailboxKitMock);
 
-    $module = new MailboxKitModule(
-        app(EmailProvisioningService::class),
+    $module = new $moduleClass(
+        app($provisioningClass),
         $mailboxKitMock,
     );
 

@@ -2,9 +2,13 @@
 
 uses()->group('requires-storage');
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\AgentRole;
+use App\Enums\LlmProvider;
 use App\Models\Agent;
+use App\Models\Server;
 use App\Models\Team;
+use App\Models\TeamApiKey;
 use App\Models\User;
 use App\Services\AgentTemplateService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -16,6 +20,17 @@ uses(RefreshDatabase::class);
 function subscribeTemplateTeam(Team $team): void
 {
     subscribeTeam($team);
+    Server::factory()->running()->create(['team_id' => $team->id]);
+
+    // When billing is not installed, subscribeTeam is a no-op.
+    // Add a BYOK API key so the team has access to Anthropic models for validation.
+    if (! app()->bound(BillingProvider::class)) {
+        TeamApiKey::factory()->create([
+            'team_id' => $team->id,
+            'provider' => LlmProvider::Anthropic,
+            'is_active' => true,
+        ]);
+    }
 }
 
 test('template endpoint returns data for valid role', function () {
@@ -64,6 +79,11 @@ test('template endpoint returns user context from profile', function () {
 });
 
 test('template merges base agents.md with role-specific agents.md', function () {
+    $templatePath = storage_path('app/agent-templates/bdr/agents.md');
+    if (! file_exists($templatePath)) {
+        $this->markTestSkipped('Agent template files not present on disk');
+    }
+
     $service = app(AgentTemplateService::class);
 
     $template = $service->getTemplate(AgentRole::Bdr);

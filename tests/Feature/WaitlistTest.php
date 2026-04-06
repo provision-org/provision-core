@@ -1,6 +1,13 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
 use App\Models\User;
+
+beforeEach(function () {
+    if (! app()->bound(BillingProvider::class)) {
+        $this->markTestSkipped('Waitlist requires the billing module');
+    }
+});
 
 test('waitlisted user is redirected to waitlist from protected routes', function () {
     $user = User::factory()->waitlisted()->create();

@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\User;
@@ -24,6 +25,7 @@ test('a user can create a new team', function () {
 
     $response = $this->actingAs($user)->post(route('teams.store'), [
         'name' => 'New Team',
+        'harness_type' => 'hermes',
     ]);
 
     $team = Team::where('name', 'New Team')->first();
@@ -34,16 +36,21 @@ test('a user can create a new team', function () {
         ->and($team->hasUserWithRole($user, TeamRole::Admin))->toBeTrue()
         ->and($user->fresh()->current_team_id)->toBe($team->id);
 
-    $response->assertRedirect(route('agents.index'));
+    $response->assertRedirect(route('teams.provisioning', $team));
 });
 
 test('team creation provisions credit wallet without signup bonus', function () {
+    if (! app()->bound(BillingProvider::class)) {
+        $this->markTestSkipped('Credit wallet requires the billing module');
+    }
+
     Bus::fake();
 
     $user = User::factory()->withPersonalTeam()->create();
 
     $this->actingAs($user)->post(route('teams.store'), [
         'name' => 'Starter Team',
+        'harness_type' => 'hermes',
     ]);
 
     $billingModel = Provision::teamModel();
@@ -58,6 +65,7 @@ test('a team name is required to create a team', function () {
 
     $response = $this->actingAs($user)->post(route('teams.store'), [
         'name' => '',
+        'harness_type' => 'hermes',
     ]);
 
     $response->assertSessionHasErrors('name');

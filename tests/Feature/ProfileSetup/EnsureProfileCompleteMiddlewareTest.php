@@ -2,10 +2,15 @@
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Route;
 
 uses(RefreshDatabase::class);
 
 test('redirects incomplete user to profile-setup', function () {
+    if (! Route::has('subscribe')) {
+        $this->markTestSkipped('Subscribe route requires the billing module');
+    }
+
     $user = User::factory()->create(['profile_completed_at' => null]);
 
     $response = $this->actingAs($user)->get(route('subscribe'));

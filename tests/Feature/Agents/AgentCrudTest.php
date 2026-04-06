@@ -1,6 +1,8 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\AgentStatus;
+use App\Enums\LlmProvider;
 use App\Enums\TeamRole;
 use App\Jobs\CreateAgentOnServerJob;
 use App\Jobs\RemoveAgentFromServerJob;
@@ -9,6 +11,7 @@ use App\Models\Agent;
 use App\Models\AgentEmailConnection;
 use App\Models\Server;
 use App\Models\Team;
+use App\Models\TeamApiKey;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
@@ -19,6 +22,17 @@ uses(RefreshDatabase::class);
 function subscribeCrudTeam(Team $team): void
 {
     subscribeTeam($team);
+    Server::factory()->running()->create(['team_id' => $team->id]);
+
+    // When billing is not installed, subscribeTeam is a no-op.
+    // Add a BYOK API key so the team has access to Anthropic models for validation.
+    if (! app()->bound(BillingProvider::class)) {
+        TeamApiKey::factory()->create([
+            'team_id' => $team->id,
+            'provider' => LlmProvider::Anthropic,
+            'is_active' => true,
+        ]);
+    }
 }
 
 test('a team member can view the agents index', function () {

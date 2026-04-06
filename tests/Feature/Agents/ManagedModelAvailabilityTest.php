@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\LlmProvider;
 use App\Http\Controllers\AgentController;
 use App\Models\TeamApiKey;
@@ -10,6 +11,12 @@ use Provision\Billing\Models\ManagedOpenRouterKey;
 use Provision\MailboxKit\Services\MailboxKitService;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function () {
+    if (! app()->bound(BillingProvider::class)) {
+        $this->markTestSkipped('Requires billing module');
+    }
+});
 
 function createSubscribedTeam(): array
 {

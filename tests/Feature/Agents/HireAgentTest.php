@@ -1,12 +1,15 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\AgentRole;
 use App\Enums\AgentStatus;
+use App\Enums\LlmProvider;
 use App\Enums\TeamRole;
 use App\Models\Agent;
 use App\Models\AgentTemplate;
 use App\Models\Server;
 use App\Models\Team;
+use App\Models\TeamApiKey;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Provision\MailboxKit\Services\MailboxKitService;
@@ -17,6 +20,16 @@ function subscribeHireTeam(Team $team): void
 {
     subscribeTeam($team);
     Server::factory()->running()->create(['team_id' => $team->id]);
+
+    // When billing is not installed, subscribeTeam is a no-op.
+    // Add a BYOK API key so the team has access to models for validation.
+    if (! app()->bound(BillingProvider::class)) {
+        TeamApiKey::factory()->create([
+            'team_id' => $team->id,
+            'provider' => LlmProvider::Anthropic,
+            'is_active' => true,
+        ]);
+    }
 }
 
 test('admin can hire agent from template', function () {

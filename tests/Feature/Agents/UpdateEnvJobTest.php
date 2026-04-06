@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\CommandExecutor;
 use App\Enums\LlmProvider;
 use App\Jobs\RestartGatewayJob;
 use App\Jobs\UpdateEnvOnServerJob;
@@ -7,26 +8,35 @@ use App\Models\Server;
 use App\Models\Team;
 use App\Models\TeamApiKey;
 use App\Models\TeamEnvVar;
+use App\Services\HarnessManager;
 use App\Services\OpenClawDefaultsService;
-use App\Services\SshService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Mockery\MockInterface;
 
 uses(RefreshDatabase::class);
 
-function mockSshWithConfigUpdate(SshService $sshService, ?string &$writtenConfig = null): void
+function mockExecutorWithConfigUpdate(MockInterface $executor, ?string &$writtenConfig = null): void
 {
     $existingConfig = json_encode(['agents' => ['defaults' => ['sandbox' => ['mode' => 'off']]]]);
-    $sshService->shouldReceive('readFile')
+    $executor->shouldReceive('readFile')
         ->with('/root/.openclaw/openclaw.json')
         ->andReturn($existingConfig);
-    $sshService->shouldReceive('writeFile')
+    $executor->shouldReceive('writeFile')
         ->with('/root/.openclaw/openclaw.json', Mockery::on(function ($content) use (&$writtenConfig) {
             $writtenConfig = $content;
 
             return json_decode($content) !== null;
         }))
         ->once();
+}
+
+function mockHarnessManager(MockInterface $executor): HarnessManager
+{
+    $harnessManager = Mockery::mock(HarnessManager::class);
+    $harnessManager->shouldReceive('resolveExecutor')->andReturn($executor);
+
+    return $harnessManager;
 }
 
 test('it generates env file content from api keys and env vars', function () {
@@ -51,19 +61,17 @@ test('it generates env file content from api keys and env vars', function () {
     $writtenContent = null;
     $writtenConfigJson = null;
 
-    $sshService = Mockery::mock(SshService::class);
-    $sshService->shouldReceive('connect')->once()->andReturnSelf();
-    $sshService->shouldReceive('writeFile')
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('writeFile')
         ->once()
         ->with('/root/.openclaw/.env', Mockery::on(function ($content) use (&$writtenContent) {
             $writtenContent = $content;
 
             return true;
         }));
-    mockSshWithConfigUpdate($sshService, $writtenConfigJson);
-    $sshService->shouldReceive('disconnect')->once();
+    mockExecutorWithConfigUpdate($executor, $writtenConfigJson);
 
-    (new UpdateEnvOnServerJob($server))->handle($sshService, new OpenClawDefaultsService);
+    (new UpdateEnvOnServerJob($server))->handle(mockHarnessManager($executor), new OpenClawDefaultsService);
 
     expect($writtenContent)->toContain('ANTHROPIC_API_KEY=sk-ant-test-key')
         ->and($writtenContent)->toContain('CUSTOM_VAR=custom-value');
@@ -90,19 +98,17 @@ test('it skips inactive api keys', function () {
     $writtenContent = null;
     $writtenConfigJson = null;
 
-    $sshService = Mockery::mock(SshService::class);
-    $sshService->shouldReceive('connect')->once()->andReturnSelf();
-    $sshService->shouldReceive('writeFile')
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('writeFile')
         ->once()
         ->with('/root/.openclaw/.env', Mockery::on(function ($content) use (&$writtenContent) {
             $writtenContent = $content;
 
             return true;
         }));
-    mockSshWithConfigUpdate($sshService, $writtenConfigJson);
-    $sshService->shouldReceive('disconnect')->once();
+    mockExecutorWithConfigUpdate($executor, $writtenConfigJson);
 
-    (new UpdateEnvOnServerJob($server))->handle($sshService, new OpenClawDefaultsService);
+    (new UpdateEnvOnServerJob($server))->handle(mockHarnessManager($executor), new OpenClawDefaultsService);
 
     expect($writtenContent)->not->toContain('OPENAI_API_KEY');
 

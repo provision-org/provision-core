@@ -10,15 +10,17 @@ use Illuminate\Support\Facades\Bus;
 
 uses(RefreshDatabase::class);
 
-test('team creation redirects to agents', function () {
+test('team creation redirects to provisioning', function () {
     Bus::fake();
     $user = User::factory()->withPersonalTeam()->create();
 
     $response = $this->actingAs($user)->post(route('teams.store'), [
         'name' => 'New Team',
+        'harness_type' => 'hermes',
     ]);
 
-    $response->assertRedirect(route('agents.index'));
+    $team = Team::where('name', 'New Team')->first();
+    $response->assertRedirect(route('teams.provisioning', $team));
 });
 
 test('provisioning page renders with server status props', function () {

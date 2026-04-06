@@ -14,23 +14,26 @@ test('creating a team does not dispatch ProvisionHetznerServerJob', function () 
 
     $this->actingAs($user)->post(route('teams.store'), [
         'name' => 'My New Team',
+        'harness_type' => 'hermes',
     ]);
 
     Bus::assertNotDispatched(ProvisionHetznerServerJob::class);
     Bus::assertNotDispatched(ProvisionDigitalOceanServerJob::class);
 });
 
-test('creating a team does not create a server record', function () {
+test('creating a team creates a server record', function () {
     Bus::fake();
     $user = User::factory()->withCompletedProfile()->create();
 
     $this->actingAs($user)->post(route('teams.store'), [
         'name' => 'My New Team',
+        'harness_type' => 'hermes',
     ]);
 
     $team = $user->fresh()->currentTeam;
 
-    expect($team->server)->toBeNull();
+    expect($team)->not->toBeNull();
+    expect($team->server)->not->toBeNull();
 });
 
 test('creating a team switches the user to the new team', function () {
@@ -39,6 +42,7 @@ test('creating a team switches the user to the new team', function () {
 
     $this->actingAs($user)->post(route('teams.store'), [
         'name' => 'My New Team',
+        'harness_type' => 'hermes',
     ]);
 
     $user->refresh();

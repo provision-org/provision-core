@@ -1,8 +1,11 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
+use App\Enums\LlmProvider;
 use App\Models\Agent;
 use App\Models\AgentEmailConnection;
 use App\Models\Server;
+use App\Models\TeamApiKey;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Provision\MailboxKit\Services\MailboxKitService;
@@ -15,6 +18,16 @@ function setupEmailTestUser(): array
     $team = $user->currentTeam;
     subscribeTeam($team, 'pro');
     Server::factory()->running()->create(['team_id' => $team->id]);
+
+    // When billing is not installed, subscribeTeam is a no-op.
+    // Add a BYOK API key so the team has access to Anthropic models for validation.
+    if (! app()->bound(BillingProvider::class)) {
+        TeamApiKey::factory()->create([
+            'team_id' => $team->id,
+            'provider' => LlmProvider::Anthropic,
+            'is_active' => true,
+        ]);
+    }
 
     return [$user, $team];
 }

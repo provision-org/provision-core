@@ -66,6 +66,10 @@ it('cleans up mailboxkit inboxes and webhooks when destroying team', function ()
 });
 
 it('revokes openrouter managed key when destroying team', function () {
+    if (! class_exists('Provision\Billing\Models\ManagedOpenRouterKey')) {
+        $this->markTestSkipped('Requires billing module');
+    }
+
     $team = Team::factory()->subscribed()->create();
     $managedKey = ManagedOpenRouterKey::factory()->create([
         'team_id' => $team->id,
@@ -125,6 +129,10 @@ it('destroys cloud server and volume when destroying team', function () {
 });
 
 it('continues cleanup even if external api calls fail', function () {
+    if (! class_exists('Provision\Billing\Models\ManagedOpenRouterKey')) {
+        $this->markTestSkipped('Requires billing module');
+    }
+
     $team = Team::factory()->subscribed()->create();
     $agent = Agent::factory()->create(['team_id' => $team->id]);
     AgentEmailConnection::factory()->create([

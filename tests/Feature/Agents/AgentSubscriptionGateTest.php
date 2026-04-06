@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\LlmProvider;
 use App\Models\AgentTemplate;
 use App\Models\Server;
@@ -7,9 +8,14 @@ use App\Models\Team;
 use App\Models\TeamApiKey;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Provision\MailboxKit\Services\MailboxKitService;
 
 uses(RefreshDatabase::class);
+
+beforeEach(function () {
+    if (! app()->bound(BillingProvider::class)) {
+        $this->markTestSkipped('Subscription gate tests require the billing module');
+    }
+});
 
 function createGateTestUser(): array
 {
@@ -27,13 +33,15 @@ function subscribeGateTeam(Team $team): void
 
 function mockMailboxKit(): void
 {
-    if (! class_exists(MailboxKitService::class)) {
+    $serviceClass = 'Provision\MailboxKit\Services\MailboxKitService';
+
+    if (! class_exists($serviceClass)) {
         return;
     }
 
-    $mock = Mockery::mock(MailboxKitService::class);
+    $mock = Mockery::mock($serviceClass);
     $mock->shouldReceive('createInbox')->andReturn(['data' => ['id' => 1]]);
-    app()->instance(MailboxKitService::class, $mock);
+    app()->instance($serviceClass, $mock);
 }
 
 test('store requires subscription', function () {
