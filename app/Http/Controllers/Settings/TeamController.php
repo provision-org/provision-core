@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Settings;
 use App\Ai\CompanyExtractorAgent;
 use App\Enums\ServerStatus;
 use App\Enums\TeamRole;
+use App\Contracts\Modules\BillingProvider;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\CreateTeamRequest;
 use App\Http\Requests\Settings\UpdateTeamRequest;
@@ -89,9 +90,14 @@ class TeamController extends Controller
             }
         }
 
-        $this->provisionServer($team);
-
         Mail::to($request->user()->email)->send(new TeamCreatedMail($team));
+
+        // If billing is active, redirect to subscribe before provisioning
+        if (app()->bound(BillingProvider::class)) {
+            return to_route('subscribe');
+        }
+
+        $this->provisionServer($team);
 
         return to_route('teams.provisioning', $team);
     }
