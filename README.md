@@ -87,6 +87,8 @@ Open **http://localhost:8000** &rarr; create an account &rarr; create a team &ra
 composer install && npm install
 cp .env.example .env
 php artisan key:generate && php artisan migrate
+php artisan db:seed --class=AgentTemplateSeeder
+php artisan db:seed --class=TeamPackSeeder
 composer run dev
 ```
 
@@ -243,8 +245,9 @@ When you run `docker compose up -d`, the app container:
 1. Installs PHP and Node dependencies
 2. Generates an encryption key (if not set)
 3. Creates the SQLite database and runs migrations
-4. Builds the frontend assets (React + Vite)
-5. Starts the web server, queue worker (Horizon), WebSocket server (Reverb), and scheduler
+4. Seeds agent templates and team packs (pre-built agents you can hire in one click)
+5. Builds the frontend assets (React + Vite)
+6. Starts the web server, queue worker (Horizon), WebSocket server (Reverb), and scheduler
 
 The agent-runtime container starts separately with Chrome, OpenClaw or Hermes, provisiond, and a VNC server.
 

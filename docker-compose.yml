@@ -65,6 +65,8 @@ services:
         if [ ! -f .env ]; then cp .env.example .env; fi
         grep -q '^APP_KEY=base64:' .env || php artisan key:generate --no-interaction 2>/dev/null
         php artisan migrate --force --no-interaction
+        php artisan db:seed --class=AgentTemplateSeeder --no-interaction 2>/dev/null || true
+        php artisan db:seed --class=TeamPackSeeder --no-interaction 2>/dev/null || true
         php artisan wayfinder:generate 2>/dev/null || true
         if [ ! -d public/build ]; then
           echo "Building frontend assets (first run)..."
