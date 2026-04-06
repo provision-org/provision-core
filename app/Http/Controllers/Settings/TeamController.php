@@ -109,6 +109,15 @@ class TeamController extends Controller
     {
         abort_unless($team->hasUser($request->user()), 403);
 
+        // Require subscription before provisioning when billing is active
+        if (app()->bound(BillingProvider::class)) {
+            $billingModel = Provision::teamModel();
+            $billingTeam = $billingModel::find($team->id);
+            if ($billingTeam && ! $billingTeam->subscribed('default')) {
+                return to_route('subscribe');
+            }
+        }
+
         $server = $team->server;
 
         if ($server?->status === ServerStatus::Running) {

@@ -7,6 +7,8 @@ return [
 
     'admin_emails' => env('TELESCOPE_ADMIN_EMAILS', ''),
 
+    'log_all' => env('TELESCOPE_LOG_ALL', false),
+
     /*
     |--------------------------------------------------------------------------
     | Telescope Master Switch
