@@ -34,6 +34,7 @@ class Team extends Model
         'company_description',
         'target_market',
         'governance_mode',
+        'plan',
     ];
 
     /**
