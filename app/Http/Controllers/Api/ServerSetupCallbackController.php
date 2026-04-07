@@ -28,6 +28,7 @@ class ServerSetupCallbackController extends Controller
             'step' => ['nullable', 'string', 'max:100'],
             'vnc_password' => ['nullable', 'string', 'max:100'],
             'error_message' => ['nullable', 'string', 'max:1000'],
+            'context' => ['nullable', 'string', 'max:2000'],
         ]);
 
         if (! $urlService->verify(
@@ -84,11 +85,19 @@ class ServerSetupCallbackController extends Controller
     {
         $server->update(['status' => ServerStatus::Error]);
 
+        $errorMessage = $request->input('error_message', 'Unknown error');
+        $context = $request->input('context');
+
         $server->events()->create([
             'event' => 'setup_failed',
-            'payload' => ['error' => $request->input('error_message', 'Unknown error')],
+            'payload' => array_filter([
+                'error' => $errorMessage,
+                'context' => $context,
+            ]),
         ]);
 
-        Log::error("Server {$server->id} setup failed: {$request->input('error_message')}");
+        Log::error("Server {$server->id} setup failed: {$errorMessage}", [
+            'context' => $context ? urldecode($context) : null,
+        ]);
     }
 }

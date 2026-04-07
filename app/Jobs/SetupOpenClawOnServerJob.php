@@ -81,9 +81,24 @@ class SetupOpenClawOnServerJob implements ShouldQueue
     {
         $this->server->update(['status' => ServerStatus::Error]);
 
+        // Extract the command output from RuntimeException messages
+        $message = $exception->getMessage();
+        $output = null;
+        if (str_contains($message, 'Output: ')) {
+            $output = substr($message, strpos($message, 'Output: ') + 8);
+            $message = substr($message, 0, strpos($message, "\nOutput: ") ?: strlen($message));
+        }
+
         $this->server->events()->create([
             'event' => 'setup_failed',
-            'payload' => ['error' => $exception->getMessage()],
+            'payload' => array_filter([
+                'error' => $message,
+                'output' => $output ? substr($output, -500) : null,
+            ]),
+        ]);
+
+        Log::error("Server {$this->server->id} setup failed: {$message}", [
+            'output' => $output ? substr($output, -500) : null,
         ]);
     }
 

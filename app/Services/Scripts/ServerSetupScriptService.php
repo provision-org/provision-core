@@ -65,13 +65,23 @@ class ServerSetupScriptService
         ];
 
         // Progress callback function
-        $lines[] = '# --- Progress & Error Callbacks ---';
+        $lines[] = '# --- Logging & Callbacks ---';
+        $lines[] = 'SETUP_LOG=/var/log/provision-setup.log';
+        $lines[] = 'exec > >(tee -a "$SETUP_LOG") 2>&1';
+        $lines[] = '';
         $lines[] = 'ping_progress() {';
+        $lines[] = "  echo \"[setup] step: \$1\"";
         $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d \"status=progress&step=\$1\" || true";
         $lines[] = '}';
         $lines[] = '';
         $lines[] = 'report_error() {';
-        $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d 'status=error&error_message='\"Server setup failed at line \$1\" || true";
+        $lines[] = '  local line=$1';
+        $lines[] = '  local cmd=$(sed -n "${line}p" "$0" 2>/dev/null || echo "unknown")';
+        $lines[] = '  local msg="Setup failed at line ${line}: ${cmd}"';
+        $lines[] = '  echo "[setup] ERROR: $msg"';
+        $lines[] = '  # Send last 20 lines of log as context';
+        $lines[] = '  local context=$(tail -20 "$SETUP_LOG" 2>/dev/null | head -c 500 | python3 -c "import sys,urllib.parse;print(urllib.parse.quote(sys.stdin.read()))" 2>/dev/null || echo "no+context")';
+        $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d \"status=error&error_message=\${msg}&context=\${context}\" || true";
         $lines[] = '  exit 1';
         $lines[] = '}';
         $lines[] = '';
