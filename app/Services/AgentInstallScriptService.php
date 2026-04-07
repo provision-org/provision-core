@@ -265,6 +265,7 @@ class AgentInstallScriptService
           const fs = require("fs");
           const f = "{$configFile}";
           const c = JSON.parse(fs.readFileSync(f));
+          if (Array.isArray(c.tools)) c.tools = {};
           if (c.tools) delete c.tools.profile;
           c.agents = c.agents || {};
           const agentData = JSON.parse(Buffer.from("{$encodedData}", "base64").toString());

@@ -216,6 +216,11 @@ WRAPPER);
             $lines[] = 'openclaw gateway install --force';
             $lines[] = '';
 
+            // Re-write our config — gateway install may have modified it
+            $lines[] = '# Re-apply Provision config (gateway install may modify openclaw.json)';
+            $lines[] = $this->buildHeredoc('/root/.openclaw/openclaw.json', $openclawConfigJson);
+            $lines[] = '';
+
             // Timezone + DISPLAY + startup optimizations for gateway service
             $lines[] = '# Gateway systemd overrides (timezone + display + perf)';
             $lines[] = 'mkdir -p /root/.config/systemd/user/openclaw-gateway.service.d';
