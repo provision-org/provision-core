@@ -195,16 +195,25 @@ WRAPPER);
         $lines[] = '';
 
         if ($isOpenClaw) {
-            // 7. Install gateway + systemd overrides + start (OpenClaw only)
-            $lines[] = '# --- Step 7: Install & Start Gateway ---';
+            // 7. Run doctor to auto-fix config issues, then install gateway
+            $lines[] = '# --- Step 7: Run Doctor & Install Gateway ---';
             $lines[] = 'ping_progress "installing_gateway"';
             $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
             $lines[] = 'loginctl enable-linger root';
+            $lines[] = '';
+            $lines[] = '# Startup optimizations (recommended by openclaw doctor)';
+            $lines[] = 'export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache';
+            $lines[] = 'mkdir -p /var/tmp/openclaw-compile-cache';
+            $lines[] = 'export OPENCLAW_NO_RESPAWN=1';
+            $lines[] = '';
+            $lines[] = '# Auto-fix any config issues before starting gateway';
+            $lines[] = 'yes | openclaw doctor 2>&1 || true';
+            $lines[] = '';
             $lines[] = 'openclaw gateway install --force';
             $lines[] = '';
 
-            // Timezone + DISPLAY env override for gateway service
-            $lines[] = '# Gateway systemd overrides (timezone + display)';
+            // Timezone + DISPLAY + startup optimizations for gateway service
+            $lines[] = '# Gateway systemd overrides (timezone + display + perf)';
             $lines[] = 'mkdir -p /root/.config/systemd/user/openclaw-gateway.service.d';
             $lines[] = $this->buildHeredoc(
                 '/root/.config/systemd/user/openclaw-gateway.service.d/overrides.conf',
@@ -212,6 +221,8 @@ WRAPPER);
 [Service]
 Environment=OPENCLAW_TZ={$timezone}
 Environment=DISPLAY=:99
+Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
+Environment=OPENCLAW_NO_RESPAWN=1
 OVERRIDE
             );
             $lines[] = 'systemctl --user daemon-reload';
@@ -316,9 +327,14 @@ OVERRIDE
         // Channels — empty, agent install scripts add per-agent accounts
         $config['channels'] = (object) [];
 
-        // Gateway — loopback binding + HTTP API for web chat
+        // Gateway — local mode with auth token, loopback binding + HTTP API
+        $gatewayToken = bin2hex(random_bytes(16));
         $config['gateway'] = [
+            'mode' => 'local',
             'bind' => config('openclaw.gateway_bind'),
+            'auth' => [
+                'token' => $gatewayToken,
+            ],
             'http' => [
                 'endpoints' => [
                     'chatCompletions' => ['enabled' => true],
