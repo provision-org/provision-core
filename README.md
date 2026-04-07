@@ -279,9 +279,8 @@ Create an agent in the UI and Provision will automatically provision a server, i
 
 ## Self-Hosted vs Provision Cloud
 
-|  | Self-Hosted (Free) | Cloud | Enterprise |
-|--|---------------------|-------|------------|
-| **Price** | Free, forever | From $49/mo | Custom |
+|  | Self-Hosted | Cloud | Enterprise |
+|--|-------------|-------|------------|
 | **Infrastructure** | Docker or BYO cloud | Fully managed | Managed or on-prem |
 | **Updates** | `git pull && docker compose up` | Automatic | Automatic |
 | **Email identities** | — | MailboxKit included | MailboxKit included |
