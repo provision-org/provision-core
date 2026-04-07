@@ -115,7 +115,9 @@ class ServerSetupScriptService
         $lines[] = '# --- Step 4: VNC Display Setup ---';
         $lines[] = 'ping_progress "setting_up_vnc"';
         $lines[] = 'mkdir -p /root/.vnc';
-        $lines[] = "x11vnc -storepasswd '{$vncPassword}' /root/.vnc/passwd";
+        $lines[] = '# Wait for x11vnc to be available (cloud-init may still be installing packages)';
+        $lines[] = 'for i in 1 2 3 4 5; do command -v x11vnc &>/dev/null && break; sleep 10; done';
+        $lines[] = "x11vnc -storepasswd '{$vncPassword}' /root/.vnc/passwd || true";
         $lines[] = '';
 
         // Xvfb systemd unit
