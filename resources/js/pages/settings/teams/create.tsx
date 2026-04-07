@@ -15,13 +15,13 @@ const harnessOptions = [
         value: 'openclaw',
         label: 'OpenClaw',
         description:
-            'Built for browser-first agents. Best for web research, form filling, and tool access.',
+            'Browser, email, Slack, and tools. Best for web research, data extraction, and multi-step workflows.',
     },
     {
         value: 'hermes',
         label: 'Hermes',
         description:
-            'Built for reasoning-first agents. Best for analysis, writing, and conversation.',
+            'Reasoning and conversation. Best for analysis, writing, planning, and chat-based work. No browser.',
     },
 ];
 

@@ -2791,10 +2791,12 @@ export default function ShowAgent({
         window.history.replaceState(null, '', `#${tab}`);
     }
 
+    const isHermes = agent.harness_type === 'hermes';
+
     const tabs: { id: Tab; label: string }[] = [
         { id: 'overview', label: 'Overview' },
         { id: 'email', label: 'Email Inbox' },
-        { id: 'browser', label: 'Browser' },
+        ...(!isHermes ? [{ id: 'browser' as Tab, label: 'Browser' }] : []),
         { id: 'workspace', label: 'Workspace' },
         { id: 'memory', label: 'Memory' },
         { id: 'schedules', label: 'Scheduled Tasks' },
