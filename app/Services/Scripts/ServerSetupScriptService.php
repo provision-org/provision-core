@@ -89,8 +89,10 @@ class ServerSetupScriptService
         $lines[] = '';
 
         if ($isOpenClaw) {
-            // 1. Onboard (OpenClaw only)
-            $lines[] = '# --- Step 1: OpenClaw Onboard ---';
+            // 1. Onboard + Doctor (OpenClaw only)
+            // Run onboard and doctor FIRST so they can create/fix their default config.
+            // We overwrite with our config AFTER so our settings take precedence.
+            $lines[] = '# --- Step 1: OpenClaw Onboard & Doctor ---';
             $lines[] = 'ping_progress "onboarding"';
             $lines[] = "openclaw onboard {$onboardFlags}";
             $lines[] = '';
@@ -100,8 +102,13 @@ class ServerSetupScriptService
             $lines[] = 'OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | sed "s/openclaw //" || echo "unknown")';
             $lines[] = '';
 
-            // 2. Write openclaw.json (pre-computed, no read-modify-write)
-            $lines[] = '# --- Step 2: Write OpenClaw Config ---';
+            // Run doctor to fix any config issues from onboard
+            $lines[] = '# Auto-fix config issues (runs BEFORE we write our config)';
+            $lines[] = 'yes | openclaw doctor 2>&1 || true';
+            $lines[] = '';
+
+            // 2. Write openclaw.json AFTER onboard+doctor (our config overwrites their defaults)
+            $lines[] = '# --- Step 2: Write Provision Config (overwrites onboard/doctor defaults) ---';
             $lines[] = 'ping_progress "configuring_defaults"';
             $lines[] = 'mkdir -p /root/.openclaw';
             $lines[] = $this->buildHeredoc('/root/.openclaw/openclaw.json', $openclawConfigJson);
@@ -195,8 +202,8 @@ WRAPPER);
         $lines[] = '';
 
         if ($isOpenClaw) {
-            // 7. Run doctor to auto-fix config issues, then install gateway
-            $lines[] = '# --- Step 7: Run Doctor & Install Gateway ---';
+            // 7. Install gateway (doctor already ran in step 1)
+            $lines[] = '# --- Step 7: Install Gateway ---';
             $lines[] = 'ping_progress "installing_gateway"';
             $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
             $lines[] = 'loginctl enable-linger root';
@@ -205,9 +212,6 @@ WRAPPER);
             $lines[] = 'export NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache';
             $lines[] = 'mkdir -p /var/tmp/openclaw-compile-cache';
             $lines[] = 'export OPENCLAW_NO_RESPAWN=1';
-            $lines[] = '';
-            $lines[] = '# Auto-fix any config issues before starting gateway';
-            $lines[] = 'yes | openclaw doctor 2>&1 || true';
             $lines[] = '';
             $lines[] = 'openclaw gateway install --force';
             $lines[] = '';
