@@ -126,6 +126,7 @@ export type Agent = {
     harness_type: HarnessType;
     agent_mode: AgentMode;
     name: string;
+    handle: string | null;
     role: AgentRole;
     status: AgentStatus;
     model_primary: string | null;

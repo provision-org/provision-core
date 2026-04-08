@@ -74,6 +74,11 @@ function WorkforceCard({
                             className={`truncate ${agentExt.org_title ? 'text-xs text-muted-foreground' : 'text-sm font-medium'}`}
                         >
                             {agent.name}
+                            {agent.handle && (
+                                <span className="ml-1.5 text-muted-foreground/50">
+                                    @{agent.handle}
+                                </span>
+                            )}
                         </p>
                         {agentExt.capabilities && (
                             <p className="mt-1 line-clamp-2 text-xs text-muted-foreground/70">

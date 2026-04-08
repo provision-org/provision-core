@@ -52,8 +52,8 @@ class DaemonController extends Controller
                     ->orWhere('checkout_expires_at', '<', now());
             })
             ->with([
-                'agent:id,name,role,agent_mode,reports_to,org_title,capabilities,delegation_enabled,harness_type,harness_agent_id,api_server_port,api_server_key',
-                'agent.directReports:id,name,reports_to,org_title,capabilities',
+                'agent:id,name,handle,role,agent_mode,reports_to,org_title,capabilities,delegation_enabled,harness_type,harness_agent_id,api_server_port,api_server_key',
+                'agent.directReports:id,name,handle,reports_to,org_title,capabilities',
                 'goal:id,title,description,status,priority',
             ])
             ->orderByRaw("CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 ELSE 5 END")
@@ -76,6 +76,7 @@ class DaemonController extends Controller
                 'agent' => [
                     'id' => $task->agent->id,
                     'name' => $task->agent->name,
+                    'handle' => $task->agent->handle,
                     'role' => $task->agent->role,
                     'org_title' => $task->agent->org_title,
                     'capabilities' => $task->agent->capabilities,
@@ -87,6 +88,7 @@ class DaemonController extends Controller
                     'direct_reports' => $task->agent->directReports->map(fn (Agent $r) => [
                         'id' => $r->id,
                         'name' => $r->name,
+                        'handle' => $r->handle,
                         'org_title' => $r->org_title,
                         'capabilities' => $r->capabilities,
                     ]),
@@ -173,9 +175,10 @@ class DaemonController extends Controller
         // Process delegations — create sub-tasks for named direct reports
         if (! empty($validated['delegations']) && $task->agent?->delegation_enabled) {
             foreach ($validated['delegations'] as $delegation) {
+                $agentRef = $delegation['agent_name'];
                 $directReport = Agent::query()
                     ->where('reports_to', $task->agent_id)
-                    ->where('name', $delegation['agent_name'])
+                    ->where(fn ($q) => $q->where('handle', $agentRef)->orWhere('name', $agentRef))
                     ->first();
 
                 if ($directReport) {

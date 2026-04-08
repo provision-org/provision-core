@@ -15,12 +15,33 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Str;
 use Provision\Skills\Models\Skill;
 
 class Agent extends Model
 {
     /** @use HasFactory<AgentFactory> */
     use HasFactory, HasUlids;
+
+    protected static function booted(): void
+    {
+        static::creating(function (Agent $agent): void {
+            if ($agent->handle || ! $agent->name) {
+                return;
+            }
+
+            $base = Str::slug($agent->name);
+            $handle = $base;
+            $suffix = 2;
+
+            while (static::where('team_id', $agent->team_id)->where('handle', $handle)->exists()) {
+                $handle = "{$base}-{$suffix}";
+                $suffix++;
+            }
+
+            $agent->handle = $handle;
+        });
+    }
 
     /**
      * @var list<string>
@@ -31,6 +52,7 @@ class Agent extends Model
         'agent_template_id',
         'harness_type',
         'name',
+        'handle',
         'emoji',
         'role',
         'job_description',
