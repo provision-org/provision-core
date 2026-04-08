@@ -45,10 +45,11 @@ export function buildPrompt(task: WorkQueueTask): string {
   }
 
   // --- Direct Reports ---
-  if (task.direct_reports.length > 0) {
+  const directReports = task.direct_reports ?? [];
+  if (directReports.length > 0) {
     lines.push('');
     lines.push('## Your Team (Direct Reports)');
-    for (const report of task.direct_reports) {
+    for (const report of directReports) {
       lines.push(`- ${report.name} (${report.org_title}): ${report.capabilities}`);
     }
   }
@@ -60,7 +61,7 @@ export function buildPrompt(task: WorkQueueTask): string {
   lines.push('');
   lines.push('When done, provide a summary of what you accomplished.');
 
-  if (task.direct_reports.length > 0) {
+  if (directReports.length > 0) {
     lines.push('');
     lines.push('To delegate sub-tasks to your reports:');
     lines.push('DELEGATE: {report_name} | {sub-task title} | {sub-task description}');
