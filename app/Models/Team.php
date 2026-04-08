@@ -101,6 +101,14 @@ class Team extends Model
     }
 
     /**
+     * @return HasMany<Routine, $this>
+     */
+    public function routines(): HasMany
+    {
+        return $this->hasMany(Routine::class);
+    }
+
+    /**
      * @return HasMany<Goal, $this>
      */
     public function goals(): HasMany

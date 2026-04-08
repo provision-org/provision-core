@@ -18,6 +18,7 @@ use App\Http\Controllers\GoalController;
 use App\Http\Controllers\GovernanceTaskController;
 use App\Http\Controllers\OrgChartController;
 use App\Http\Controllers\ProfileSetupController;
+use App\Http\Controllers\RoutineController;
 use App\Http\Controllers\SlackConnectionController;
 use App\Http\Controllers\TeamPackController;
 use App\Http\Controllers\TelegramConnectionController;
@@ -181,6 +182,12 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::post('company/goals', [GoalController::class, 'store'])->name('company.goals.store');
     Route::patch('company/goals/{goal}', [GoalController::class, 'update'])->name('company.goals.update');
     Route::delete('company/goals/{goal}', [GoalController::class, 'destroy'])->name('company.goals.destroy');
+
+    Route::get('company/routines', [RoutineController::class, 'index'])->name('company.routines.index');
+    Route::post('company/routines', [RoutineController::class, 'store'])->name('company.routines.store');
+    Route::put('company/routines/{routine}', [RoutineController::class, 'update'])->name('company.routines.update');
+    Route::post('company/routines/{routine}/toggle', [RoutineController::class, 'toggle'])->name('company.routines.toggle');
+    Route::delete('company/routines/{routine}', [RoutineController::class, 'destroy'])->name('company.routines.destroy');
 
     Route::get('company/approvals', [ApprovalController::class, 'index'])->name('company.approvals.index');
     Route::get('company/approvals/{approval}', [ApprovalController::class, 'show'])->name('company.approvals.show');

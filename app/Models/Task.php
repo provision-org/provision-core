@@ -33,6 +33,7 @@ class Task extends Model
         'completed_at',
         'parent_task_id',
         'goal_id',
+        'routine_id',
         'checked_out_by_run',
         'checked_out_at',
         'checkout_expires_at',
@@ -107,6 +108,14 @@ class Task extends Model
     public function goal(): BelongsTo
     {
         return $this->belongsTo(Goal::class);
+    }
+
+    /**
+     * @return BelongsTo<Routine, $this>
+     */
+    public function routine(): BelongsTo
+    {
+        return $this->belongsTo(Routine::class);
     }
 
     /**
