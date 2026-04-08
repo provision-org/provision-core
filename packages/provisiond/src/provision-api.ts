@@ -28,7 +28,7 @@ export class ProvisionApiClient {
     runId: string,
   ): Promise<{ ok: boolean; task?: WorkQueueTask }> {
     const res = await this.request('POST', `/tasks/${taskId}/checkout`, {
-      run_id: runId,
+      daemon_run_id: runId,
     });
 
     if (res.status === 409) {
@@ -59,7 +59,7 @@ export class ProvisionApiClient {
 
   async releaseTask(taskId: string, runId: string, reason?: string): Promise<void> {
     const res = await this.request('POST', `/tasks/${taskId}/release`, {
-      run_id: runId,
+      daemon_run_id: runId,
       reason,
     });
     if (!res.ok) {

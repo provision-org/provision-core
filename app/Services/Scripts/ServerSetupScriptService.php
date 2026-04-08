@@ -277,15 +277,62 @@ OVERRIDE
             $lines[] = '';
         }
 
-        // 10. Install provisiond (workforce agent daemon)
+        // 10. Install and start provisiond (workforce agent daemon)
         $provisiondVersion = config('provision.provisiond_version', '0.1.0');
         $provisiondUrl = "https://github.com/provision-org/provision-core/releases/download/provisiond-v{$provisiondVersion}/provisiond.mjs";
+        $apiUrl = config('app.url');
+        $daemonToken = $server->daemon_token;
+
         $lines[] = '# --- Step 10: Install provisiond ---';
         $lines[] = 'ping_progress "installing_daemon"';
-        $lines[] = 'mkdir -p /opt/provisiond';
+        $lines[] = 'mkdir -p /opt/provisiond /etc/provisiond';
         $lines[] = "curl -fsSL '{$provisiondUrl}' -o /opt/provisiond/provisiond.mjs || echo 'provisiond download failed (non-fatal)'";
         $lines[] = "echo '{\"version\":\"{$provisiondVersion}\"}' > /opt/provisiond/package.json";
         $lines[] = '';
+
+        // Write provisiond config
+        if ($daemonToken) {
+            $provisiondConfig = json_encode([
+                'api_url' => $apiUrl,
+                'api_token' => $daemonToken,
+                'server_id' => $server->id,
+                'poll_interval_seconds' => 30,
+                'max_concurrent_tasks' => 2,
+                'task_timeout_seconds' => 600,
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+            $lines[] = "cat > /etc/provisiond/config.json << 'PROVISIOND_CONFIG'";
+            $lines[] = $provisiondConfig;
+            $lines[] = 'PROVISIOND_CONFIG';
+            $lines[] = '';
+
+            // Create systemd service
+            $lines[] = 'cat > /etc/systemd/system/provisiond.service << \'PROVISIOND_SERVICE\'';
+            $lines[] = '[Unit]';
+            $lines[] = 'Description=Provision Agent Daemon';
+            $lines[] = 'After=network.target';
+            $lines[] = '';
+            $lines[] = '[Service]';
+            $lines[] = 'Type=simple';
+            $lines[] = 'ExecStart=/usr/bin/node /opt/provisiond/provisiond.mjs';
+            $lines[] = 'Restart=always';
+            $lines[] = 'RestartSec=10';
+            $lines[] = 'Environment=NODE_ENV=production';
+            $lines[] = '';
+            $lines[] = '[Install]';
+            $lines[] = 'WantedBy=multi-user.target';
+            $lines[] = 'PROVISIOND_SERVICE';
+            $lines[] = '';
+            $lines[] = 'systemctl daemon-reload';
+            $lines[] = 'if [ -f /opt/provisiond/provisiond.mjs ]; then';
+            $lines[] = '  systemctl enable provisiond';
+            $lines[] = '  systemctl start provisiond';
+            $lines[] = '  echo "[setup] provisiond started successfully"';
+            $lines[] = 'else';
+            $lines[] = '  echo "[setup] provisiond.mjs not found, skipping daemon start"';
+            $lines[] = 'fi';
+            $lines[] = '';
+        }
 
         // 11. Final ready callback
         $lines[] = '# --- Step 11: Signal Completion ---';

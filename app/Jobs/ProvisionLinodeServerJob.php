@@ -9,6 +9,7 @@ use App\Services\CloudInitScriptBuilder;
 use App\Services\CloudServiceFactory;
 use App\Services\LinodeService;
 use Illuminate\Bus\Queueable;
+use Illuminate\Support\Str;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
@@ -34,7 +35,10 @@ class ProvisionLinodeServerJob implements ShouldQueue
         $volumeResponse = $linodeService->createVolume($volumeLabel, $team->volumeSize(), $region);
         $volumeId = (string) $volumeResponse['id'];
 
-        $this->server->update(['provider_volume_id' => $volumeId]);
+        $this->server->update([
+            'provider_volume_id' => $volumeId,
+            'daemon_token' => $this->server->daemon_token ?: Str::random(48),
+        ]);
 
         $callbackUrl = $this->buildCallbackUrl();
         $devicePath = $volumeResponse['filesystem_path'];

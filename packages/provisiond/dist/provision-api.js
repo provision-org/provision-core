@@ -19,7 +19,7 @@ export class ProvisionApiClient {
     }
     async checkoutTask(taskId, runId) {
         const res = await this.request('POST', `/tasks/${taskId}/checkout`, {
-            run_id: runId,
+            daemon_run_id: runId,
         });
         if (res.status === 409) {
             logger.debug(`Task ${taskId} already checked out`);
@@ -43,7 +43,7 @@ export class ProvisionApiClient {
     }
     async releaseTask(taskId, runId, reason) {
         const res = await this.request('POST', `/tasks/${taskId}/release`, {
-            run_id: runId,
+            daemon_run_id: runId,
             reason,
         });
         if (!res.ok) {
