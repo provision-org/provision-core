@@ -52,7 +52,7 @@ class DaemonController extends Controller
                     ->orWhere('checkout_expires_at', '<', now());
             })
             ->with([
-                'agent:id,name,role,agent_mode,reports_to,org_title,capabilities,delegation_enabled',
+                'agent:id,name,role,agent_mode,reports_to,org_title,capabilities,delegation_enabled,harness_type,harness_agent_id,api_server_port',
                 'agent.directReports:id,name,reports_to,org_title,capabilities',
                 'goal:id,title,description,status,priority',
             ])
@@ -63,6 +63,7 @@ class DaemonController extends Controller
         return response()->json([
             'tasks' => $tasks->map(fn (Task $task) => [
                 'id' => $task->id,
+                'identifier' => $task->identifier,
                 'title' => $task->title,
                 'description' => $task->description,
                 'priority' => $task->priority,
@@ -79,6 +80,9 @@ class DaemonController extends Controller
                     'org_title' => $task->agent->org_title,
                     'capabilities' => $task->agent->capabilities,
                     'delegation_enabled' => $task->agent->delegation_enabled,
+                    'harness_type' => $task->agent->harness_type?->value ?? 'hermes',
+                    'harness_agent_id' => $task->agent->harness_agent_id,
+                    'api_server_port' => $task->agent->api_server_port,
                     'direct_reports' => $task->agent->directReports->map(fn (Agent $r) => [
                         'id' => $r->id,
                         'name' => $r->name,
