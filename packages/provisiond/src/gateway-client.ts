@@ -12,6 +12,7 @@ export interface SendMessageOptions {
   port: number;
   harnessType: 'openclaw' | 'hermes';
   harnessAgentId: string;
+  apiServerKey: string | null;
   taskId: string;
   prompt: string;
   timeoutMs: number;
@@ -88,12 +89,18 @@ export async function sendMessage(options: SendMessageOptions): Promise<GatewayR
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    };
+
+    if (options.apiServerKey) {
+      headers['Authorization'] = `Bearer ${options.apiServerKey}`;
+    }
+
     const res = await fetch(url, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal,
     });

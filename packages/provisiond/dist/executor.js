@@ -38,6 +38,7 @@ export async function executeTask(task, config, api) {
             port,
             harnessType: task.agent.harness_type,
             harnessAgentId: task.agent.harness_agent_id,
+            apiServerKey: task.agent.api_server_key,
             taskId: task.id,
             prompt,
             timeoutMs: config.taskTimeout * 1000,

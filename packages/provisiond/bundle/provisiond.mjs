@@ -140,12 +140,16 @@ async function sendMessage(options) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
+    const headers = {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    };
+    if (options.apiServerKey) {
+      headers["Authorization"] = `Bearer ${options.apiServerKey}`;
+    }
     const res = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Accept: "application/json"
-      },
+      headers,
       body: JSON.stringify(body),
       signal: controller.signal
     });
@@ -291,6 +295,7 @@ async function executeTask(task, config, api) {
       port,
       harnessType: task.agent.harness_type,
       harnessAgentId: task.agent.harness_agent_id,
+      apiServerKey: task.agent.api_server_key,
       taskId: task.id,
       prompt,
       timeoutMs: config.taskTimeout * 1e3

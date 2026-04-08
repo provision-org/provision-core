@@ -9,6 +9,7 @@ export interface SendMessageOptions {
     port: number;
     harnessType: 'openclaw' | 'hermes';
     harnessAgentId: string;
+    apiServerKey: string | null;
     taskId: string;
     prompt: string;
     timeoutMs: number;

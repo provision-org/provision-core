@@ -373,8 +373,9 @@ class HermesDriver implements HarnessDriver
         }
 
         // Hermes API server — each agent gets its own on a unique port
-        $apiServerKey = bin2hex(random_bytes(24));
+        $apiServerKey = $agent->api_server_key ?: bin2hex(random_bytes(24));
         $apiServerPort = $agent->api_server_port ?? $this->assignApiServerPort($agent);
+        $agent->updateQuietly(['api_server_key' => $apiServerKey]);
         $lines[] = 'API_SERVER_ENABLED=true';
         $lines[] = 'API_SERVER_HOST=0.0.0.0';
         $lines[] = "API_SERVER_PORT={$apiServerPort}";

@@ -67,12 +67,16 @@ export async function sendMessage(options) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
+        const headers = {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+        };
+        if (options.apiServerKey) {
+            headers['Authorization'] = `Bearer ${options.apiServerKey}`;
+        }
         const res = await fetch(url, {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-            },
+            headers,
             body: JSON.stringify(body),
             signal: controller.signal,
         });

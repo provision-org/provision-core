@@ -25,6 +25,7 @@ export interface WorkQueueTask {
         harness_agent_id: string;
         harness_type: 'openclaw' | 'hermes';
         api_server_port: number;
+        api_server_key: string | null;
         org_title: string;
         manager_name: string | null;
     };
