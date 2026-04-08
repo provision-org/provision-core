@@ -38,6 +38,9 @@ export async function executeTask(
     return;
   }
 
+  // Post a note so the thread reflects that work has begun
+  await api.postNote(task.id, 'Starting task...');
+
   try {
     // Step 2: Build prompt
     const prompt = buildPrompt(task);
@@ -87,6 +90,12 @@ export async function executeTask(
         type: a.type,
         title: a.title,
         description: a.description,
+      })),
+      work_products: parsed.workProducts.map((wp) => ({
+        title: wp.title,
+        file_path: wp.filePath,
+        type: 'file',
+        summary: wp.summary,
       })),
     };
 

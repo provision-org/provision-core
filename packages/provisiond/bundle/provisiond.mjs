@@ -288,6 +288,7 @@ async function executeTask(task, config, api) {
     logger.info(`Skipping task ${taskLabel} \u2014 checkout failed (likely already checked out)`);
     return;
   }
+  await api.postNote(task.id, "Starting task...");
   try {
     const prompt = buildPrompt(task);
     const port = task.agent.harness_type === "hermes" ? task.agent.api_server_port : OPENCLAW_DEFAULT_PORT;
@@ -414,6 +415,15 @@ var ProvisionApiClient = class {
     const res = await this.request("POST", "/usage-events", event);
     if (!res.ok) {
       logger.error("Failed to report usage event", {
+        status: res.status,
+        statusText: res.statusText
+      });
+    }
+  }
+  async postNote(taskId, body) {
+    const res = await this.request("POST", `/tasks/${taskId}/notes`, { body });
+    if (!res.ok) {
+      logger.error(`Failed to post note for task ${taskId}`, {
         status: res.status,
         statusText: res.statusText
       });

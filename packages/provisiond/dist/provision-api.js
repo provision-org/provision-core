@@ -67,6 +67,15 @@ export class ProvisionApiClient {
             });
         }
     }
+    async postNote(taskId, body) {
+        const res = await this.request('POST', `/tasks/${taskId}/notes`, { body });
+        if (!res.ok) {
+            logger.error(`Failed to post note for task ${taskId}`, {
+                status: res.status,
+                statusText: res.statusText,
+            });
+        }
+    }
     async sendHeartbeat(activeRuns) {
         const res = await this.request('POST', '/heartbeat', {
             timestamp: new Date().toISOString(),

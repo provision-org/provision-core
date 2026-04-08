@@ -15,6 +15,7 @@ use App\Models\Agent;
 use App\Models\Approval;
 use App\Models\Server;
 use App\Models\Task;
+use App\Models\TaskWorkProduct;
 use App\Models\UsageEvent;
 use App\Services\AuditService;
 use App\Services\TaskCheckoutService;
@@ -168,6 +169,21 @@ class DaemonController extends Controller
                 'output_tokens' => $validated['tokens_output'] ?? 0,
                 'source' => UsageSource::Daemon,
             ]);
+        }
+
+        // Create work product records
+        if (! empty($validated['work_products'])) {
+            foreach ($validated['work_products'] as $wp) {
+                TaskWorkProduct::query()->create([
+                    'task_id' => $task->id,
+                    'agent_id' => $task->agent_id,
+                    'type' => $wp['type'] ?? 'file',
+                    'title' => $wp['title'],
+                    'file_path' => $wp['file_path'] ?? null,
+                    'url' => $wp['url'] ?? null,
+                    'summary' => $wp['summary'] ?? null,
+                ]);
+            }
         }
 
         // Process delegations — create sub-tasks for named direct reports
@@ -333,6 +349,33 @@ class DaemonController extends Controller
         ]);
 
         return response()->json(['status' => 'recorded']);
+    }
+
+    /**
+     * POST /api/daemon/{token}/tasks/{task}/notes
+     */
+    public function postNote(Request $request, string $token, Task $task): JsonResponse
+    {
+        /** @var Server $server */
+        $server = $request->get('daemon_server');
+
+        abort_unless(
+            $task->agent && $task->agent->server_id === $server->id,
+            403,
+            'Task agent is not on this server.',
+        );
+
+        $validated = $request->validate([
+            'body' => ['required', 'string', 'max:5000'],
+        ]);
+
+        $note = $task->notes()->create([
+            'author_type' => 'agent',
+            'author_id' => $task->agent_id,
+            'body' => $validated['body'],
+        ]);
+
+        return response()->json(['status' => 'ok', 'note' => $note]);
     }
 
     /**
