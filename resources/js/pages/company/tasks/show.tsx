@@ -1,5 +1,6 @@
 import { Head, Link } from '@inertiajs/react';
 import { ChevronRight, Clock, Cpu, FileText, ListTree } from 'lucide-react';
+import Markdown from 'react-markdown';
 import { Badge } from '@/components/ui/badge';
 import AppLayout from '@/layouts/app-layout';
 import type {
@@ -189,8 +190,8 @@ export default function TaskShow({
                         <h2 className="mb-2 text-sm font-medium">
                             Result Summary
                         </h2>
-                        <div className="rounded-lg border bg-muted/30 p-4 text-sm">
-                            {task.result_summary}
+                        <div className="prose prose-sm dark:prose-invert max-w-none rounded-lg border bg-muted/30 p-4">
+                            <Markdown>{task.result_summary}</Markdown>
                         </div>
                     </div>
                 )}
