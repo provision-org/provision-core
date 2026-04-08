@@ -76,7 +76,6 @@ class Agent extends Model
             'delegation_enabled' => 'boolean',
             'model_fallbacks' => 'array',
             'default_password' => 'encrypted',
-            'api_server_key' => 'encrypted',
             'config_snapshot' => 'array',
             'is_syncing' => 'boolean',
             'last_synced_at' => 'datetime',
