@@ -287,6 +287,8 @@ class AgentUpdateScriptService
         // 1. Write workspace files (SOUL.md, USER.md, MEMORY.md, AGENTS.md)
         $lines[] = '# --- Step 1: Write Workspace Files ---';
         $lines[] = "mkdir -p {$hermesHome}/memories {$hermesHome}/workspace {$hermesHome}/.gh {$hermesHome}/skills";
+        $lines[] = 'mkdir -p /mnt/provision-shared';
+        $lines[] = "ln -sfn /mnt/provision-shared {$hermesHome}/workspace/shared";
         $lines[] = '';
 
         $soulContent = $this->buildHermesSoulContent($agent);

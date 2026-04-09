@@ -18,6 +18,7 @@ use App\Http\Controllers\GoalController;
 use App\Http\Controllers\GovernanceTaskController;
 use App\Http\Controllers\OrgChartController;
 use App\Http\Controllers\ProfileSetupController;
+use App\Http\Controllers\SharedWorkspaceController;
 use App\Http\Controllers\SlackConnectionController;
 use App\Http\Controllers\TeamPackController;
 use App\Http\Controllers\TelegramConnectionController;
@@ -192,6 +193,13 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::get('company/agents/{agent}/usage', [UsageController::class, 'forAgent'])->name('company.usage.forAgent');
 
     Route::get('company/audit', [AuditLogController::class, 'index'])->name('company.audit.index');
+
+    // Shared workspace
+    Route::get('company/workspace', [SharedWorkspaceController::class, 'index'])->name('company.workspace.index');
+    Route::post('company/workspace/upload', [SharedWorkspaceController::class, 'upload'])->name('company.workspace.upload');
+    Route::post('company/workspace/folder', [SharedWorkspaceController::class, 'createFolder'])->name('company.workspace.folder');
+    Route::delete('company/workspace', [SharedWorkspaceController::class, 'destroy'])->name('company.workspace.destroy');
+    Route::get('company/workspace/download', [SharedWorkspaceController::class, 'download'])->name('company.workspace.download');
 });
 
 require __DIR__.'/settings.php';

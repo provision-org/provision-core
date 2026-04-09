@@ -2,6 +2,7 @@ import { Link, usePage } from '@inertiajs/react';
 import {
     BarChart3,
     Bot,
+    FolderOpen,
     KanbanSquare,
     LayoutDashboard,
     Library,
@@ -54,6 +55,7 @@ const companyNavItems: NavItem[] = [
         href: '/company/approvals',
         icon: ShieldCheckIcon,
     },
+    { title: 'Shared Workspace', href: '/company/workspace', icon: FolderOpen },
     { title: 'Usage', href: '/company/usage', icon: BarChart3 },
     { title: 'Audit Log', href: '/company/audit', icon: ScrollText },
 ];
@@ -191,9 +193,8 @@ export function AppSidebar() {
     const pageProps = usePage<SharedData>().props;
     const { auth } = pageProps;
     const pendingApprovalCount: number =
-        Number(
-            (pageProps as Record<string, unknown>).pendingApprovalCount,
-        ) || 0;
+        Number((pageProps as Record<string, unknown>).pendingApprovalCount) ||
+        0;
     const modules = (pageProps as Record<string, unknown>).modules as
         | Record<string, boolean>
         | undefined;

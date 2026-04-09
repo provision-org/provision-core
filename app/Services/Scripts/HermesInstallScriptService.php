@@ -100,6 +100,8 @@ class HermesInstallScriptService
         $lines[] = '# --- Step 1: Create Directories ---';
         $lines[] = 'ping_progress "creating_directories"';
         $lines[] = "mkdir -p {$hermesHome}/workspace {$hermesHome}/.gh {$hermesHome}/skills {$hermesHome}/memories";
+        $lines[] = 'mkdir -p /mnt/provision-shared';
+        $lines[] = "ln -sfn /mnt/provision-shared {$hermesHome}/workspace/shared";
         $lines[] = '';
 
         // 2. Initialize Hermes
