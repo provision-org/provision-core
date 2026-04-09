@@ -206,6 +206,7 @@ function buildPrompt(task) {
   lines.push("");
   lines.push("## Instructions");
   lines.push("Complete this task. You have access to your browser, terminal, and workspace.");
+  lines.push("Save files others need to ./shared/. Keep work-in-progress in your private workspace.");
   lines.push("");
   lines.push("When done, provide a summary of what you accomplished.");
   if (directReports.length > 0) {
@@ -216,17 +217,22 @@ function buildPrompt(task) {
   lines.push("");
   lines.push("To request approval for a high-impact action:");
   lines.push("APPROVAL_REQUEST: {type} | {title} | {description}");
+  lines.push("");
+  lines.push("To declare a file or deliverable you produced:");
+  lines.push("WORK_PRODUCT: {title} | {file_path} | {summary}");
   return lines.join("\n");
 }
 
 // src/response-parser.ts
 var DELEGATE_PREFIX = "DELEGATE:";
 var APPROVAL_PREFIX = "APPROVAL_REQUEST:";
+var WORK_PRODUCT_PREFIX = "WORK_PRODUCT:";
 function parseResponse(text) {
   const lines = text.split("\n");
   const summaryLines = [];
   const delegations = [];
   const approvalRequests = [];
+  const workProducts = [];
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.startsWith(DELEGATE_PREFIX)) {
@@ -249,10 +255,20 @@ function parseResponse(text) {
       }
       continue;
     }
+    if (trimmed.startsWith(WORK_PRODUCT_PREFIX)) {
+      const workProduct = parseWorkProduct(trimmed.slice(WORK_PRODUCT_PREFIX.length).trim());
+      if (workProduct) {
+        workProducts.push(workProduct);
+      } else {
+        logger.warn("Malformed WORK_PRODUCT line, including in summary", { line: trimmed });
+        summaryLines.push(line);
+      }
+      continue;
+    }
     summaryLines.push(line);
   }
   const resultSummary = summaryLines.join("\n").trim();
-  return { resultSummary, delegations, approvalRequests };
+  return { resultSummary, delegations, approvalRequests, workProducts };
 }
 function parseDelegation(raw) {
   const parts = raw.split("|").map((s) => s.trim());
@@ -274,6 +290,17 @@ function parseApproval(raw) {
     type: parts[0],
     title: parts[1],
     description: parts.slice(2).join(" | ")
+  };
+}
+function parseWorkProduct(raw) {
+  const parts = raw.split("|").map((s) => s.trim());
+  if (parts.length < 1 || !parts[0]) {
+    return null;
+  }
+  return {
+    title: parts[0],
+    filePath: parts[1] || void 0,
+    summary: parts.length > 2 ? parts.slice(2).join(" | ") : void 0
   };
 }
 
@@ -323,6 +350,12 @@ async function executeTask(task, config, api) {
         type: a.type,
         title: a.title,
         description: a.description
+      })),
+      work_products: parsed.workProducts.map((wp) => ({
+        title: wp.title,
+        file_path: wp.filePath,
+        type: "file",
+        summary: wp.summary
       }))
     };
     await api.reportResult(task.id, result);

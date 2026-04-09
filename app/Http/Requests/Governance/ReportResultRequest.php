@@ -33,6 +33,12 @@ class ReportResultRequest extends FormRequest
             'approval_requests.*.type' => ['required_with:approval_requests', 'string'],
             'approval_requests.*.title' => ['required_with:approval_requests', 'string', 'max:255'],
             'approval_requests.*.payload' => ['nullable', 'array'],
+            'work_products' => ['nullable', 'array'],
+            'work_products.*.title' => ['required_with:work_products', 'string', 'max:255'],
+            'work_products.*.file_path' => ['nullable', 'string', 'max:1000'],
+            'work_products.*.url' => ['nullable', 'string', 'max:2000'],
+            'work_products.*.type' => ['nullable', 'string', 'max:50'],
+            'work_products.*.summary' => ['nullable', 'string', 'max:5000'],
         ];
     }
 }

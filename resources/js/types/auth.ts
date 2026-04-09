@@ -455,6 +455,19 @@ export type Goal = {
     parent?: Goal;
 };
 
+export type TaskWorkProduct = {
+    id: string;
+    task_id: string;
+    agent_id: string | null;
+    type: string;
+    title: string;
+    file_path: string | null;
+    url: string | null;
+    summary: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
 export type GovernanceTask = {
     id: string;
     identifier: string;
@@ -486,6 +499,7 @@ export type GovernanceTask = {
     goal?: Goal;
     parent_task?: GovernanceTask;
     sub_tasks?: GovernanceTask[];
+    work_products?: TaskWorkProduct[];
 };
 
 export type Approval = {

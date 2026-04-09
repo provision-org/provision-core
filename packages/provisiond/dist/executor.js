@@ -71,6 +71,12 @@ export async function executeTask(task, config, api) {
                 title: a.title,
                 description: a.description,
             })),
+            work_products: parsed.workProducts.map((wp) => ({
+                title: wp.title,
+                file_path: wp.filePath,
+                type: 'file',
+                summary: wp.summary,
+            })),
         };
         await api.reportResult(task.id, result);
         // Step 8: Report usage

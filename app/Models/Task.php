@@ -130,6 +130,14 @@ class Task extends Model
     }
 
     /**
+     * @return HasMany<TaskWorkProduct, $this>
+     */
+    public function workProducts(): HasMany
+    {
+        return $this->hasMany(TaskWorkProduct::class);
+    }
+
+    /**
      * @return HasMany<UsageEvent, $this>
      */
     public function usageEvents(): HasMany

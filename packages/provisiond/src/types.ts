@@ -61,6 +61,13 @@ export interface TaskResult {
     title: string;
     description: string;
   }>;
+  work_products: Array<{
+    title: string;
+    file_path?: string;
+    url?: string;
+    type?: string;
+    summary?: string;
+  }>;
 }
 
 export interface GatewayResponse {
@@ -81,6 +88,11 @@ export interface ParsedResponse {
     type: string;
     title: string;
     description: string;
+  }>;
+  workProducts: Array<{
+    title: string;
+    filePath?: string;
+    summary?: string;
   }>;
 }
 
