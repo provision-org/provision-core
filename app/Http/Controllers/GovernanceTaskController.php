@@ -97,10 +97,7 @@ class GovernanceTaskController extends Controller
             'subTasks.agent',
             'usageEvents',
             'notes',
-<<<<<<< HEAD
-=======
             'workProducts',
->>>>>>> test/all-features
         ]);
 
         $auditEntries = $task->team->auditLogs()
