@@ -49,6 +49,7 @@ export function buildPrompt(task) {
     lines.push('');
     lines.push('## Instructions');
     lines.push('Complete this task. You have access to your browser, terminal, and workspace.');
+    lines.push('Save files others need to ./shared/. Keep work-in-progress in your private workspace.');
     lines.push('');
     lines.push('When done, provide a summary of what you accomplished.');
     if (directReports.length > 0) {
@@ -59,6 +60,9 @@ export function buildPrompt(task) {
     lines.push('');
     lines.push('To request approval for a high-impact action:');
     lines.push('APPROVAL_REQUEST: {type} | {title} | {description}');
+    lines.push('');
+    lines.push('To declare a file or deliverable you produced:');
+    lines.push('WORK_PRODUCT: {title} | {file_path} | {summary}');
     return lines.join('\n');
 }
 //# sourceMappingURL=prompt-builder.js.map

@@ -2,6 +2,7 @@
 
 use App\Enums\ServerStatus;
 use App\Jobs\CheckServerHealthJob;
+use App\Jobs\ProcessRoutinesJob;
 use App\Jobs\SyncAgentStatsJob;
 use App\Models\Server;
 use App\Models\SlackConfigurationToken;
@@ -48,3 +49,5 @@ Schedule::call(function () {
 })->hourly();
 
 Schedule::job(new SyncAgentStatsJob)->everyTwoMinutes();
+
+Schedule::job(new ProcessRoutinesJob)->everyMinute();

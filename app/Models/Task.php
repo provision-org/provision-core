@@ -33,6 +33,7 @@ class Task extends Model
         'completed_at',
         'parent_task_id',
         'goal_id',
+        'routine_id',
         'checked_out_by_run',
         'checked_out_at',
         'checkout_expires_at',
@@ -110,6 +111,14 @@ class Task extends Model
     }
 
     /**
+     * @return BelongsTo<Routine, $this>
+     */
+    public function routine(): BelongsTo
+    {
+        return $this->belongsTo(Routine::class);
+    }
+
+    /**
      * The workforce agent assigned to this task.
      *
      * @return BelongsTo<Agent, $this>
@@ -127,6 +136,14 @@ class Task extends Model
     public function delegatedByAgent(): BelongsTo
     {
         return $this->belongsTo(Agent::class, 'delegated_by');
+    }
+
+    /**
+     * @return HasMany<TaskWorkProduct, $this>
+     */
+    public function workProducts(): HasMany
+    {
+        return $this->hasMany(TaskWorkProduct::class);
     }
 
     /**

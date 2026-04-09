@@ -70,7 +70,7 @@ class ServerSetupScriptService
         $lines[] = 'exec > >(tee -a "$SETUP_LOG") 2>&1';
         $lines[] = '';
         $lines[] = 'ping_progress() {';
-        $lines[] = "  echo \"[setup] step: \$1\"";
+        $lines[] = '  echo "[setup] step: $1"';
         $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d \"status=progress&step=\$1\" || true";
         $lines[] = '}';
         $lines[] = '';
@@ -276,6 +276,12 @@ OVERRIDE
             $lines[] = 'ln -sfn /mnt/openclaw-data/logs /root/.openclaw/logs';
             $lines[] = '';
         }
+
+        // Shared Workspace
+        $lines[] = '# --- Shared Workspace ---';
+        $lines[] = 'mkdir -p /mnt/provision-shared';
+        $lines[] = 'chmod 777 /mnt/provision-shared';
+        $lines[] = '';
 
         // 10. Install and start provisiond (workforce agent daemon)
         $provisiondVersion = config('provision.provisiond_version', '0.1.0');
