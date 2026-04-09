@@ -97,6 +97,7 @@ class GovernanceTaskController extends Controller
             'subTasks.agent',
             'usageEvents',
             'notes',
+            'workProducts',
         ]);
 
         $auditEntries = $task->team->auditLogs()

@@ -484,7 +484,6 @@ export type Routine = {
     created_at: string;
     updated_at: string;
 };
-
 export type GovernanceTask = {
     id: string;
     identifier: string;
