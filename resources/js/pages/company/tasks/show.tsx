@@ -1,6 +1,8 @@
 import { Head, Link } from '@inertiajs/react';
 import { ChevronRight, Clock, Cpu, FileText, ListTree } from 'lucide-react';
 import Markdown from 'react-markdown';
+import TaskCommentThread from '@/components/task-comment-thread';
+import TaskWorkProducts from '@/components/task-work-products';
 import { Badge } from '@/components/ui/badge';
 import AppLayout from '@/layouts/app-layout';
 import type {
@@ -195,6 +197,21 @@ export default function TaskShow({
                         </div>
                     </div>
                 )}
+
+                {/* Work products */}
+                {task.work_products && task.work_products.length > 0 && (
+                    <TaskWorkProducts
+                        workProducts={task.work_products}
+                        taskId={task.id}
+                    />
+                )}
+
+                {/* Comment thread */}
+                <TaskCommentThread
+                    notes={task.notes ?? []}
+                    taskId={task.id}
+                    taskStatus={task.status}
+                />
 
                 {/* Sub-tasks */}
                 {subTasks.length > 0 && (

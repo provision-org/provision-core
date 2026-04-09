@@ -86,6 +86,16 @@ export class ProvisionApiClient {
     }
   }
 
+  async postNote(taskId: string, body: string): Promise<void> {
+    const res = await this.request('POST', `/tasks/${taskId}/notes`, { body });
+    if (!res.ok) {
+      logger.error(`Failed to post note for task ${taskId}`, {
+        status: res.status,
+        statusText: res.statusText,
+      });
+    }
+  }
+
   async sendHeartbeat(activeRuns: string[]): Promise<void> {
     const res = await this.request('POST', '/heartbeat', {
       timestamp: new Date().toISOString(),

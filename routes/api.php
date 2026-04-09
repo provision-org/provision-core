@@ -49,5 +49,6 @@ Route::prefix('daemon/{token}')->middleware('daemon.token')->group(function () {
     Route::post('tasks/{task}/release', [DaemonController::class, 'releaseTask']);
     Route::get('resolved-approvals', [DaemonController::class, 'resolvedApprovals']);
     Route::post('usage-events', [DaemonController::class, 'reportUsage']);
+    Route::post('tasks/{task}/notes', [DaemonController::class, 'postNote']);
     Route::post('heartbeat', [DaemonController::class, 'heartbeat']);
 });

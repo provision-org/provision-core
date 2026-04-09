@@ -26,6 +26,8 @@ export async function executeTask(task, config, api) {
         logger.info(`Skipping task ${taskLabel} — checkout failed (likely already checked out)`);
         return;
     }
+    // Post a note so the thread reflects that work has begun
+    await api.postNote(task.id, 'Starting task...');
     try {
         // Step 2: Build prompt
         const prompt = buildPrompt(task);
