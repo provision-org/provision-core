@@ -63,7 +63,7 @@ function parseDelegation(
     return null;
   }
   return {
-    assignToAgentName: parts[0],
+    assignToAgentName: parts[0].replace(/^@/, ''),
     title: parts[1],
     description: parts.slice(2).join(' | '),
   };

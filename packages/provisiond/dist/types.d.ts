@@ -22,6 +22,7 @@ export interface WorkQueueTask {
     agent: {
         id: string;
         name: string;
+        handle: string | null;
         harness_agent_id: string;
         harness_type: 'openclaw' | 'hermes';
         api_server_port: number;
@@ -37,6 +38,7 @@ export interface WorkQueueTask {
     } | null;
     direct_reports: Array<{
         name: string;
+        handle: string | null;
         org_title: string;
         capabilities: string;
     }>;
