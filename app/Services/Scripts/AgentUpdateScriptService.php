@@ -194,9 +194,18 @@ class AgentUpdateScriptService
             $lines[] = '';
         }
 
-        // Per-agent .env
-        $agentEnv = AgentInstallScriptService::buildAgentEnv($agent);
+        // Per-agent .env (with fresh API token)
+        $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
+        $agentEnv = AgentInstallScriptService::buildAgentEnv($agent, $plainToken);
         $lines[] = $this->buildHeredoc("{$agentDir}/.env", $agentEnv);
+        $lines[] = '';
+
+        // Deploy provision-tasks skill (core, always deployed)
+        $lines[] = '# --- Deploy provision-tasks skill ---';
+        $skillDir = "{$agentDir}/skills/provision-tasks";
+        $lines[] = "mkdir -p {$skillDir}";
+        $lines[] = $this->buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/provision-tasks/SKILL.md')));
+        $lines[] = $this->buildHeredoc("{$skillDir}/provision_tasks_tool.js", file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js')));
         $lines[] = '';
 
         // 6. Deploy MailboxKit skill + email check script (if email connected)
@@ -434,7 +443,11 @@ class AgentUpdateScriptService
         }
         unset($config['config']);
         unset($config['tools']['profile']);
-        unset($config['skills']['entries']['provision-tasks']);
+
+        // Enable provision-tasks skill (core, always deployed)
+        $config['skills'] = $config['skills'] ?? [];
+        $config['skills']['entries'] = $config['skills']['entries'] ?? [];
+        $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
 
         return $config;
     }

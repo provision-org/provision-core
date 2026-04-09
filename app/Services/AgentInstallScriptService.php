@@ -6,6 +6,7 @@ use App\Contracts\Modules\AgentEmailProvider;
 use App\Contracts\Modules\AgentProxyProvider;
 use App\Enums\LlmProvider;
 use App\Models\Agent;
+use App\Models\AgentApiToken;
 
 class AgentInstallScriptService
 {
@@ -188,8 +189,9 @@ class AgentInstallScriptService
         $toolsMd .= "\n\n".self::gitToolsMd();
         $toolsMd .= "\n\n".self::browserToolsMd($agent);
 
-        // Write per-agent .env with agent-specific credentials (mailboxkit)
-        $lines[] = $this->buildHeredoc("{$agentDir}/.env", self::buildAgentEnv($agent));
+        // Write per-agent .env with agent-specific credentials (tasks API + mailboxkit)
+        $plainToken = self::ensureAgentApiToken($agent);
+        $lines[] = $this->buildHeredoc("{$agentDir}/.env", self::buildAgentEnv($agent, $plainToken));
         if (trim($toolsMd)) {
             $lines[] = $this->buildHeredoc("{$agentDir}/TOOLS.md", trim($toolsMd));
         }
@@ -897,13 +899,38 @@ class AgentInstallScriptService
     }
 
     /**
+     * Ensure the agent has an API token, creating one if needed.
+     * Returns the plaintext token for writing to the agent's .env.
+     */
+    public static function ensureAgentApiToken(Agent $agent): string
+    {
+        // Check for an existing token — if one exists, we need to regenerate
+        // since we can't recover the plaintext from the hash.
+        $existing = AgentApiToken::query()->where('agent_id', $agent->id)->first();
+
+        if ($existing) {
+            $existing->delete();
+        }
+
+        $result = AgentApiToken::createForAgent($agent);
+
+        return $result['plaintext'];
+    }
+
+    /**
      * Build the per-agent .env content with agent-specific credentials.
      */
-    public static function buildAgentEnv(Agent $agent): string
+    public static function buildAgentEnv(Agent $agent, ?string $apiToken = null): string
     {
         $agentDir = "/root/.openclaw/agents/{$agent->harness_agent_id}";
 
         $lines = [];
+
+        // Provision Tasks API credentials
+        $lines[] = 'PROVISION_API_URL='.config('app.url');
+        if ($apiToken) {
+            $lines[] = "PROVISION_AGENT_TOKEN={$apiToken}";
+        }
 
         // Git/GitHub credential isolation
         $lines[] = "GH_CONFIG_DIR={$agentDir}/.gh";

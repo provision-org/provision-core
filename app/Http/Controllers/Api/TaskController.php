@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\AgentMode;
 use App\Enums\AgentStatus;
 use App\Events\AgentActivityEvent;
+use App\Events\TaskStatusChangedEvent;
 use App\Http\Controllers\Controller;
 use App\Jobs\NotifyAgentAboutTaskJob;
 use App\Models\Agent;
@@ -87,14 +89,15 @@ class TaskController extends Controller
             'assign_to' => ['nullable', 'string'],
         ]);
 
-        // Resolve assign_to — can be agent name, ID, or harness_agent_id
+        // Resolve assign_to — can be agent name, @handle, ID, or harness_agent_id
         $assignToAgent = null;
         if (! empty($validated['assign_to'])) {
-            $assignTo = $validated['assign_to'];
+            $assignTo = ltrim($validated['assign_to'], '@');
             $assignToAgent = Agent::query()
                 ->where('team_id', $team->id)
                 ->where(function ($q) use ($assignTo) {
                     $q->where('name', $assignTo)
+                        ->orWhere('handle', $assignTo)
                         ->orWhere('id', $assignTo)
                         ->orWhere('harness_agent_id', $assignTo);
                 })
@@ -102,6 +105,17 @@ class TaskController extends Controller
         }
 
         $isAssigningToOther = $assignToAgent && $assignToAgent->id !== $agent->id;
+
+        if ($isAssigningToOther && ! $agent->delegation_enabled) {
+            return response()->json(['message' => 'This agent is not permitted to delegate tasks.'], 403);
+        }
+
+        // Workforce agents are driven by provisiond which polls for 'todo' status
+        $assignedStatus = match (true) {
+            ! $isAssigningToOther => 'in_progress',
+            $assignToAgent->agent_mode === AgentMode::Workforce => 'todo',
+            default => 'up_next',
+        };
 
         $task = Task::create([
             'team_id' => $team->id,
@@ -112,7 +126,8 @@ class TaskController extends Controller
             'description' => $validated['description'] ?? null,
             'priority' => $validated['priority'] ?? 'none',
             'tags' => $validated['tags'] ?? null,
-            'status' => $isAssigningToOther ? 'up_next' : 'in_progress',
+            'status' => $assignedStatus,
+            'delegated_by' => $isAssigningToOther ? $agent->id : null,
         ]);
 
         $activity = AgentActivity::create([
@@ -193,6 +208,8 @@ class TaskController extends Controller
 
         abort_unless($task->team_id === $team->id, 404);
 
+        $oldStatus = $task->status;
+
         $task->update([
             'status' => 'done',
             'completed_at' => now(),
@@ -205,6 +222,10 @@ class TaskController extends Controller
         ]);
 
         AgentActivityEvent::dispatch($activity);
+
+        if ($oldStatus !== 'done') {
+            event(new TaskStatusChangedEvent($task->load('agent'), $oldStatus, 'done'));
+        }
 
         return response()->json($task->fresh());
     }
@@ -219,6 +240,8 @@ class TaskController extends Controller
         $validated = $request->validate([
             'reason' => ['required', 'string'],
         ]);
+
+        $oldStatus = $task->status;
 
         TaskNote::create([
             'task_id' => $task->id,
@@ -236,6 +259,10 @@ class TaskController extends Controller
         ]);
 
         AgentActivityEvent::dispatch($activity);
+
+        if ($oldStatus !== 'blocked') {
+            event(new TaskStatusChangedEvent($task->load('agent'), $oldStatus, 'blocked'));
+        }
 
         return response()->json($task->fresh()->load('notes'));
     }
@@ -272,7 +299,7 @@ class TaskController extends Controller
             'title' => ['sometimes', 'string', 'max:255'],
             'description' => ['nullable', 'string'],
             'priority' => ['sometimes', 'string', 'in:none,low,medium,high'],
-            'status' => ['sometimes', 'string', 'in:inbox,up_next,in_progress,in_review,done,blocked'],
+            'status' => ['sometimes', 'string', 'in:inbox,todo,up_next,in_progress,in_review,blocked,done,cancelled,failed'],
             'tags' => ['nullable', 'array'],
         ]);
 
@@ -288,6 +315,7 @@ class TaskController extends Controller
             ]);
 
             AgentActivityEvent::dispatch($activity);
+            event(new TaskStatusChangedEvent($task->load('agent'), $oldStatus, $validated['status']));
         }
 
         return response()->json($task->fresh());

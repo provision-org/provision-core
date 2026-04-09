@@ -158,8 +158,10 @@ class OpenClawDriver implements HarnessDriver
         // Remove invalid top-level keys that crash the gateway
         unset($config['config']);
 
-        // Remove provision-tasks skill (disabled)
-        unset($config['skills']['entries']['provision-tasks']);
+        // Enable provision-tasks skill (core, always deployed)
+        $config['skills'] = $config['skills'] ?? [];
+        $config['skills']['entries'] = $config['skills']['entries'] ?? [];
+        $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
 
         // Write updated config
         $executor->writeFile($configPath, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
@@ -232,8 +234,14 @@ class OpenClawDriver implements HarnessDriver
         $toolsMd .= "\n\n".AgentInstallScriptService::gitToolsMd();
         $toolsMd .= "\n\n".AgentInstallScriptService::browserToolsMd($agent);
 
+        // Deploy provision-tasks skill (core, always deployed)
+        $this->deployTasksSkill($agent, $executor);
+
+        // Ensure agent has an API token for the tasks API
+        $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
+
         // Write per-agent .env with agent-specific credentials (tasks API + mailboxkit)
-        $executor->writeFile("{$agentDir}/.env", AgentInstallScriptService::buildAgentEnv($agent));
+        $executor->writeFile("{$agentDir}/.env", AgentInstallScriptService::buildAgentEnv($agent, $plainToken));
         if (trim($toolsMd)) {
             $executor->writeFile("{$agentDir}/TOOLS.md", trim($toolsMd));
         }
@@ -482,6 +490,23 @@ class OpenClawDriver implements HarnessDriver
         $skillDir = "{$agentDir}/skills/mailboxkit";
         $executor->exec("mkdir -p {$skillDir}");
         $executor->writeFile("{$skillDir}/SKILL.md", $skillContent);
+    }
+
+    private function deployTasksSkill(Agent $agent, CommandExecutor $executor): void
+    {
+        $agentDir = $this->agentDir($agent);
+        $skillDir = "{$agentDir}/skills/provision-tasks";
+        $executor->exec("mkdir -p {$skillDir}");
+
+        $executor->writeFile(
+            "{$skillDir}/SKILL.md",
+            file_get_contents(resource_path('skills/provision-tasks/SKILL.md')),
+        );
+
+        $executor->writeFile(
+            "{$skillDir}/provision_tasks_tool.js",
+            file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js')),
+        );
     }
 
     private function deployEmailCheckScript(Agent $agent, CommandExecutor $executor): void

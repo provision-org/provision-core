@@ -1,0 +1,229 @@
+{
+    "name": "provision-tasks",
+    "description": "Track your work on the team's task board for visibility",
+    "version": "1.1.0",
+    "author": "Provision AI",
+    "tools": [
+        {
+            "name": "tasks_create",
+            "description": "Create a task to track work you're starting, or delegate to a teammate with --assign.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Clear, descriptive task title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Task description with context"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "Priority: none, low, medium, high",
+                        "enum": ["none", "low", "medium", "high"]
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags for categorization (e.g. research, writing, code)"
+                    },
+                    "assign_to": {
+                        "type": "string",
+                        "description": "Agent name or @handle to delegate the task to"
+                    }
+                },
+                "required": ["title"]
+            }
+        },
+        {
+            "name": "tasks_add_note",
+            "description": "Add a progress note to a task. Use at meaningful milestones as you work.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID"
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "Progress update text"
+                    }
+                },
+                "required": ["task_id", "note"]
+            }
+        },
+        {
+            "name": "tasks_complete",
+            "description": "Mark a task as complete with a summary of the outcome.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to complete"
+                    },
+                    "note": {
+                        "type": "string",
+                        "description": "Brief summary of what was accomplished"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        },
+        {
+            "name": "tasks_block",
+            "description": "Flag a task as blocked so the team knows you need help.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to block"
+                    },
+                    "reason": {
+                        "type": "string",
+                        "description": "Why the task is blocked"
+                    }
+                },
+                "required": ["task_id", "reason"]
+            }
+        },
+        {
+            "name": "tasks_list",
+            "description": "List tasks from the board. Use to check your current work or find tasks assigned to you.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "enum": [
+                            "inbox",
+                            "todo",
+                            "up_next",
+                            "in_progress",
+                            "in_review",
+                            "blocked",
+                            "done",
+                            "cancelled",
+                            "failed"
+                        ]
+                    },
+                    "assigned": {
+                        "type": "string",
+                        "description": "Filter: mine, unassigned, or all",
+                        "enum": ["mine", "unassigned", "all"]
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "Filter by priority: none, low, medium, high",
+                        "enum": ["none", "low", "medium", "high"]
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Maximum tasks to return",
+                        "default": 20
+                    }
+                }
+            }
+        },
+        {
+            "name": "tasks_show",
+            "description": "Get full details of a specific task including recent activity",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        },
+        {
+            "name": "tasks_next",
+            "description": "Get the next task assigned to you from the up_next column. Returns empty if none.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
+            }
+        },
+        {
+            "name": "tasks_claim",
+            "description": "Claim a pre-existing task that was created for you. Moves it to in_progress.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to claim"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        },
+        {
+            "name": "tasks_unclaim",
+            "description": "Release a claimed task. Moves it back to up_next.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID to release"
+                    }
+                },
+                "required": ["task_id"]
+            }
+        },
+        {
+            "name": "tasks_update",
+            "description": "Update task fields (title, description, priority, status, tags)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "The task ID"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "New title"
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "New description"
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "New priority",
+                        "enum": ["none", "low", "medium", "high"]
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "New status",
+                        "enum": [
+                            "inbox",
+                            "todo",
+                            "up_next",
+                            "in_progress",
+                            "in_review",
+                            "blocked",
+                            "done",
+                            "cancelled",
+                            "failed"
+                        ]
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" }
+                    }
+                },
+                "required": ["task_id"]
+            }
+        }
+    ]
+}

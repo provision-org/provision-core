@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\HermesInstallScriptController;
 use App\Http\Controllers\Api\ServerCallbackController;
 use App\Http\Controllers\Api\ServerSetupCallbackController;
 use App\Http\Controllers\Api\ServerSetupScriptController;
+use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\CliController;
 use Illuminate\Support\Facades\Route;
 
@@ -39,6 +40,21 @@ Route::prefix('cli')->middleware(['auth:sanctum'])->group(function () {
     Route::get('/whoami', [CliController::class, 'whoami']);
     Route::get('/agents', [CliController::class, 'listAgents']);
     // Skill routes registered by provision/module-skills package (if installed)
+});
+
+// Agent API — authenticated via agent API token
+Route::prefix('tasks')->middleware('auth.agent-token')->group(function () {
+    Route::get('/', [TaskController::class, 'index']);
+    Route::post('/', [TaskController::class, 'store']);
+    Route::get('/next', [TaskController::class, 'next']);
+    Route::get('/team-agents', [TaskController::class, 'teamAgents']);
+    Route::get('/{task}', [TaskController::class, 'show']);
+    Route::patch('/{task}', [TaskController::class, 'update']);
+    Route::patch('/{task}/claim', [TaskController::class, 'claim']);
+    Route::patch('/{task}/unclaim', [TaskController::class, 'unclaim']);
+    Route::patch('/{task}/complete', [TaskController::class, 'complete']);
+    Route::patch('/{task}/block', [TaskController::class, 'block']);
+    Route::post('/{task}/notes', [TaskController::class, 'addNote']);
 });
 
 // Daemon API — authenticated via server daemon_token
