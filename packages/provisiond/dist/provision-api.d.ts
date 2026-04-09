@@ -18,6 +18,7 @@ export declare class ProvisionApiClient {
     releaseTask(taskId: string, runId: string, reason?: string): Promise<void>;
     getResolvedApprovals(): Promise<ResolvedApproval[]>;
     reportUsage(event: UsageEvent): Promise<void>;
+    postNote(taskId: string, body: string): Promise<void>;
     sendHeartbeat(activeRuns: string[]): Promise<void>;
     private request;
 }

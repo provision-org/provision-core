@@ -456,11 +456,41 @@ export type Goal = {
     parent?: Goal;
 };
 
+export type TaskWorkProduct = {
+    id: string;
+    task_id: string;
+    agent_id: string | null;
+    type: string;
+    title: string;
+    file_path: string | null;
+    url: string | null;
+    summary: string | null;
+    created_at: string;
+    updated_at: string;
+};
+
+export type Routine = {
+    id: string;
+    team_id: string;
+    agent_id: string;
+    title: string;
+    description: string | null;
+    cron_expression: string;
+    timezone: string;
+    status: 'active' | 'paused';
+    last_run_at: string | null;
+    next_run_at: string | null;
+    agent?: Agent;
+    created_at: string;
+    updated_at: string;
+};
+
 export type GovernanceTask = {
     id: string;
     identifier: string;
     title: string;
     description: string | null;
+    routine_id?: string;
     status:
         | 'backlog'
         | 'todo'
@@ -485,8 +515,10 @@ export type GovernanceTask = {
     updated_at: string;
     assigned_agent?: Agent;
     goal?: Goal;
+    notes?: TaskNote[];
     parent_task?: GovernanceTask;
     sub_tasks?: GovernanceTask[];
+    work_products?: TaskWorkProduct[];
 };
 
 export type Approval = {

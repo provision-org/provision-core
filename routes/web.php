@@ -18,7 +18,11 @@ use App\Http\Controllers\GoalController;
 use App\Http\Controllers\GovernanceTaskController;
 use App\Http\Controllers\OrgChartController;
 use App\Http\Controllers\ProfileSetupController;
+use App\Http\Controllers\RoutineController;
+use App\Http\Controllers\SharedWorkspaceController;
 use App\Http\Controllers\SlackConnectionController;
+use App\Http\Controllers\TaskNoteController;
+use App\Http\Controllers\TaskWorkProductController;
 use App\Http\Controllers\TeamPackController;
 use App\Http\Controllers\TelegramConnectionController;
 use App\Http\Controllers\UsageController;
@@ -173,6 +177,8 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::get('company/tasks/{task}', [GovernanceTaskController::class, 'show'])->name('company.tasks.show');
     Route::patch('company/tasks/{task}', [GovernanceTaskController::class, 'update'])->name('company.tasks.update');
     Route::delete('company/tasks/{task}', [GovernanceTaskController::class, 'destroy'])->name('company.tasks.destroy');
+    Route::post('company/tasks/{task}/notes', [TaskNoteController::class, 'store'])->name('company.tasks.notes.store');
+    Route::get('company/tasks/{task}/work-products/{taskWorkProduct}/download', [TaskWorkProductController::class, 'download'])->name('company.tasks.work-products.download');
 
     Route::get('company/org', [OrgChartController::class, 'index'])->name('company.org.index');
     Route::patch('company/agents/{agent}/reporting', [OrgChartController::class, 'updateReporting'])->name('company.org.updateReporting');
@@ -181,6 +187,12 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::post('company/goals', [GoalController::class, 'store'])->name('company.goals.store');
     Route::patch('company/goals/{goal}', [GoalController::class, 'update'])->name('company.goals.update');
     Route::delete('company/goals/{goal}', [GoalController::class, 'destroy'])->name('company.goals.destroy');
+
+    Route::get('company/routines', [RoutineController::class, 'index'])->name('company.routines.index');
+    Route::post('company/routines', [RoutineController::class, 'store'])->name('company.routines.store');
+    Route::put('company/routines/{routine}', [RoutineController::class, 'update'])->name('company.routines.update');
+    Route::post('company/routines/{routine}/toggle', [RoutineController::class, 'toggle'])->name('company.routines.toggle');
+    Route::delete('company/routines/{routine}', [RoutineController::class, 'destroy'])->name('company.routines.destroy');
 
     Route::get('company/approvals', [ApprovalController::class, 'index'])->name('company.approvals.index');
     Route::get('company/approvals/{approval}', [ApprovalController::class, 'show'])->name('company.approvals.show');
@@ -192,6 +204,13 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::get('company/agents/{agent}/usage', [UsageController::class, 'forAgent'])->name('company.usage.forAgent');
 
     Route::get('company/audit', [AuditLogController::class, 'index'])->name('company.audit.index');
+
+    // Shared workspace
+    Route::get('company/workspace', [SharedWorkspaceController::class, 'index'])->name('company.workspace.index');
+    Route::post('company/workspace/upload', [SharedWorkspaceController::class, 'upload'])->name('company.workspace.upload');
+    Route::post('company/workspace/folder', [SharedWorkspaceController::class, 'createFolder'])->name('company.workspace.folder');
+    Route::delete('company/workspace', [SharedWorkspaceController::class, 'destroy'])->name('company.workspace.destroy');
+    Route::get('company/workspace/download', [SharedWorkspaceController::class, 'download'])->name('company.workspace.download');
 });
 
 require __DIR__.'/settings.php';
