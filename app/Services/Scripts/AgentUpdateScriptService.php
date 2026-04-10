@@ -486,6 +486,7 @@ class AgentUpdateScriptService
         $config['channels'] = [];
 
         $config['gateway'] = [
+            'mode' => 'local',
             'bind' => config('openclaw.gateway_bind'),
             'http' => [
                 'endpoints' => [
