@@ -240,6 +240,7 @@ class AgentController extends Controller
             'harness_agent_id' => strtolower(Str::ulid()->toBase32()),
             'status' => AgentStatus::Pending,
             'default_password' => $defaultPassword,
+            'delegation_enabled' => ($data['agent_mode'] ?? '') === AgentMode::Channel->value,
         ]));
 
         foreach ($tools as $tool) {
