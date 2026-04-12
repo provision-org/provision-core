@@ -13,6 +13,7 @@ use App\Services\LinodeService;
 use App\Services\OpenClawDefaultsService;
 use App\Services\Scripts\ServerSetupScriptService;
 use App\Services\SshService;
+use App\Support\OpenClawConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -309,7 +310,7 @@ class SetupOpenClawOnServerJob implements ShouldQueue
             unset($ref);
         }
 
-        $sshService->writeFile($configPath, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $sshService->writeFile($configPath, OpenClawConfig::toJson($config));
     }
 
     private function installByteRover(SshService $sshService): void

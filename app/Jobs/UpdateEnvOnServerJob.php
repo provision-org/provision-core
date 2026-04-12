@@ -7,6 +7,7 @@ use App\Enums\LlmProvider;
 use App\Models\Server;
 use App\Services\HarnessManager;
 use App\Services\OpenClawDefaultsService;
+use App\Support\OpenClawConfig;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 
@@ -128,13 +129,6 @@ class UpdateEnvOnServerJob implements ShouldQueue
             $defaults,
         );
 
-        // Preserve empty objects — PHP json_decode converts {} to [], but OpenClaw expects objects
-        foreach (['channels', 'plugins'] as $key) {
-            if (isset($config[$key]) && $config[$key] === []) {
-                $config[$key] = (object) [];
-            }
-        }
-
         // Set LLM provider API keys in the env section for model auth
         if (! empty($envKeys)) {
             $config['env'] = array_merge($config['env'] ?? [], $envKeys);
@@ -156,6 +150,6 @@ class UpdateEnvOnServerJob implements ShouldQueue
             }
         }
 
-        $executor->writeFile($configPath, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $executor->writeFile($configPath, OpenClawConfig::toJson($config));
     }
 }

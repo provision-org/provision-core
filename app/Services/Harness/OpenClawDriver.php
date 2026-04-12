@@ -18,6 +18,7 @@ use App\Services\AgentScheduleService;
 use App\Services\ChannelConfigBuilder;
 use App\Services\ConfigPatchService;
 use App\Services\Scripts\AgentUpdateScriptService;
+use App\Support\OpenClawConfig;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 
@@ -164,7 +165,7 @@ class OpenClawDriver implements HarnessDriver
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
 
         // Write updated config
-        $executor->writeFile($configPath, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $executor->writeFile($configPath, OpenClawConfig::toJson($config));
 
         // Update workspace files and directories
         $executor->exec("mkdir -p {$agentDir}");
@@ -434,7 +435,7 @@ class OpenClawDriver implements HarnessDriver
 
             $executor->writeFile(
                 '/root/.openclaw/openclaw.json',
-                json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+                OpenClawConfig::toJson($config)
             );
 
             // Restart gateway to pick up new config

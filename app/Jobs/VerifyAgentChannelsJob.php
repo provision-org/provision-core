@@ -6,6 +6,7 @@ use App\Enums\AgentStatus;
 use App\Models\Agent;
 use App\Services\ChannelConfigBuilder;
 use App\Services\SshService;
+use App\Support\OpenClawConfig;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -71,7 +72,7 @@ class VerifyAgentChannelsJob implements ShouldQueue
             $configBuilder->applyToConfig($config, $this->agent->server);
             $sshService->writeFile(
                 '/root/.openclaw/openclaw.json',
-                json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+                OpenClawConfig::toJson($config)
             );
 
             RestartGatewayJob::dispatch($this->agent->server);

@@ -7,6 +7,7 @@ use App\Enums\ServerStatus;
 use App\Models\Server;
 use App\Services\DockerExecutor;
 use App\Services\OpenClawDefaultsService;
+use App\Support\OpenClawConfig;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
 use Illuminate\Support\Str;
@@ -77,7 +78,7 @@ class ProvisionDockerServerJob implements ShouldQueue
         $config = $this->buildOpenClawConfig($defaultsService);
         $executor->writeFile(
             '/root/.openclaw/openclaw.json',
-            json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)
+            OpenClawConfig::toJson($config)
         );
 
         // Configure gateway for container (no systemd)
