@@ -74,7 +74,113 @@ class UpdateEnvOnServerJob implements ShouldQueue
         // Recalculate agent defaults and set LLM provider keys in openclaw.json
         $this->updateAgentDefaults($executor, $defaultsService, $envConfigKeys);
 
+        // Write auth-profiles.json for each agent so OpenClaw's auth resolver
+        // can find API keys for all providers (openrouter, openai-codex, anthropic).
+        // OpenClaw v2026.4+ resolves keys from {agentDir}/agent/auth-profiles.json,
+        // not from the openclaw.json env block.
+        $this->deployAuthProfiles($executor, $envConfigKeys);
+
         RestartGatewayJob::dispatch($this->server);
+    }
+
+    /**
+     * Deploy auth-profiles.json to each agent's directory on the server.
+     *
+     * OpenClaw resolves API keys from {agentDir}/agent/auth-profiles.json.
+     * Each provider entry contains the mode and plaintext key.
+     *
+     * @param  array<string, string>  $envKeys
+     */
+    private function deployAuthProfiles(CommandExecutor $executor, array $envKeys): void
+    {
+        if (empty($envKeys)) {
+            return;
+        }
+
+        // Build the auth profiles object — map env key names to OpenClaw provider IDs
+        $profiles = [];
+        $order = [];
+
+        if (! empty($envKeys['OPENROUTER_API_KEY'])) {
+            $key = $envKeys['OPENROUTER_API_KEY'];
+            $profiles['openrouter:default'] = [
+                'provider' => 'openrouter',
+                'mode' => 'api_key',
+                'key' => $key,
+            ];
+            $order['openrouter'] = ['openrouter:default'];
+
+            // OpenClaw's context engine and tools use openai-codex provider.
+            // Route it through OpenRouter by providing the same key.
+            $profiles['openai-codex:default'] = [
+                'provider' => 'openai-codex',
+                'mode' => 'api_key',
+                'key' => $key,
+            ];
+            $order['openai-codex'] = ['openai-codex:default'];
+        }
+
+        if (! empty($envKeys['OPENAI_API_KEY']) && empty($profiles['openai-codex:default'])) {
+            $profiles['openai-codex:default'] = [
+                'provider' => 'openai-codex',
+                'mode' => 'api_key',
+                'key' => $envKeys['OPENAI_API_KEY'],
+            ];
+            $order['openai-codex'] = ['openai-codex:default'];
+        }
+
+        if (! empty($envKeys['ANTHROPIC_API_KEY'])) {
+            $profiles['anthropic:default'] = [
+                'provider' => 'anthropic',
+                'mode' => 'api_key',
+                'key' => $envKeys['ANTHROPIC_API_KEY'],
+            ];
+            $order['anthropic'] = ['anthropic:default'];
+        }
+
+        if (empty($profiles)) {
+            return;
+        }
+
+        $authProfilesJson = json_encode($profiles, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+        // Write auth-profiles.json to every agent directory on this server
+        $agents = $this->server->agents()
+            ->whereNotNull('harness_agent_id')
+            ->where('harness_type', 'openclaw')
+            ->pluck('harness_agent_id');
+
+        foreach ($agents as $agentId) {
+            $agentDir = "/root/.openclaw/agents/{$agentId}/agent";
+            $executor->exec("mkdir -p {$agentDir}");
+            $executor->writeFile("{$agentDir}/auth-profiles.json", $authProfilesJson);
+        }
+
+        // Also update openclaw.json auth section so the gateway knows which profiles exist
+        $configPath = '/root/.openclaw/openclaw.json';
+
+        try {
+            $config = json_decode($executor->readFile($configPath), true) ?? [];
+        } catch (\RuntimeException) {
+            $config = [];
+        }
+
+        // Declare the auth profiles and ordering in the gateway config
+        // (the actual keys are in per-agent auth-profiles.json files)
+        $configProfiles = [];
+        foreach ($profiles as $id => $profile) {
+            $configProfiles[$id] = [
+                'provider' => $profile['provider'],
+                'mode' => $profile['mode'],
+            ];
+        }
+
+        $config['auth'] = [
+            'profiles' => $configProfiles,
+            'order' => $order,
+        ];
+
+        $executor->writeFile($configPath, json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
     }
 
     /**
