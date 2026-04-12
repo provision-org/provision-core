@@ -200,12 +200,26 @@ class AgentUpdateScriptService
         $lines[] = $this->buildHeredoc("{$agentDir}/.env", $agentEnv);
         $lines[] = '';
 
-        // Register API key with OpenClaw's auth system using the official CLI.
-        // paste-token writes auth-profiles.json in the correct format.
+        // Write auth-profiles.json for OpenClaw's auth resolver.
         $envKeys = $this->collectLlmProviderEnvKeys($agent->server);
         if (! empty($envKeys['OPENROUTER_API_KEY'])) {
-            $lines[] = '# --- Register OpenRouter auth profile ---';
-            $lines[] = "echo '{$envKeys['OPENROUTER_API_KEY']}' | openclaw models auth paste-token --provider openrouter --profile-id openrouter:default 2>&1 || true";
+            $key = $envKeys['OPENROUTER_API_KEY'];
+            $authProfiles = json_encode([
+                'profiles' => [
+                    'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $key],
+                    'openai-codex:default' => ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $key],
+                ],
+                'order' => [
+                    'openrouter' => ['openrouter:default'],
+                    'openai-codex' => ['openai-codex:default'],
+                ],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+            $lines[] = '# --- Write auth-profiles.json (OpenRouter + openai-codex) ---';
+            $lines[] = "mkdir -p {$agentDir}/agent";
+            $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
+            $lines[] = 'mkdir -p /root/.openclaw/agents/main/agent';
+            $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
             $lines[] = '';
         }
 
@@ -215,6 +229,7 @@ class AgentUpdateScriptService
         $lines[] = "mkdir -p {$skillDir}";
         $lines[] = $this->buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/provision-tasks/SKILL.md')));
         $lines[] = $this->buildHeredoc("{$skillDir}/provision_tasks_tool.js", file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js')));
+        $lines[] = $this->buildHeredoc("{$skillDir}/skill.json", file_get_contents(resource_path('skills/provision-tasks/skill.json')));
         $lines[] = '';
 
         // 6. Deploy MailboxKit skill + email check script (if email connected)

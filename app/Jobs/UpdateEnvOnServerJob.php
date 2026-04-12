@@ -68,6 +68,15 @@ class UpdateEnvOnServerJob implements ShouldQueue
         // Agent-specific vars (MAILBOXKIT_INBOX_ID, MAILBOXKIT_EMAIL, GH_CONFIG_DIR)
         // are in per-agent .env files — NOT in the shared .env to avoid cross-contamination.
 
+        // Add Provision API URL to the global .env so OpenClaw skill eligibility
+        // checks can find it. The token is agent-specific (in per-agent .env) but
+        // the URL is the same for all agents. The skill also loads per-agent .env
+        // at runtime via dotenv, so the token is resolved there.
+        $envLines[] = 'PROVISION_API_URL='.config('app.url');
+        // PROVISION_AGENT_TOKEN is set per-agent — use a placeholder here so
+        // OpenClaw's skill check sees the env var as "set" for eligibility
+        $envLines[] = 'PROVISION_AGENT_TOKEN=agent-specific';
+
         $envContent = implode("\n", $envLines)."\n";
 
         $executor->writeFile('/root/.openclaw/.env', $envContent);
@@ -85,11 +94,11 @@ class UpdateEnvOnServerJob implements ShouldQueue
     }
 
     /**
-     * Register the OpenRouter API key with OpenClaw's auth system.
+     * Deploy auth-profiles.json to each agent's directory and the default 'main' agent path.
      *
-     * Uses `openclaw models auth paste-token` to write auth-profiles.json
-     * in the correct format. This is the official OpenClaw CLI method for
-     * setting up provider credentials on headless servers.
+     * OpenClaw resolves API keys from {agentDir}/agent/auth-profiles.json.
+     * Due to OpenClaw bug #24016, the 'main' agent path is also checked even
+     * when no 'main' agent exists. We write to all paths to ensure coverage.
      *
      * @param  array<string, string>  $envKeys
      */
@@ -101,12 +110,43 @@ class UpdateEnvOnServerJob implements ShouldQueue
             return;
         }
 
-        // Use OpenClaw's own CLI to register the API key in the correct format.
-        // paste-token reads from stdin, writes to auth-profiles.json, and updates
-        // the gateway config — all in the format OpenClaw expects.
-        $executor->exec(
-            "echo '{$openRouterKey}' | openclaw models auth paste-token --provider openrouter --profile-id openrouter:default 2>&1 || true"
-        );
+        // Build auth-profiles with both openrouter and openai-codex providers.
+        // openai-codex is needed because OpenClaw's internal systems (compaction,
+        // hooks, crons) use it as a fallback even when the model is openrouter/*.
+        $authProfiles = json_encode([
+            'profiles' => [
+                'openrouter:default' => [
+                    'provider' => 'openrouter',
+                    'type' => 'api_key',
+                    'key' => $openRouterKey,
+                ],
+                'openai-codex:default' => [
+                    'provider' => 'openai-codex',
+                    'type' => 'api_key',
+                    'key' => $openRouterKey,
+                ],
+            ],
+            'order' => [
+                'openrouter' => ['openrouter:default'],
+                'openai-codex' => ['openai-codex:default'],
+            ],
+        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+        // Write to every agent directory on this server
+        $agents = $this->server->agents()
+            ->whereNotNull('harness_agent_id')
+            ->where('harness_type', 'openclaw')
+            ->pluck('harness_agent_id');
+
+        foreach ($agents as $agentId) {
+            $agentDir = "/root/.openclaw/agents/{$agentId}/agent";
+            $executor->exec("mkdir -p {$agentDir}");
+            $executor->writeFile("{$agentDir}/auth-profiles.json", $authProfiles);
+        }
+
+        // Also write to the 'main' agent path (OpenClaw bug #24016 workaround)
+        $executor->exec('mkdir -p /root/.openclaw/agents/main/agent');
+        $executor->writeFile('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
     }
 
     /**

@@ -197,16 +197,32 @@ class AgentInstallScriptService
         }
         $lines[] = '';
 
-        // Register API key with OpenClaw's auth system using the official CLI.
-        // paste-token writes auth-profiles.json in the correct format.
+        // Write auth-profiles.json for OpenClaw's auth resolver.
+        // Includes both openrouter and openai-codex providers (OpenClaw's internal
+        // systems use openai-codex as fallback even with openrouter models).
         $agent->loadMissing('server.team.apiKeys', 'server.team.managedApiKey');
         $team = $agent->server?->team;
         $managedKey = $team?->managedApiKey;
         $openRouterKey = $team?->apiKeys()->where('provider', LlmProvider::OpenRouter)->where('is_active', true)->first();
         $apiKey = $openRouterKey?->api_key ?? $managedKey?->api_key;
         if ($apiKey) {
-            $lines[] = '# Register OpenRouter auth profile';
-            $lines[] = "echo '{$apiKey}' | openclaw models auth paste-token --provider openrouter --profile-id openrouter:default 2>&1 || true";
+            $authProfiles = json_encode([
+                'profiles' => [
+                    'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $apiKey],
+                    'openai-codex:default' => ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $apiKey],
+                ],
+                'order' => [
+                    'openrouter' => ['openrouter:default'],
+                    'openai-codex' => ['openai-codex:default'],
+                ],
+            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+            $lines[] = '# Write auth-profiles.json (OpenRouter + openai-codex providers)';
+            $lines[] = "mkdir -p {$agentDir}/agent";
+            $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
+            // Also write to 'main' agent path (OpenClaw bug #24016 workaround)
+            $lines[] = 'mkdir -p /root/.openclaw/agents/main/agent';
+            $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
             $lines[] = '';
         }
 

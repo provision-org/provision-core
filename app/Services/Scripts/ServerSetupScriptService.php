@@ -221,6 +221,19 @@ WRAPPER);
             $lines[] = $this->buildHeredoc('/root/.openclaw/openclaw.json', $openclawConfigJson);
             $lines[] = '';
 
+            // Install dotenv for provision-tasks skill (Node.js dependency)
+            $lines[] = '# Install dotenv for agent skills';
+            $lines[] = 'npm install -g dotenv 2>/dev/null || true';
+            $lines[] = '';
+
+            // Workaround for OpenClaw bug #24016/#63856: the binary has hardcoded
+            // /home/sprite/.openclaw/ paths for auth resolution. Symlink so the
+            // path resolves to /root/.openclaw/ on our servers.
+            $lines[] = '# Symlink /home/sprite/.openclaw → /root/.openclaw (OpenClaw binary path workaround)';
+            $lines[] = 'mkdir -p /home/sprite';
+            $lines[] = 'ln -sfn /root/.openclaw /home/sprite/.openclaw';
+            $lines[] = '';
+
             // Timezone + DISPLAY + startup optimizations for gateway service
             $lines[] = '# Gateway systemd overrides (timezone + display + perf)';
             $lines[] = 'mkdir -p /root/.config/systemd/user/openclaw-gateway.service.d';
