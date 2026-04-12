@@ -197,12 +197,16 @@ class AgentInstallScriptService
         }
         $lines[] = '';
 
-        // Write auth-profiles.json — OpenClaw resolves API keys from this file
-        $authProfiles = self::buildAuthProfiles($agent);
-        if ($authProfiles) {
-            $lines[] = '# Write auth-profiles.json for LLM provider authentication';
-            $lines[] = "mkdir -p {$agentDir}/agent";
-            $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
+        // Register API key with OpenClaw's auth system using the official CLI.
+        // paste-token writes auth-profiles.json in the correct format.
+        $agent->loadMissing('server.team.apiKeys', 'server.team.managedApiKey');
+        $team = $agent->server?->team;
+        $managedKey = $team?->managedApiKey;
+        $openRouterKey = $team?->apiKeys()->where('provider', LlmProvider::OpenRouter)->where('is_active', true)->first();
+        $apiKey = $openRouterKey?->api_key ?? $managedKey?->api_key;
+        if ($apiKey) {
+            $lines[] = '# Register OpenRouter auth profile';
+            $lines[] = "echo '{$apiKey}' | openclaw models auth paste-token --provider openrouter --profile-id openrouter:default 2>&1 || true";
             $lines[] = '';
         }
 
@@ -955,71 +959,6 @@ class AgentInstallScriptService
         }
 
         return implode("\n", $lines);
-    }
-
-    /**
-     * Build auth-profiles.json content for an agent.
-     *
-     * OpenClaw v2026.4+ resolves API keys from {agentDir}/agent/auth-profiles.json.
-     * This provides credentials for all providers the agent might need.
-     */
-    public static function buildAuthProfiles(Agent $agent): ?string
-    {
-        $agent->loadMissing('server.team.apiKeys', 'server.team.managedApiKey');
-        $team = $agent->server?->team;
-
-        if (! $team) {
-            return null;
-        }
-
-        $activeKeys = $team->apiKeys()->where('is_active', true)->get();
-        $managedKey = $team->managedApiKey;
-        $profiles = [];
-
-        // Determine the primary API key (user-provided OpenRouter > managed key)
-        $openRouterKey = $activeKeys->firstWhere('provider', LlmProvider::OpenRouter);
-        $primaryKey = $openRouterKey?->api_key ?? $managedKey?->api_key;
-
-        if ($primaryKey) {
-            $profiles['openrouter:default'] = [
-                'provider' => 'openrouter',
-                'mode' => 'api_key',
-                'key' => $primaryKey,
-            ];
-
-            // OpenClaw's context engine uses openai-codex provider.
-            // Provide the same key so it routes through OpenRouter.
-            $profiles['openai-codex:default'] = [
-                'provider' => 'openai-codex',
-                'mode' => 'api_key',
-                'key' => $primaryKey,
-            ];
-        }
-
-        // User-provided native keys override the OpenRouter proxy
-        $openAiKey = $activeKeys->firstWhere('provider', LlmProvider::OpenAi);
-        if ($openAiKey) {
-            $profiles['openai-codex:default'] = [
-                'provider' => 'openai-codex',
-                'mode' => 'api_key',
-                'key' => $openAiKey->api_key,
-            ];
-        }
-
-        $anthropicKey = $activeKeys->firstWhere('provider', LlmProvider::Anthropic);
-        if ($anthropicKey) {
-            $profiles['anthropic:default'] = [
-                'provider' => 'anthropic',
-                'mode' => 'api_key',
-                'key' => $anthropicKey->api_key,
-            ];
-        }
-
-        if (empty($profiles)) {
-            return null;
-        }
-
-        return json_encode($profiles, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
 
     private function buildTelegramPatchScript(Agent $agent, mixed $telegram, string $configFile): string

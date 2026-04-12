@@ -200,13 +200,12 @@ class AgentUpdateScriptService
         $lines[] = $this->buildHeredoc("{$agentDir}/.env", $agentEnv);
         $lines[] = '';
 
-        // Write auth-profiles.json — OpenClaw resolves API keys from this file,
-        // not from the openclaw.json env block or .env file
-        $authProfiles = $this->buildAuthProfiles($agent);
-        if ($authProfiles) {
-            $lines[] = '# --- Auth Profiles (LLM provider keys) ---';
-            $lines[] = "mkdir -p {$agentDir}/agent";
-            $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
+        // Register API key with OpenClaw's auth system using the official CLI.
+        // paste-token writes auth-profiles.json in the correct format.
+        $envKeys = $this->collectLlmProviderEnvKeys($agent->server);
+        if (! empty($envKeys['OPENROUTER_API_KEY'])) {
+            $lines[] = '# --- Register OpenRouter auth profile ---';
+            $lines[] = "echo '{$envKeys['OPENROUTER_API_KEY']}' | openclaw models auth paste-token --provider openrouter --profile-id openrouter:default 2>&1 || true";
             $lines[] = '';
         }
 
@@ -597,63 +596,6 @@ class AgentUpdateScriptService
         }
 
         return $envKeys;
-    }
-
-    /**
-     * Build auth-profiles.json content for an agent.
-     *
-     * OpenClaw v2026.4+ resolves API keys from {agentDir}/agent/auth-profiles.json,
-     * not from the env block. Each provider needs an entry with mode and key.
-     */
-    private function buildAuthProfiles(Agent $agent): ?string
-    {
-        $envKeys = $this->collectLlmProviderEnvKeys($agent->server);
-
-        if (empty($envKeys)) {
-            return null;
-        }
-
-        $profiles = [];
-
-        if (! empty($envKeys['OPENROUTER_API_KEY'])) {
-            $key = $envKeys['OPENROUTER_API_KEY'];
-
-            $profiles['openrouter:default'] = [
-                'provider' => 'openrouter',
-                'mode' => 'api_key',
-                'key' => $key,
-            ];
-
-            // OpenClaw's context engine uses openai-codex provider internally.
-            // Provide the OpenRouter key so it routes through OpenRouter.
-            $profiles['openai-codex:default'] = [
-                'provider' => 'openai-codex',
-                'mode' => 'api_key',
-                'key' => $key,
-            ];
-        }
-
-        if (! empty($envKeys['OPENAI_API_KEY']) && empty($profiles['openai-codex:default'])) {
-            $profiles['openai-codex:default'] = [
-                'provider' => 'openai-codex',
-                'mode' => 'api_key',
-                'key' => $envKeys['OPENAI_API_KEY'],
-            ];
-        }
-
-        if (! empty($envKeys['ANTHROPIC_API_KEY'])) {
-            $profiles['anthropic:default'] = [
-                'provider' => 'anthropic',
-                'mode' => 'api_key',
-                'key' => $envKeys['ANTHROPIC_API_KEY'],
-            ];
-        }
-
-        if (empty($profiles)) {
-            return null;
-        }
-
-        return json_encode($profiles, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     }
 
     // =========================================================================
