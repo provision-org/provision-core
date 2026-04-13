@@ -497,16 +497,9 @@ class AgentUpdateScriptService
         unset($config['tools']['profile']);
 
         // Enable provision-tasks skill (core, always deployed)
-        // Inject env vars via skill config so OpenClaw injects them at runtime
         $config['skills'] = $config['skills'] ?? [];
         $config['skills']['entries'] = $config['skills']['entries'] ?? [];
-        $config['skills']['entries']['provision-tasks'] = [
-            'enabled' => true,
-            'env' => [
-                'PROVISION_API_URL' => config('app.url'),
-                'PROVISION_AGENT_TOKEN' => $plainToken ?? '',
-            ],
-        ];
+        $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
 
         return $config;
     }
