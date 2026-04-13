@@ -22,7 +22,7 @@ class CreateTeamRequest extends FormRequest
     {
         return [
             'name' => $this->teamNameRules(),
-            'harness_type' => ['required', 'string', Rule::in(array_column(HarnessType::cases(), 'value'))],
+            'harness_type' => ['sometimes', 'string', Rule::in(array_column(HarnessType::cases(), 'value'))],
             'company_name' => ['nullable', 'string', 'max:255'],
             'company_url' => ['nullable', 'url', 'max:500'],
             'company_description' => ['nullable', 'string', 'max:2000'],

@@ -147,7 +147,19 @@ class AgentUpdateScriptService
         }
 
         if ($agent->system_prompt) {
-            $lines[] = $this->buildHeredoc("{$agentDir}/AGENTS.md", $agent->system_prompt);
+            $systemPrompt = $agent->system_prompt;
+
+            // Append delegation instructions for channel agents
+            if ($agent->delegation_enabled) {
+                $systemPrompt .= "\n\n## Task Delegation\n\n";
+                $systemPrompt .= 'You have a `provision-tasks` skill that lets you create and delegate tasks to other agents on your team. ';
+                $systemPrompt .= 'When someone asks you to assign, delegate, or create a task for another agent (e.g. "create a task for @max"), ';
+                $systemPrompt .= "ALWAYS use the provision-tasks skill — never use the built-in spawn or sub-agent commands.\n\n";
+                $systemPrompt .= "To delegate: `node {baseDir}/provision_tasks_tool.js create \"Task title\" --assign \"agent-name\"`\n";
+                $systemPrompt .= "To see teammates: `node {baseDir}/provision_tasks_tool.js team-agents`\n";
+            }
+
+            $lines[] = $this->buildHeredoc("{$agentDir}/AGENTS.md", $systemPrompt);
             $lines[] = '';
         }
 

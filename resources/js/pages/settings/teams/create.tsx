@@ -28,10 +28,12 @@ const harnessOptions = [
 type Step = 'name' | 'harness' | 'business' | 'provider';
 
 export default function CreateTeam({
+    harnessSelectionEnabled = false,
     cloudProviderSelectionEnabled = false,
     availableProviders = [],
     defaultProvider = 'docker',
 }: {
+    harnessSelectionEnabled?: boolean;
     cloudProviderSelectionEnabled?: boolean;
     availableProviders?: {
         value: string;
@@ -64,7 +66,7 @@ export default function CreateTeam({
     function nextStep() {
         if (step === 'name') {
             if (!form.data.name.trim()) return;
-            setStep('harness');
+            setStep(harnessSelectionEnabled ? 'harness' : 'business');
         } else if (step === 'harness') {
             setStep('business');
         } else if (step === 'business') {
@@ -78,7 +80,7 @@ export default function CreateTeam({
         if (step === 'harness') {
             setStep('name');
         } else if (step === 'business') {
-            setStep('harness');
+            setStep(harnessSelectionEnabled ? 'harness' : 'name');
         } else if (step === 'provider') {
             setStep('business');
         }
@@ -160,7 +162,7 @@ export default function CreateTeam({
                     </>
                 )}
 
-                {step === 'harness' && (
+                {step === 'harness' && harnessSelectionEnabled && (
                     <>
                         <div className="grid gap-3">
                             {harnessOptions.map((option) => (

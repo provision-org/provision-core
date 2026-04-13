@@ -3,9 +3,9 @@
 namespace App\Http\Controllers\Settings;
 
 use App\Ai\CompanyExtractorAgent;
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\ServerStatus;
 use App\Enums\TeamRole;
-use App\Contracts\Modules\BillingProvider;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\CreateTeamRequest;
 use App\Http\Requests\Settings\UpdateTeamRequest;
@@ -51,6 +51,7 @@ class TeamController extends Controller
         }
 
         return Inertia::render('settings/teams/create', [
+            'harnessSelectionEnabled' => (bool) config('provision.enable_multiple_harness', false),
             'cloudProviderSelectionEnabled' => $selectionEnabled && count($availableProviders) > 1,
             'availableProviders' => $availableProviders,
             'defaultProvider' => config('cloud.default_provider', 'docker'),
@@ -67,7 +68,7 @@ class TeamController extends Controller
             'personal_team' => false,
             'timezone' => $request->user()->timezone ?? 'UTC',
             'cloud_provider' => $request->cloud_provider ?? config('cloud.default_provider', 'docker'),
-            'harness_type' => $request->harness_type,
+            'harness_type' => $request->harness_type ?? 'openclaw',
             'company_name' => $request->company_name,
             'company_url' => $request->company_url,
             'company_description' => $request->company_description,
