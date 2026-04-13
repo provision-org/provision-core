@@ -2,27 +2,19 @@
  * Provision Tasks Skill for OpenClaw Agents
  *
  * Provides task management via the Provision REST API.
+ * API URL and token are hardcoded at deploy time by AgentUpdateScriptService.
  */
-
-import { homedir } from 'os';
-import { join } from 'path';
-import dotenv from 'dotenv';
-
-// Load environment variables — workspace .env first, then global fallback
-dotenv.config({ path: join(process.cwd(), '.env') });
-dotenv.config({ path: join(homedir(), '.openclaw', '.env') });
-dotenv.config({ path: join(homedir(), '.env') });
 
 const apiUrl = process.env.PROVISION_API_URL;
 const token = process.env.PROVISION_AGENT_TOKEN;
 
 if (!apiUrl) {
-    console.error('PROVISION_API_URL not configured');
+    console.error('PROVISION_API_URL not configured — redeploy this agent to fix');
     process.exit(1);
 }
 
 if (!token) {
-    console.error('PROVISION_AGENT_TOKEN not configured');
+    console.error('PROVISION_AGENT_TOKEN not configured — redeploy this agent to fix');
     process.exit(1);
 }
 
