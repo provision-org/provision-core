@@ -933,10 +933,14 @@ class AgentInstallScriptService
      */
     public static function ensureAgentApiToken(Agent $agent): string
     {
-        // Check for an existing token — if one exists, we need to regenerate
-        // since we can't recover the plaintext from the hash.
         $existing = AgentApiToken::query()->where('agent_id', $agent->id)->first();
 
+        // Reuse existing token if we can recover the plaintext
+        if ($existing && $existing->token_encrypted) {
+            return $existing->token_encrypted;
+        }
+
+        // Delete old token (no recoverable plaintext) and create fresh
         if ($existing) {
             $existing->delete();
         }

@@ -22,6 +22,7 @@ class AgentApiToken extends Model
         'team_id',
         'name',
         'token_hash',
+        'token_encrypted',
         'last_used_at',
     ];
 
@@ -31,6 +32,7 @@ class AgentApiToken extends Model
     protected function casts(): array
     {
         return [
+            'token_encrypted' => 'encrypted',
             'last_used_at' => 'datetime',
         ];
     }
@@ -62,6 +64,7 @@ class AgentApiToken extends Model
             'agent_id' => $agent->id,
             'team_id' => $agent->team_id,
             'token_hash' => hash('sha256', $plaintext),
+            'token_encrypted' => $plaintext,
         ]);
 
         return ['token' => $token, 'plaintext' => $plaintext];
