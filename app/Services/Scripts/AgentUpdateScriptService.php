@@ -91,8 +91,11 @@ class AgentUpdateScriptService
         $configPath = '/root/.openclaw/openclaw.json';
         $callbackUrl = $this->buildCallbackUrl($agent);
 
+        // Generate API token early — needed for both .env and openclaw.json skill config
+        $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
+
         // Pre-compute the full openclaw.json target config
-        $openclawConfig = $this->buildFullOpenClawConfig($agent);
+        $openclawConfig = $this->buildFullOpenClawConfig($agent, $plainToken);
         $configJson = json_encode($openclawConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
         $lines = [
@@ -206,8 +209,7 @@ class AgentUpdateScriptService
             $lines[] = '';
         }
 
-        // Per-agent .env (with fresh API token)
-        $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
+        // Per-agent .env (reuses token generated above)
         $agentEnv = AgentInstallScriptService::buildAgentEnv($agent, $plainToken);
         $lines[] = $this->buildHeredoc("{$agentDir}/.env", $agentEnv);
         $lines[] = '';
@@ -442,7 +444,7 @@ class AgentUpdateScriptService
      *
      * @return array<string, mixed>
      */
-    private function buildFullOpenClawConfig(Agent $agent): array
+    private function buildFullOpenClawConfig(Agent $agent, ?string $plainToken = null): array
     {
         $server = $agent->server;
 
@@ -495,9 +497,16 @@ class AgentUpdateScriptService
         unset($config['tools']['profile']);
 
         // Enable provision-tasks skill (core, always deployed)
+        // Inject env vars via skill config so OpenClaw injects them at runtime
         $config['skills'] = $config['skills'] ?? [];
         $config['skills']['entries'] = $config['skills']['entries'] ?? [];
-        $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
+        $config['skills']['entries']['provision-tasks'] = [
+            'enabled' => true,
+            'env' => [
+                'PROVISION_API_URL' => config('app.url'),
+                'PROVISION_AGENT_TOKEN' => $plainToken ?? '',
+            ],
+        ];
 
         return $config;
     }
