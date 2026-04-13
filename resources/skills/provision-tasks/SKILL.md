@@ -6,11 +6,21 @@ metadata: {"openclaw":{"requires":{"bins":["node"],"env":["PROVISION_API_URL","P
 
 # Provision Tasks Skill
 
-Use the provision_tasks_tool.js script in {baseDir} to log your work on the team's task board.
+Manage tasks on your team's task board using the provision_tasks_tool.js script.
+
+## IMPORTANT: How to run commands
+
+Always use the FULL ABSOLUTE PATH to the script. Do NOT use `cd` — run the node command directly:
+
+```bash
+node {baseDir}/provision_tasks_tool.js <command> [args]
+```
+
+NEVER do `cd {baseDir} && node ...` — this will be blocked by the security preflight.
 
 ## Environment
 
-The following environment variables are available:
+The following environment variables are loaded automatically from your .env file:
 
 - PROVISION_API_URL: API base URL for the Provision app
 - PROVISION_AGENT_TOKEN: Your API authentication token
@@ -21,17 +31,7 @@ The following environment variables are available:
 
 **Skip task creation** for trivial interactions: greetings, simple factual questions, clarifying questions, or when you're just chatting.
 
-## Workflow
-
-1. **Create a task** when you begin substantive work: `tasks_create "Research competitor pricing"`
-2. **Add progress notes** as you work through steps: `tasks_add_note <id> "Found 5 competitors, analyzing pricing tiers"`
-3. **Complete with a summary** when finished: `tasks_complete <id> "Compiled pricing comparison for 5 competitors"`
-4. **Block if stuck**: `tasks_block <id> "Need access to their enterprise pricing page"` — this flags it for the team
-5. **Check existing tasks** if someone asks about status: `tasks_list --assigned mine`
-
 ## Commands
-
-All commands use Node.js. Run from {baseDir}:
 
 ### Create a task
 
@@ -108,8 +108,6 @@ When you use `--assign` to delegate to a workforce agent (one that runs autonomo
 
 Use `tasks_show <task_id>` if you need to check status before the notification arrives.
 
-Use `tasks_list --status todo` to see tasks that are queued but not yet started.
-
 ## Guidelines
 
 - Create tasks for substantive work so your team has visibility into what you're doing
@@ -120,4 +118,3 @@ Use `tasks_list --status todo` to see tasks that are queued but not yet started.
 - Use tags to categorize work: `research`, `writing`, `code`, `analysis`, etc.
 - Set priority to `high` for urgent requests
 - To delegate work to a teammate, use `team-agents` to see who's available, then `create "title" --assign "Agent Name"`
-- The assigned agent will be notified immediately and can claim the task
