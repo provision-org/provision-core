@@ -144,9 +144,34 @@ class UpdateEnvOnServerJob implements ShouldQueue
             $executor->writeFile("{$agentDir}/auth-profiles.json", $authProfiles);
         }
 
-        // Also write to the 'main' agent path (OpenClaw bug #24016 workaround)
+        // Write to 'main' agent path (OpenClaw bug #24016 workaround)
         $executor->exec('mkdir -p /root/.openclaw/agents/main/agent');
         $executor->writeFile('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
+
+        // Register auth profiles in openclaw.json so OpenClaw's gateway knows
+        // which providers are configured (matches what `openclaw onboard` writes)
+        $configPath = '/root/.openclaw/openclaw.json';
+
+        try {
+            $config = json_decode($executor->readFile($configPath), true) ?? [];
+        } catch (\RuntimeException) {
+            $config = [];
+        }
+
+        $config['auth'] = [
+            'profiles' => [
+                'openrouter:default' => ['provider' => 'openrouter', 'mode' => 'api_key'],
+                'openai-codex:default' => ['provider' => 'openai-codex', 'mode' => 'api_key'],
+            ],
+        ];
+
+        $executor->writeFile($configPath, OpenClawConfig::toJson($config));
+
+        // Workaround for OpenClaw binary having hardcoded /home/sprite/ paths (#24016)
+        $executor->exec('mkdir -p /home/sprite && ln -sfn /root/.openclaw /home/sprite/.openclaw');
+
+        // Install dotenv for provision-tasks skill
+        $executor->exec('npm install -g dotenv 2>/dev/null || true');
     }
 
     /**
