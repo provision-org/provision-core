@@ -236,11 +236,25 @@ class AgentUpdateScriptService
         }
 
         // Deploy provision-tasks skill (core, always deployed)
+        // Hardcode API URL and token into the script so it doesn't depend on env files
         $lines[] = '# --- Deploy provision-tasks skill ---';
         $skillDir = "{$agentDir}/skills/provision-tasks";
         $lines[] = "mkdir -p {$skillDir}";
         $lines[] = $this->buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/provision-tasks/SKILL.md')));
-        $lines[] = $this->buildHeredoc("{$skillDir}/provision_tasks_tool.js", file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js')));
+
+        $toolScript = file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js'));
+        $toolScript = str_replace(
+            'const apiUrl = process.env.PROVISION_API_URL;',
+            "const apiUrl = process.env.PROVISION_API_URL || '".config('app.url')."';",
+            $toolScript,
+        );
+        $toolScript = str_replace(
+            'const token = process.env.PROVISION_AGENT_TOKEN;',
+            "const token = process.env.PROVISION_AGENT_TOKEN || '{$plainToken}';",
+            $toolScript,
+        );
+        $lines[] = $this->buildHeredoc("{$skillDir}/provision_tasks_tool.js", $toolScript);
+
         $lines[] = $this->buildHeredoc("{$skillDir}/skill.json", file_get_contents(resource_path('skills/provision-tasks/skill.json')));
         $lines[] = '';
 
