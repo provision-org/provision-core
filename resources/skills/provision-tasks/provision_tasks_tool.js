@@ -27,7 +27,7 @@ if (!token) {
 }
 
 async function api(method, path, body) {
-    const res = await fetch(`${apiUrl}${path}`, {
+    const res = await fetch(`${apiUrl}/api${path}`, {
         method,
         headers: {
             Authorization: `Bearer ${token}`,
