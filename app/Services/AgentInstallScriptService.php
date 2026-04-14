@@ -808,9 +808,9 @@ class AgentInstallScriptService
 
     private function buildHeredoc(string $filePath, string $content): string
     {
-        $escapedContent = str_replace('$', '\\$', $content);
-
-        return "cat > {$filePath} << 'HEREDOC_EOF'\n{$escapedContent}\nHEREDOC_EOF";
+        // Single-quoted heredoc delimiter ('HEREDOC_EOF') prevents bash variable
+        // expansion, so no need to escape $ signs in the content.
+        return "cat > {$filePath} << 'HEREDOC_EOF'\n{$content}\nHEREDOC_EOF";
     }
 
     /**
