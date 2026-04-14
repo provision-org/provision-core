@@ -532,7 +532,9 @@ class AgentUpdateScriptService
             ],
         ];
 
-        $config['plugins'] = ['entries' => []];
+        $config['plugins'] = ['entries' => [
+            'device-pair' => ['enabled' => false],
+        ]];
 
         $config['session'] = [
             'dmScope' => 'per-channel-peer',

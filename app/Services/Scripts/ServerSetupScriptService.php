@@ -440,8 +440,10 @@ OVERRIDE
             ],
         ];
 
-        // Plugins — empty entries, ByteRover added only if install succeeds
-        $config['plugins'] = ['entries' => (object) []];
+        // Plugins — disable device-pair to prevent pairing deadlock on headless servers
+        $config['plugins'] = ['entries' => [
+            'device-pair' => ['enabled' => false],
+        ]];
 
         // Session management — multi-user isolation and cleanup
         $config['session'] = [
