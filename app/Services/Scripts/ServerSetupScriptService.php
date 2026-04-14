@@ -255,7 +255,12 @@ OVERRIDE
             $lines[] = '# --- Step 8: Wait for Gateway & Approve Device Pairing ---';
             $lines[] = 'ping_progress "starting_services"';
             $lines[] = 'sleep 15';
-            $lines[] = 'openclaw devices approve --latest || true';
+            $lines[] = '';
+            $lines[] = '# Approve all pending device pairing requests';
+            $lines[] = 'for REQ_ID in $(openclaw devices list 2>/dev/null | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"); do';
+            $lines[] = '  openclaw devices approve "$REQ_ID" 2>/dev/null || true';
+            $lines[] = 'done';
+            $lines[] = 'sleep 3';
             $lines[] = '';
 
             // Gateway health check retry loop
@@ -266,6 +271,10 @@ OVERRIDE
             $lines[] = '    GATEWAY_READY=1';
             $lines[] = '    break';
             $lines[] = '  fi';
+            $lines[] = '  # Re-approve any new pairing requests between retries';
+            $lines[] = '  for REQ_ID in $(openclaw devices list 2>/dev/null | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"); do';
+            $lines[] = '    openclaw devices approve "$REQ_ID" 2>/dev/null || true';
+            $lines[] = '  done';
             $lines[] = '  sleep $DELAY';
             $lines[] = 'done';
             $lines[] = '';
