@@ -54,23 +54,23 @@ class SetupOpenClawOnServerJob implements ShouldQueue
             // The script runs locally on the server and fires callbacks for progress.
             $executor->execScript($scriptUrl);
 
-            // If we reach here, the script exited successfully (exit 0).
-            // The script's "ready" callback already set the server to Running.
-            // But verify just in case the callback didn't fire (local dev without herd share).
+            // The script's "ready" callback should have set the server to Running.
+            // Verify it actually completed — do NOT blindly mark as running.
             $this->server->refresh();
-            if ($this->server->status !== ServerStatus::Running) {
-                $this->server->update([
-                    'status' => ServerStatus::Running,
-                    'provisioned_at' => now(),
-                ]);
 
+            if ($this->server->status === ServerStatus::Running) {
+                // Script completed successfully and callback fired
+                UpdateEnvOnServerJob::dispatch($this->server);
+            } else {
+                // Script exited without the callback firing — setup is incomplete
+                Log::error("SetupOpenClawOnServerJob: script exited but server {$this->server->id} is not Running (status: {$this->server->status->value}). Setup may have failed silently.");
+
+                $this->server->update(['status' => ServerStatus::Error]);
                 $this->server->events()->create([
-                    'event' => 'setup_complete',
-                    'payload' => ['source' => 'job_fallback'],
+                    'event' => 'provisioning_error',
+                    'payload' => ['error_message' => 'Setup script completed but server callback never fired — setup is incomplete'],
                 ]);
             }
-
-            UpdateEnvOnServerJob::dispatch($this->server);
         } finally {
             if ($executor instanceof SshService) {
                 $executor->disconnect();

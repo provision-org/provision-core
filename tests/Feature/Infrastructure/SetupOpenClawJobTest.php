@@ -81,14 +81,16 @@ it('updates server status to running', function () {
         ->and($server->provisioned_at)->not->toBeNull();
 });
 
-it('creates a setup_complete event when server was not yet running', function () {
+it('marks server as error when setup script completes but callback never fired', function () {
     $server = Server::factory()->running()->create([
         'status' => ServerStatus::SetupComplete,
     ]);
 
     (new SetupOpenClawOnServerJob($server))->handle(mockHarnessManagerForSetup(), mockScriptService());
 
-    expect($server->events()->where('event', 'setup_complete')->exists())->toBeTrue();
+    $server->refresh();
+    expect($server->status)->toBe(ServerStatus::Error)
+        ->and($server->events()->where('event', 'provisioning_error')->exists())->toBeTrue();
 });
 
 it('dispatches UpdateEnvOnServerJob after setup', function () {
