@@ -52,13 +52,14 @@ class SshService implements CommandExecutor
         return $this;
     }
 
-    public function exec(string $command): string
+    public function exec(string $command, int $timeout = 30): string
     {
         if (! $this->host || ! $this->key) {
             throw new RuntimeException('Not connected. Call connect() first.');
         }
 
         $ssh = new SSH2($this->host);
+        $ssh->setTimeout($timeout);
         if (! $ssh->login('root', $this->key)) {
             throw new RuntimeException("SSH login failed for {$this->host}");
         }
@@ -111,7 +112,8 @@ class SshService implements CommandExecutor
      */
     public function execScript(string $signedUrl): string
     {
-        return $this->exec("curl -fsSL '{$signedUrl}' | bash");
+        // Setup scripts can take several minutes (openclaw onboard, package installs, etc.)
+        return $this->exec("curl -fsSL '{$signedUrl}' | bash", 600);
     }
 
     /**
