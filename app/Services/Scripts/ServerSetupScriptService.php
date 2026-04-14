@@ -305,7 +305,17 @@ OVERRIDE
         $lines[] = '# --- Step 10: Install provisiond ---';
         $lines[] = 'ping_progress "installing_daemon"';
         $lines[] = 'mkdir -p /opt/provisiond /etc/provisiond';
-        $lines[] = "curl -fsSL '{$provisiondUrl}' -o /opt/provisiond/provisiond.mjs || echo 'provisiond download failed (non-fatal)'";
+        $lines[] = 'PROVISIOND_RETRIES=0';
+        $lines[] = 'while [ $PROVISIOND_RETRIES -lt 3 ]; do';
+        $lines[] = "  curl -fsSL '{$provisiondUrl}' -o /opt/provisiond/provisiond.mjs && break";
+        $lines[] = '  PROVISIOND_RETRIES=$((PROVISIOND_RETRIES + 1))';
+        $lines[] = '  echo "[setup] provisiond download attempt $PROVISIOND_RETRIES failed, retrying in 5s..."';
+        $lines[] = '  sleep 5';
+        $lines[] = 'done';
+        $lines[] = 'if [ ! -f /opt/provisiond/provisiond.mjs ]; then';
+        $lines[] = '  echo "[setup] FATAL: provisiond download failed after 3 attempts"';
+        $lines[] = '  exit 1';
+        $lines[] = 'fi';
         $lines[] = "echo '{\"version\":\"{$provisiondVersion}\"}' > /opt/provisiond/package.json";
         $lines[] = '';
 
@@ -343,13 +353,9 @@ OVERRIDE
             $lines[] = 'PROVISIOND_SERVICE';
             $lines[] = '';
             $lines[] = 'systemctl daemon-reload';
-            $lines[] = 'if [ -f /opt/provisiond/provisiond.mjs ]; then';
-            $lines[] = '  systemctl enable provisiond';
-            $lines[] = '  systemctl start provisiond';
-            $lines[] = '  echo "[setup] provisiond started successfully"';
-            $lines[] = 'else';
-            $lines[] = '  echo "[setup] provisiond.mjs not found, skipping daemon start"';
-            $lines[] = 'fi';
+            $lines[] = 'systemctl enable provisiond';
+            $lines[] = 'systemctl start provisiond';
+            $lines[] = 'echo "[setup] provisiond started successfully"';
             $lines[] = '';
         }
 
