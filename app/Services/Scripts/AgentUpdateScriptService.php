@@ -149,19 +149,8 @@ class AgentUpdateScriptService
             $lines[] = '';
         }
 
-        if ($agent->system_prompt) {
-            $systemPrompt = $agent->system_prompt;
-
-            // Append delegation instructions for channel agents
-            if ($agent->delegation_enabled) {
-                $systemPrompt .= "\n\n## Task Delegation\n\n";
-                $systemPrompt .= 'You have a `provision-tasks` skill that lets you create and delegate tasks to other agents on your team. ';
-                $systemPrompt .= 'When someone asks you to assign, delegate, or create a task for another agent (e.g. "create a task for @max"), ';
-                $systemPrompt .= "ALWAYS use the provision-tasks skill — never use the built-in spawn or sub-agent commands.\n\n";
-                $systemPrompt .= "To delegate: `node {baseDir}/provision_tasks_tool.js create \"Task title\" --assign \"agent-name\"`\n";
-                $systemPrompt .= "To see teammates: `node {baseDir}/provision_tasks_tool.js team-agents`\n";
-            }
-
+        $systemPrompt = AgentInstallScriptService::buildSystemPromptWithDelegation($agent);
+        if ($systemPrompt) {
             $lines[] = $this->buildHeredoc("{$agentDir}/AGENTS.md", $systemPrompt);
             $lines[] = '';
         }
@@ -238,26 +227,7 @@ class AgentUpdateScriptService
         }
 
         // Deploy provision-tasks skill (core, always deployed)
-        // Hardcode API URL and token into the script so it doesn't depend on env files
-        $lines[] = '# --- Deploy provision-tasks skill ---';
-        $skillDir = "{$agentDir}/skills/provision-tasks";
-        $lines[] = "mkdir -p {$skillDir}";
-        $lines[] = $this->buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/provision-tasks/SKILL.md')));
-
-        $toolScript = file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js'));
-        $toolScript = str_replace(
-            'const apiUrl = process.env.PROVISION_API_URL;',
-            "const apiUrl = process.env.PROVISION_API_URL || '".config('app.url')."';",
-            $toolScript,
-        );
-        $toolScript = str_replace(
-            'const token = process.env.PROVISION_AGENT_TOKEN;',
-            "const token = process.env.PROVISION_AGENT_TOKEN || '{$plainToken}';",
-            $toolScript,
-        );
-        $lines[] = $this->buildHeredoc("{$skillDir}/provision_tasks_tool.js", $toolScript);
-
-        $lines[] = $this->buildHeredoc("{$skillDir}/skill.json", file_get_contents(resource_path('skills/provision-tasks/skill.json')));
+        array_push($lines, ...AgentInstallScriptService::buildProvisionTasksSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
         $lines[] = '';
 
         // 6. Deploy MailboxKit skill + email check script (if email connected)

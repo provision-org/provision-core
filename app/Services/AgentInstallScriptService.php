@@ -147,8 +147,9 @@ class AgentInstallScriptService
             $lines[] = $this->buildHeredoc("{$agentDir}/SOUL.md", $agent->soul);
         }
 
-        if ($agent->system_prompt) {
-            $lines[] = $this->buildHeredoc("{$agentDir}/AGENTS.md", $agent->system_prompt);
+        $systemPrompt = self::buildSystemPromptWithDelegation($agent);
+        if ($systemPrompt) {
+            $lines[] = $this->buildHeredoc("{$agentDir}/AGENTS.md", $systemPrompt);
         }
 
         if ($agent->identity) {
@@ -225,6 +226,10 @@ class AgentInstallScriptService
             $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
             $lines[] = '';
         }
+
+        // 4b. Deploy provision-tasks skill (core, always deployed)
+        array_push($lines, ...self::buildProvisionTasksSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
+        $lines[] = '';
 
         // 5. Write .env file
         $lines[] = '# Write environment variables';
@@ -925,6 +930,60 @@ class AgentInstallScriptService
         $lines[] = '*Once onboarding is complete, you can delete this file: `rm BOOTSTRAP.md`*';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Append delegation instructions to the system prompt for channel agents.
+     */
+    public static function buildSystemPromptWithDelegation(Agent $agent): ?string
+    {
+        if (! $agent->system_prompt) {
+            return null;
+        }
+
+        $systemPrompt = $agent->system_prompt;
+
+        if ($agent->delegation_enabled) {
+            $systemPrompt .= "\n\n## Task Delegation\n\n";
+            $systemPrompt .= 'You have a `provision-tasks` skill that lets you create and delegate tasks to other agents on your team. ';
+            $systemPrompt .= 'When someone asks you to assign, delegate, or create a task for another agent (e.g. "create a task for @max"), ';
+            $systemPrompt .= "ALWAYS use the provision-tasks skill — never use the built-in spawn or sub-agent commands.\n\n";
+            $systemPrompt .= "To delegate: `node {baseDir}/provision_tasks_tool.js create \"Task title\" --assign \"agent-name\"`\n";
+            $systemPrompt .= "To see teammates: `node {baseDir}/provision_tasks_tool.js team-agents`\n";
+        }
+
+        return $systemPrompt;
+    }
+
+    /**
+     * Build bash lines to deploy the provision-tasks skill for an agent.
+     *
+     * @param  callable(string, string): string  $buildHeredoc
+     * @return list<string>
+     */
+    public static function buildProvisionTasksSkillLines(string $agentDir, string $plainToken, callable $buildHeredoc): array
+    {
+        $lines = [];
+        $skillDir = "{$agentDir}/skills/provision-tasks";
+        $lines[] = '# --- Deploy provision-tasks skill ---';
+        $lines[] = "mkdir -p {$skillDir}";
+        $lines[] = $buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/provision-tasks/SKILL.md')));
+
+        $toolScript = file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js'));
+        $toolScript = str_replace(
+            'const apiUrl = process.env.PROVISION_API_URL;',
+            "const apiUrl = process.env.PROVISION_API_URL || '".config('app.url')."';",
+            $toolScript,
+        );
+        $toolScript = str_replace(
+            'const token = process.env.PROVISION_AGENT_TOKEN;',
+            "const token = process.env.PROVISION_AGENT_TOKEN || '{$plainToken}';",
+            $toolScript,
+        );
+        $lines[] = $buildHeredoc("{$skillDir}/provision_tasks_tool.js", $toolScript);
+        $lines[] = $buildHeredoc("{$skillDir}/skill.json", file_get_contents(resource_path('skills/provision-tasks/skill.json')));
+
+        return $lines;
     }
 
     /**
