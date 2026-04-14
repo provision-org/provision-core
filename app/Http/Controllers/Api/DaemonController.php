@@ -74,6 +74,14 @@ class DaemonController extends Controller
                     'title' => $task->goal->title,
                     'description' => $task->goal->description,
                 ] : null,
+                // Duplicated at task level for provisiond v0.1.0 compatibility
+                'direct_reports' => $task->agent->directReports->map(fn (Agent $r) => [
+                    'id' => $r->id,
+                    'name' => $r->name,
+                    'handle' => $r->handle,
+                    'org_title' => $r->org_title,
+                    'capabilities' => $r->capabilities,
+                ]),
                 'agent' => [
                     'id' => $task->agent->id,
                     'name' => $task->agent->name,
