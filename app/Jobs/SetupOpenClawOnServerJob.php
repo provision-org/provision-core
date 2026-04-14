@@ -53,33 +53,53 @@ class SetupOpenClawOnServerJob implements ShouldQueue
             // One SSH call replaces 20+ individual operations.
             // The script runs locally on the server and fires callbacks for progress.
             $executor->execScript($scriptUrl);
-
-            // The script's "ready" callback should have set the server to Running.
-            // Verify it actually completed — do NOT blindly mark as running.
+        } catch (\RuntimeException $e) {
+            // SSH exec may throw if the script exits non-zero (e.g. health check failure).
+            // Check if the script's callback already marked the server as Running.
             $this->server->refresh();
-
             if ($this->server->status === ServerStatus::Running) {
-                // Script completed successfully and callback fired
+                Log::warning("SetupOpenClawOnServerJob: SSH command failed but server {$this->server->id} is Running — setup completed via callback. Error: {$e->getMessage()}");
                 UpdateEnvOnServerJob::dispatch($this->server);
-            } else {
-                // Script exited without the callback firing — setup is incomplete
-                Log::error("SetupOpenClawOnServerJob: script exited but server {$this->server->id} is not Running (status: {$this->server->status->value}). Setup may have failed silently.");
 
-                $this->server->update(['status' => ServerStatus::Error]);
-                $this->server->events()->create([
-                    'event' => 'provisioning_error',
-                    'payload' => ['error_message' => 'Setup script completed but server callback never fired — setup is incomplete'],
-                ]);
+                return;
             }
+
+            throw $e; // Re-throw so failed() handles it
         } finally {
             if ($executor instanceof SshService) {
                 $executor->disconnect();
             }
         }
+
+        // The script's "ready" callback should have set the server to Running.
+        $this->server->refresh();
+
+        if ($this->server->status === ServerStatus::Running) {
+            UpdateEnvOnServerJob::dispatch($this->server);
+        } else {
+            Log::error("SetupOpenClawOnServerJob: script exited but server {$this->server->id} is not Running (status: {$this->server->status->value}). Setup may have failed silently.");
+
+            $this->server->update(['status' => ServerStatus::Error]);
+            $this->server->events()->create([
+                'event' => 'provisioning_error',
+                'payload' => ['error_message' => 'Setup script completed but server callback never fired — setup is incomplete'],
+            ]);
+        }
     }
 
     public function failed(Throwable $exception): void
     {
+        // If the script's callback already set the server to Running, don't override.
+        // The SSH command may exit non-zero (e.g. health check flap) even though
+        // the setup completed and the callback fired successfully.
+        $this->server->refresh();
+        if ($this->server->status === ServerStatus::Running) {
+            Log::warning("SetupOpenClawOnServerJob failed but server {$this->server->id} is already Running — keeping status. Error: {$exception->getMessage()}");
+            UpdateEnvOnServerJob::dispatch($this->server);
+
+            return;
+        }
+
         $this->server->update(['status' => ServerStatus::Error]);
 
         // Extract the command output from RuntimeException messages
