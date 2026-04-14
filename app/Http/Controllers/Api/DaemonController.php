@@ -104,8 +104,11 @@ class DaemonController extends Controller
     public function checkoutTask(Request $request, string $token, Task $task): JsonResponse
     {
         $request->validate([
-            'daemon_run_id' => ['required', 'string', 'max:255'],
+            'daemon_run_id' => ['required_without:run_id', 'nullable', 'string', 'max:255'],
+            'run_id' => ['required_without:daemon_run_id', 'nullable', 'string', 'max:255'],
         ]);
+
+        $runId = $request->input('daemon_run_id') ?? $request->input('run_id');
 
         /** @var Server $server */
         $server = $request->get('daemon_server');
@@ -117,7 +120,7 @@ class DaemonController extends Controller
             'Task agent is not on this server.',
         );
 
-        $success = $this->checkoutService->checkout($task, $request->input('daemon_run_id'));
+        $success = $this->checkoutService->checkout($task, $runId);
 
         if (! $success) {
             return response()->json(['error' => 'Task is already checked out.'], 409);
@@ -143,6 +146,7 @@ class DaemonController extends Controller
         );
 
         $validated = $request->validated();
+        $runId = $validated['daemon_run_id'] ?? $validated['run_id'] ?? null;
         $oldStatus = $task->status;
 
         // Update the task
@@ -165,7 +169,7 @@ class DaemonController extends Controller
                 'team_id' => $task->team_id,
                 'agent_id' => $task->agent_id,
                 'task_id' => $task->id,
-                'daemon_run_id' => $validated['daemon_run_id'],
+                'daemon_run_id' => $runId,
                 'model' => $validated['model'] ?? 'unknown',
                 'input_tokens' => $validated['tokens_input'] ?? 0,
                 'output_tokens' => $validated['tokens_output'] ?? 0,
@@ -263,7 +267,7 @@ class DaemonController extends Controller
             targetId: $task->id,
             payload: [
                 'status' => $validated['status'],
-                'daemon_run_id' => $validated['daemon_run_id'],
+                'daemon_run_id' => $runId,
             ],
         );
 
@@ -276,8 +280,11 @@ class DaemonController extends Controller
     public function releaseTask(Request $request, string $token, Task $task): JsonResponse
     {
         $request->validate([
-            'daemon_run_id' => ['required', 'string', 'max:255'],
+            'daemon_run_id' => ['required_without:run_id', 'nullable', 'string', 'max:255'],
+            'run_id' => ['required_without:daemon_run_id', 'nullable', 'string', 'max:255'],
         ]);
+
+        $runId = $request->input('daemon_run_id') ?? $request->input('run_id');
 
         /** @var Server $server */
         $server = $request->get('daemon_server');
@@ -288,7 +295,7 @@ class DaemonController extends Controller
             'Task agent is not on this server.',
         );
 
-        $released = $this->checkoutService->release($task, $request->input('daemon_run_id'));
+        $released = $this->checkoutService->release($task, $runId);
 
         if (! $released) {
             return response()->json(['error' => 'Task is not checked out by this run.'], 409);
@@ -329,10 +336,13 @@ class DaemonController extends Controller
             'agent_id' => ['required', 'string', 'exists:agents,id'],
             'task_id' => ['nullable', 'string', 'exists:tasks,id'],
             'daemon_run_id' => ['nullable', 'string', 'max:255'],
+            'run_id' => ['nullable', 'string', 'max:255'],
             'model' => ['required', 'string', 'max:255'],
             'input_tokens' => ['required', 'integer', 'min:0'],
             'output_tokens' => ['required', 'integer', 'min:0'],
         ]);
+
+        $runId = $validated['daemon_run_id'] ?? $validated['run_id'] ?? null;
 
         /** @var Server $server */
         $server = $request->get('daemon_server');
@@ -344,7 +354,7 @@ class DaemonController extends Controller
             'team_id' => $agent->team_id,
             'agent_id' => $agent->id,
             'task_id' => $validated['task_id'] ?? null,
-            'daemon_run_id' => $validated['daemon_run_id'] ?? null,
+            'daemon_run_id' => $runId,
             'model' => $validated['model'],
             'input_tokens' => $validated['input_tokens'],
             'output_tokens' => $validated['output_tokens'],

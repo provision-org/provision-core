@@ -18,7 +18,8 @@ class ReportResultRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'daemon_run_id' => ['required', 'string', 'max:255'],
+            'daemon_run_id' => ['required_without:run_id', 'nullable', 'string', 'max:255'],
+            'run_id' => ['required_without:daemon_run_id', 'nullable', 'string', 'max:255'],
             'status' => ['required', 'string', Rule::in(['done', 'in_progress', 'blocked', 'failed'])],
             'result_summary' => ['nullable', 'string', 'max:10000'],
             'tokens_input' => ['nullable', 'integer', 'min:0'],
