@@ -582,7 +582,7 @@ function sleep(ms) {
 }
 
 // src/index.ts
-var VERSION = "0.1.0";
+var VERSION = "0.2.0";
 function printBanner() {
   console.log(`provisiond v${VERSION} \u2014 Provision Workforce Agent Daemon`);
   console.log("");

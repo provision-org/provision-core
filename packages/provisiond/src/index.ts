@@ -12,7 +12,7 @@ import { loadConfig, type CliOverrides } from './config.js';
 import { logger } from './logger.js';
 import { startPolling, requestStop, getActiveRunCount } from './poller.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 
 function printBanner(): void {
   console.log(`provisiond v${VERSION} — Provision Workforce Agent Daemon`);

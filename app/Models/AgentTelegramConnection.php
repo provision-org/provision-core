@@ -26,6 +26,7 @@ class AgentTelegramConnection extends Model
         'bot_username',
         'status',
         'dm_policy',
+        'last_chat_id',
     ];
 
     /**

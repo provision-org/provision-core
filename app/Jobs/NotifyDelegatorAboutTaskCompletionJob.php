@@ -35,11 +35,10 @@ class NotifyDelegatorAboutTaskCompletionJob implements ShouldQueue
             return;
         }
 
-        $this->agent->loadMissing(['slackConnection', 'telegramConnection', 'discordConnection']);
+        $this->agent->loadMissing(['telegramConnection', 'slackConnection', 'discordConnection']);
         $this->task->loadMissing('agent');
 
         $executorName = $this->task->agent?->name ?? 'Unknown agent';
-        $agentId = $this->agent->harness_agent_id;
 
         $message = match ($this->newStatus) {
             'done' => "Task completed by {$executorName}: \"{$this->task->title}\"",
@@ -52,13 +51,14 @@ class NotifyDelegatorAboutTaskCompletionJob implements ShouldQueue
             $message .= "\n\nSummary: {$this->task->result_summary}";
         }
 
-        $escapedMessage = str_replace('"', '\\"', $message);
+        $escapedMessage = str_replace(['"', '$', '`'], ['\\"', '\\$', '\\`'], $message);
 
-        $command = "openclaw agent --agent {$agentId} --message \"{$escapedMessage}\" --deliver";
+        $command = $this->buildCommand($escapedMessage);
 
-        $replyChannel = $this->resolveReplyChannel();
-        if ($replyChannel) {
-            $command .= " --reply-channel {$replyChannel['channel']} --reply-account {$replyChannel['account']}";
+        if (! $command) {
+            Log::info("Skipping delegator notification — no delivery channel for agent {$this->agent->id}");
+
+            return;
         }
 
         $sshService->connect($this->agent->server);
@@ -73,25 +73,49 @@ class NotifyDelegatorAboutTaskCompletionJob implements ShouldQueue
         }
     }
 
-    /**
-     * @return array{channel: string, account: string}|null
-     */
-    private function resolveReplyChannel(): ?array
+    private function buildCommand(string $escapedMessage): ?string
     {
         $agentId = $this->agent->harness_agent_id;
 
-        if ($this->agent->slackConnection?->bot_token) {
-            return ['channel' => 'slack', 'account' => "slack-{$agentId}"];
-        }
-
+        // Telegram: use --to {chatId} to target the user's Telegram session
         if ($this->agent->telegramConnection?->bot_token) {
-            return ['channel' => 'telegram', 'account' => "telegram-{$agentId}"];
+            $chatId = $this->agent->telegramConnection->last_chat_id;
+
+            if ($chatId) {
+                return "openclaw agent --agent {$agentId} --to {$chatId} --message \"{$escapedMessage}\" --deliver --reply-channel telegram";
+            }
+
+            // Fallback: query OpenClaw sessions to find the Telegram session ID
+            return $this->buildSessionFallbackCommand($agentId, $escapedMessage, 'telegram');
         }
 
+        // Slack: use --reply-channel slack
+        if ($this->agent->slackConnection?->bot_token) {
+            return "openclaw agent --agent {$agentId} --message \"{$escapedMessage}\" --deliver --reply-channel slack";
+        }
+
+        // Discord: use --reply-channel discord
         if ($this->agent->discordConnection?->token) {
-            return ['channel' => 'discord', 'account' => "discord-{$agentId}"];
+            return "openclaw agent --agent {$agentId} --message \"{$escapedMessage}\" --deliver --reply-channel discord";
         }
 
         return null;
+    }
+
+    /**
+     * Fallback: query OpenClaw sessions to find the channel session ID,
+     * then send with --session-id. Used when last_chat_id isn't populated yet.
+     */
+    private function buildSessionFallbackCommand(string $agentId, string $escapedMessage, string $channel): string
+    {
+        // Single command: extract session ID from JSON, then send
+        return <<<BASH
+SESSION_ID=\$(openclaw sessions --agent {$agentId} --json 2>/dev/null | node -e "
+  let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
+    try{const j=JSON.parse(d);const s=j.sessions.find(s=>s.key.includes('{$channel}:'));
+    if(s)process.stdout.write(s.sessionId)}catch{}
+  })
+") && [ -n "\$SESSION_ID" ] && openclaw agent --session-id \$SESSION_ID --message "{$escapedMessage}" --deliver
+BASH;
     }
 }
