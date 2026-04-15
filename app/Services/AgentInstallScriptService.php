@@ -1145,6 +1145,12 @@ class AgentInstallScriptService
             $envLines[] = "{$envVar->key}={$envVar->value}";
         }
 
+        // OpenClaw checks the global .env for skill eligibility — these placeholders
+        // enable the provision-tasks skill. Actual tokens are hardcoded in the tool script
+        // and per-agent .env files.
+        $envLines[] = 'PROVISION_API_URL='.config('app.url');
+        $envLines[] = 'PROVISION_AGENT_TOKEN=skill-eligibility-placeholder';
+
         $envContent = implode("\n", $envLines);
 
         return "cat > /root/.openclaw/.env << 'ENV_EOF'\n{$envContent}\nENV_EOF";
