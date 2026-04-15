@@ -970,14 +970,16 @@ class AgentInstallScriptService
         $lines[] = $buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/provision-tasks/SKILL.md')));
 
         $toolScript = file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js'));
+        // Hardcode credentials directly — the global .env has a placeholder for skill
+        // eligibility only, so process.env would resolve to the wrong value.
         $toolScript = str_replace(
             'const apiUrl = process.env.PROVISION_API_URL;',
-            "const apiUrl = process.env.PROVISION_API_URL || '".config('app.url')."';",
+            "const apiUrl = '".config('app.url')."';",
             $toolScript,
         );
         $toolScript = str_replace(
             'const token = process.env.PROVISION_AGENT_TOKEN;',
-            "const token = process.env.PROVISION_AGENT_TOKEN || '{$plainToken}';",
+            "const token = '{$plainToken}';",
             $toolScript,
         );
         $lines[] = $buildHeredoc("{$skillDir}/provision_tasks_tool.js", $toolScript);
