@@ -41,14 +41,16 @@ class NotifyDelegatorAboutTaskCompletionJob implements ShouldQueue
         $executorName = $this->task->agent?->name ?? 'Unknown agent';
 
         $message = match ($this->newStatus) {
-            'done' => "Task completed by {$executorName}: \"{$this->task->title}\"",
-            'failed' => "Task failed by {$executorName}: \"{$this->task->title}\"",
-            'blocked' => "Task blocked by {$executorName}: \"{$this->task->title}\"",
+            'done' => "@{$executorName} finished the task: \"{$this->task->title}\"",
+            'failed' => "@{$executorName} failed the task: \"{$this->task->title}\"",
+            'blocked' => "@{$executorName} is blocked on: \"{$this->task->title}\"",
             default => "Task status changed to {$this->newStatus}: \"{$this->task->title}\"",
         };
 
-        if ($this->task->result_summary) {
-            $message .= "\n\nSummary: {$this->task->result_summary}";
+        if ($this->task->result_summary && $this->newStatus === 'done') {
+            $message .= "\n\nHere is their deliverable — share it with the user:\n\n{$this->task->result_summary}";
+        } elseif ($this->task->result_summary) {
+            $message .= "\n\nDetails: {$this->task->result_summary}";
         }
 
         $escapedMessage = str_replace(['"', '$', '`'], ['\\"', '\\$', '\\`'], $message);
