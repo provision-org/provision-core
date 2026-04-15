@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Provision;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -44,6 +45,6 @@ class ManagedApiKey extends Model
      */
     public function team(): BelongsTo
     {
-        return $this->belongsTo(Team::class);
+        return $this->belongsTo(Provision::teamModel(), 'team_id');
     }
 }
