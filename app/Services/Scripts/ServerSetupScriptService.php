@@ -418,7 +418,9 @@ OVERRIDE
         $config['channels'] = (object) [];
 
         // Gateway — local mode with auth token, loopback binding + HTTP API
-        $gatewayToken = bin2hex(random_bytes(16));
+        $gatewayToken = $server->gateway_token ?: bin2hex(random_bytes(16));
+        $server->forceFill(['gateway_token' => $gatewayToken])->saveQuietly();
+
         $config['gateway'] = [
             'mode' => 'local',
             'bind' => config('openclaw.gateway_bind'),

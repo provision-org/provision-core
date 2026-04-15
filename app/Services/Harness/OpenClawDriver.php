@@ -52,6 +52,9 @@ class OpenClawDriver implements HarnessDriver
 
         $this->verifyAndActivate($agent, $executor);
 
+        // Set gateway auth token on workforce agents so provisiond can call the gateway
+        $this->syncGatewayToken($agent);
+
         // Create default cron jobs (email check if connected) for the new agent
         if ($agent->fresh()->status === AgentStatus::Active) {
             // Refresh relations — email connection may have been created during install script
@@ -83,7 +86,9 @@ class OpenClawDriver implements HarnessDriver
             $executor->execScript($scriptUrl);
         }
 
-        // Store config snapshot for future reference
+        // Store config snapshot and sync gateway token for provisiond
+        $this->syncGatewayToken($agent);
+
         $agent->update([
             'config_snapshot' => $updateService->buildOpenClawConfigSnapshot($agent),
             'is_syncing' => false,
@@ -524,5 +529,20 @@ class OpenClawDriver implements HarnessDriver
         $marker = "# provision-email-check-{$agentId}";
         $cronLine = "*/5 * * * * {$agentDir}/check-email.sh >> {$agentDir}/email-check.log 2>&1 {$marker}";
         $executor->exec("(crontab -l 2>/dev/null | grep -v '{$marker}'; echo '{$cronLine}') | crontab -");
+    }
+
+    /**
+     * Copy the server's OpenClaw gateway auth token to the agent's api_server_key
+     * so provisiond can authenticate when sending tasks to the gateway.
+     */
+    private function syncGatewayToken(Agent $agent): void
+    {
+        $server = $agent->server;
+
+        if (! $server?->gateway_token) {
+            return;
+        }
+
+        $agent->updateQuietly(['api_server_key' => $server->gateway_token]);
     }
 }
