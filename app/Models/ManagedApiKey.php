@@ -21,6 +21,9 @@ class ManagedApiKey extends Model
         'openrouter_key_hash',
         'api_key',
         'name',
+        'credit_limit_cents',
+        'last_synced_usage_cents',
+        'last_synced_at',
     ];
 
     /**
@@ -30,6 +33,9 @@ class ManagedApiKey extends Model
     {
         return [
             'api_key' => 'encrypted',
+            'credit_limit_cents' => 'integer',
+            'last_synced_usage_cents' => 'integer',
+            'last_synced_at' => 'datetime',
         ];
     }
 
