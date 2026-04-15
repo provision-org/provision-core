@@ -19,7 +19,7 @@ class NotifyDelegatorAboutTaskCompletionJob implements ShouldQueue
 
     public int $tries = 2;
 
-    public int $timeout = 60;
+    public int $timeout = 90;
 
     public function __construct(
         public Agent $agent,
@@ -52,19 +52,22 @@ class NotifyDelegatorAboutTaskCompletionJob implements ShouldQueue
         }
 
         $escapedMessage = str_replace(['"', '$', '`'], ['\\"', '\\$', '\\`'], $message);
-
-        $command = $this->buildCommand($escapedMessage);
-
-        if (! $command) {
-            Log::info("Skipping delegator notification — no delivery channel for agent {$this->agent->id}");
-
-            return;
-        }
+        $agentId = $this->agent->harness_agent_id;
 
         $sshService->connect($this->agent->server);
 
         try {
+            $sessionId = $this->resolveDeliverySession($sshService, $agentId);
+
+            if (! $sessionId) {
+                Log::info("Skipping delegator notification — no delivery session found for agent {$this->agent->id}");
+
+                return;
+            }
+
+            $command = "openclaw agent --session-id {$sessionId} --message \"{$escapedMessage}\" --deliver";
             $sshService->exec($command);
+
             Log::info("Notified delegator agent {$this->agent->id} about task {$this->task->id} ({$this->newStatus})");
         } catch (\RuntimeException $e) {
             Log::warning("Failed to notify delegator agent {$this->agent->id}: {$e->getMessage()}");
@@ -73,49 +76,88 @@ class NotifyDelegatorAboutTaskCompletionJob implements ShouldQueue
         }
     }
 
-    private function buildCommand(string $escapedMessage): ?string
+    /**
+     * Find the channel session ID for the delegator agent.
+     * Uses cached chat_id when available, otherwise queries OpenClaw sessions.
+     */
+    private function resolveDeliverySession(SshService $sshService, string $agentId): ?string
     {
-        $agentId = $this->agent->harness_agent_id;
-
-        // Telegram: use --to {chatId} to target the user's Telegram session
+        // Telegram — fast path with cached chat_id
         if ($this->agent->telegramConnection?->bot_token) {
             $chatId = $this->agent->telegramConnection->last_chat_id;
 
-            if ($chatId) {
-                return "openclaw agent --agent {$agentId} --to {$chatId} --message \"{$escapedMessage}\" --deliver --reply-channel telegram";
+            if (! $chatId) {
+                $chatId = $this->discoverChatIdFromSessions($sshService, $agentId, 'telegram');
             }
 
-            // Fallback: query OpenClaw sessions to find the Telegram session ID
-            return $this->buildSessionFallbackCommand($agentId, $escapedMessage, 'telegram');
+            if ($chatId) {
+                return $this->findSessionId($sshService, $agentId, "telegram:direct:{$chatId}");
+            }
         }
 
-        // Slack: use --reply-channel slack
+        // Slack
         if ($this->agent->slackConnection?->bot_token) {
-            return "openclaw agent --agent {$agentId} --message \"{$escapedMessage}\" --deliver --reply-channel slack";
+            return $this->findSessionId($sshService, $agentId, 'slack:');
         }
 
-        // Discord: use --reply-channel discord
+        // Discord
         if ($this->agent->discordConnection?->token) {
-            return "openclaw agent --agent {$agentId} --message \"{$escapedMessage}\" --deliver --reply-channel discord";
+            return $this->findSessionId($sshService, $agentId, 'discord:');
         }
 
         return null;
     }
 
     /**
-     * Fallback: query OpenClaw sessions to find the channel session ID,
-     * then send with --session-id. Used when last_chat_id isn't populated yet.
+     * Query OpenClaw sessions and find the session ID matching the channel pattern.
      */
-    private function buildSessionFallbackCommand(string $agentId, string $escapedMessage, string $channel): string
+    private function findSessionId(SshService $sshService, string $agentId, string $keyPattern): ?string
     {
-        // Single command: extract session ID from JSON, then send
-        return <<<BASH
-SESSION_ID=\$(openclaw sessions --agent {$agentId} --json 2>/dev/null | node -e "
-  let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
-    try{const j=JSON.parse(d);const s=j.sessions.find(s=>s.key.includes('{$channel}:'));
-    if(s)process.stdout.write(s.sessionId)}catch{}
-  })
-") && [ -n "\$SESSION_ID" ] && openclaw agent --session-id \$SESSION_ID --message "{$escapedMessage}" --deliver
-BASH;
+        $output = $sshService->exec("openclaw sessions --agent {$agentId} --json 2>/dev/null");
+        $data = json_decode($output, true);
+
+        if (! is_array($data) || empty($data['sessions'])) {
+            return null;
+        }
+
+        foreach ($data['sessions'] as $session) {
+            if (str_contains($session['key'] ?? '', $keyPattern)) {
+                return $session['sessionId'] ?? null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Extract chat_id from OpenClaw session keys and cache it for future notifications.
+     */
+    private function discoverChatIdFromSessions(SshService $sshService, string $agentId, string $channel): ?string
+    {
+        $output = $sshService->exec("openclaw sessions --agent {$agentId} --json 2>/dev/null");
+        $data = json_decode($output, true);
+
+        if (! is_array($data) || empty($data['sessions'])) {
+            return null;
+        }
+
+        foreach ($data['sessions'] as $session) {
+            $key = $session['key'] ?? '';
+
+            // Session key format: agent:{id}:telegram:direct:{chatId}
+            if (preg_match("/{$channel}:direct:(\d+)/", $key, $matches)) {
+                $chatId = $matches[1];
+
+                // Cache for future notifications
+                if ($channel === 'telegram' && $this->agent->telegramConnection) {
+                    $this->agent->telegramConnection->update(['last_chat_id' => $chatId]);
+                    Log::info("Cached Telegram chat_id {$chatId} for agent {$this->agent->id}");
+                }
+
+                return $chatId;
+            }
+        }
+
+        return null;
     }
 }
