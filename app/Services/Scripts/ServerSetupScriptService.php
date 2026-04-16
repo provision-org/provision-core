@@ -43,7 +43,8 @@ class ServerSetupScriptService
         $server->loadMissing(['team.apiKeys']);
 
         $callbackUrl = $this->buildCallbackUrl($server);
-        $vncPassword = Str::random(16);
+        $vncPassword = $server->vnc_password ?: Str::random(16);
+        $server->forceFill(['vnc_password' => $vncPassword])->saveQuietly();
         $hostname = $this->sslipHostname($server);
         $timezone = $server->team->timezone ?? 'UTC';
         $harnessType = $server->team->harness_type ?? HarnessType::Hermes;
