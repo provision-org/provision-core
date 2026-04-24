@@ -103,9 +103,14 @@ class ServerSetupScriptService
             $lines[] = 'OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | sed "s/openclaw //" || echo "unknown")';
             $lines[] = '';
 
-            // Run doctor to fix any config issues from onboard
-            $lines[] = '# Auto-fix config issues (runs BEFORE we write our config)';
-            $lines[] = 'yes | openclaw doctor 2>&1 || true';
+            // Run doctor in non-interactive mode for settings migrations only.
+            // NEVER pipe `yes |` — that answers yes to doctor's "install missing
+            // plugin deps?" prompt, which shells out to `npm install` inside
+            // /usr/lib/node_modules/openclaw/node_modules/ and races the existing
+            // tree (ENOTEMPTY rename, ENOENT tar extraction), leaving the install
+            // worse than it started.
+            $lines[] = '# Non-interactive settings migration (no --fix, no plugin reinstall)';
+            $lines[] = 'openclaw doctor --non-interactive 2>&1 || true';
             $lines[] = '';
 
             // 2. Write openclaw.json AFTER onboard+doctor (our config overwrites their defaults)
