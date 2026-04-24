@@ -2,12 +2,11 @@ import Echo from 'laravel-echo';
 import Pusher from 'pusher-js';
 import { useEffect } from 'react';
 
-(window as unknown as Record<string, unknown>).Pusher = Pusher;
-
 let echoInstance: Echo<'reverb'> | null = null;
 
 function getEcho(): Echo<'reverb'> {
     if (!echoInstance) {
+        (window as unknown as Record<string, unknown>).Pusher = Pusher;
         echoInstance = new Echo({
             broadcaster: 'reverb',
             key: import.meta.env.VITE_REVERB_APP_KEY,
