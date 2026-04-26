@@ -6,4 +6,6 @@ return [
     'docker' => [
         'container' => env('PROVISION_DOCKER_CONTAINER', 'provision-agent-runtime-1'),
     ],
+
+    'provisiond_version' => env('PROVISIOND_VERSION', '0.3.0'),
 ];
