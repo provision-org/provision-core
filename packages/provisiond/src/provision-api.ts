@@ -113,6 +113,7 @@ export class ProvisionApiClient {
     method: string,
     path: string,
     body?: unknown,
+    timeoutMs = 30_000,
   ): Promise<Response> {
     const url = `${this.baseUrl}${path}`;
     const headers: Record<string, string> = {
@@ -127,6 +128,15 @@ export class ProvisionApiClient {
 
     logger.debug(`${method} ${path}`);
 
-    return fetch(url, init);
+    // Hard timeout on every API call — without this, a wedged socket can hang
+    // an awaited fetch indefinitely, which prevents the executor promise from
+    // ever settling and starves the daemon's concurrency slots.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 }

@@ -308,6 +308,23 @@ function parseWorkProduct(raw) {
 // src/executor.ts
 var OPENCLAW_DEFAULT_PORT = 18789;
 async function executeTask(task, config, api) {
+  const watchdogMs = (config.taskTimeout + 60) * 1e3;
+  let watchdogTimer;
+  const watchdog = new Promise((_, reject) => {
+    watchdogTimer = setTimeout(
+      () => reject(new Error(`Watchdog timeout after ${watchdogMs}ms`)),
+      watchdogMs
+    );
+  });
+  try {
+    await Promise.race([runTask(task, config, api), watchdog]);
+  } finally {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+    }
+  }
+}
+async function runTask(task, config, api) {
   const runId = randomUUID();
   const taskLabel = `${task.identifier} (${task.id})`;
   logger.info(`Starting task ${taskLabel}`, { runId, agent: task.agent.name });
@@ -475,7 +492,7 @@ var ProvisionApiClient = class {
       });
     }
   }
-  async request(method, path, body) {
+  async request(method, path, body, timeoutMs = 3e4) {
     const url = `${this.baseUrl}${path}`;
     const headers = {
       Accept: "application/json",
@@ -486,7 +503,13 @@ var ProvisionApiClient = class {
       init.body = JSON.stringify(body);
     }
     logger.debug(`${method} ${path}`);
-    return fetch(url, init);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timer);
+    }
   }
 };
 
@@ -525,15 +548,6 @@ async function startPolling(config) {
   logger.info("Poll loop stopped");
 }
 async function pollOnce(config, api) {
-  for (const [runId, promise] of activeRuns.entries()) {
-    const settled = await Promise.race([
-      promise.then(() => true, () => true),
-      Promise.resolve(false)
-    ]);
-    if (settled) {
-      activeRuns.delete(runId);
-    }
-  }
   const availableSlots = config.maxConcurrent - activeRuns.size;
   if (availableSlots <= 0) {
     logger.debug("All slots occupied, skipping work-queue fetch");
@@ -551,6 +565,8 @@ async function pollOnce(config, api) {
       logger.error(`Unhandled error in task ${task.identifier}`, {
         error: err instanceof Error ? err.message : String(err)
       });
+    }).finally(() => {
+      activeRuns.delete(runId);
     });
     activeRuns.set(runId, taskPromise);
   }
@@ -582,7 +598,7 @@ function sleep(ms) {
 }
 
 // src/index.ts
-var VERSION = "0.2.0";
+var VERSION = "0.3.0";
 function printBanner() {
   console.log(`provisiond v${VERSION} \u2014 Provision Workforce Agent Daemon`);
   console.log("");

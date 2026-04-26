@@ -49,7 +49,7 @@ describe('buildPrompt', () => {
     expect(prompt).toContain('This task serves: Launch marketing site');
     expect(prompt).toContain('Which is part of: Reach $1M MRR');
     expect(prompt).toContain('Team mission: Build the #1 AI agent platform');
-    expect(prompt).toContain('- Jordan (Writer): Blog posts, social media copy');
+    expect(prompt).toContain('- Jordan (Jordan, Writer): Blog posts, social media copy');
     expect(prompt).toContain('DELEGATE:');
     expect(prompt).toContain('APPROVAL_REQUEST:');
   });

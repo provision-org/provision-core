@@ -68,18 +68,6 @@ export async function startPolling(config: Config): Promise<void> {
 }
 
 async function pollOnce(config: Config, api: ProvisionApiClient): Promise<void> {
-  // Clean up completed runs
-  for (const [runId, promise] of activeRuns.entries()) {
-    // Check if settled by racing with an already-resolved promise
-    const settled = await Promise.race([
-      promise.then(() => true, () => true),
-      Promise.resolve(false),
-    ]);
-    if (settled) {
-      activeRuns.delete(runId);
-    }
-  }
-
   const availableSlots = config.maxConcurrent - activeRuns.size;
   if (availableSlots <= 0) {
     logger.debug('All slots occupied, skipping work-queue fetch');
@@ -98,11 +86,19 @@ async function pollOnce(config: Config, api: ProvisionApiClient): Promise<void> 
   const toExecute = tasks.slice(0, availableSlots);
   for (const task of toExecute) {
     const runId = `${task.id}-${Date.now()}`;
-    const taskPromise = executeTask(task, config, api).catch((err) => {
-      logger.error(`Unhandled error in task ${task.identifier}`, {
-        error: err instanceof Error ? err.message : String(err),
+    // .finally() removes the run from activeRuns the moment the promise settles —
+    // do not replace this with a poll-based cleanup. The previous Promise.race
+    // approach silently failed (race always picked the bare resolved sentinel,
+    // never the inner promise) and stalled the daemon after maxConcurrent runs.
+    const taskPromise = executeTask(task, config, api)
+      .catch((err) => {
+        logger.error(`Unhandled error in task ${task.identifier}`, {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      })
+      .finally(() => {
+        activeRuns.delete(runId);
       });
-    });
     activeRuns.set(runId, taskPromise);
   }
 

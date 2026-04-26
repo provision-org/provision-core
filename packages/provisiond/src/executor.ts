@@ -26,6 +26,33 @@ export async function executeTask(
   config: Config,
   api: ProvisionApiClient,
 ): Promise<void> {
+  // Defense-in-depth watchdog: even if every awaited call inside runTask had
+  // its own timeout fail open, this outer race guarantees the promise settles
+  // and the concurrency slot is released. Grace = 60s past the configured
+  // task timeout so the inner gateway timeout fires first under normal failure.
+  const watchdogMs = (config.taskTimeout + 60) * 1000;
+  let watchdogTimer: ReturnType<typeof setTimeout> | undefined;
+  const watchdog = new Promise<void>((_, reject) => {
+    watchdogTimer = setTimeout(
+      () => reject(new Error(`Watchdog timeout after ${watchdogMs}ms`)),
+      watchdogMs,
+    );
+  });
+
+  try {
+    await Promise.race([runTask(task, config, api), watchdog]);
+  } finally {
+    if (watchdogTimer) {
+      clearTimeout(watchdogTimer);
+    }
+  }
+}
+
+async function runTask(
+  task: WorkQueueTask,
+  config: Config,
+  api: ProvisionApiClient,
+): Promise<void> {
   const runId = randomUUID();
   const taskLabel = `${task.identifier} (${task.id})`;
 
