@@ -510,6 +510,9 @@ class AgentUpdateScriptService
         $config['gateway'] = [
             'mode' => 'local',
             'bind' => config('openclaw.gateway_bind'),
+            'auth' => [
+                'token' => $server->gateway_token,
+            ],
             'http' => [
                 'endpoints' => [
                     'chatCompletions' => ['enabled' => true],
