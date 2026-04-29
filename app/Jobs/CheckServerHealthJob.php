@@ -42,12 +42,15 @@ class CheckServerHealthJob implements ShouldQueue
                     'status' => $statusOutput,
                 ],
             ]);
-        } catch (\Throwable) {
+        } catch (\Throwable $e) {
             $server->update(['last_health_check' => now()]);
 
             $server->events()->create([
                 'event' => 'health_check_failed',
-                'payload' => [],
+                'payload' => [
+                    'error' => $e->getMessage(),
+                    'class' => get_class($e),
+                ],
             ]);
 
             $this->checkConsecutiveFailures($server);
