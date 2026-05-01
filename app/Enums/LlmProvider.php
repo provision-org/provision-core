@@ -54,6 +54,7 @@ enum LlmProvider: string
                 'z-ai/glm-5',
                 'moonshotai/kimi-k2-thinking',
                 'moonshotai/kimi-k2.5',
+                'minimax/minimax-m2.5',
             ],
         };
     }

@@ -187,6 +187,13 @@ const modelMeta: Record<string, ModelMeta> = {
         cost: '$$',
         sort: 14,
     },
+    'minimax/minimax-m2.5': {
+        label: 'MiniMax M2.5',
+        description: 'Cost-efficient, large context',
+        tier: 'standard',
+        cost: '$',
+        sort: 15,
+    },
     'gpt-5-nano': {
         label: 'GPT-5 Nano',
         description: 'Ultra-fast responses',
