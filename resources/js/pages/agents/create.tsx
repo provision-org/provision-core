@@ -1281,60 +1281,120 @@ export default function CreateAgent({
                                                 think?
                                             </h1>
                                             <p className="mt-2 text-sm text-muted-foreground">
-                                                Choose the right balance of
-                                                speed and intelligence.
+                                                Pick a model — or connect your
+                                                own ChatGPT plan.
                                             </p>
                                         </div>
 
                                         {!showAdvancedModel ? (
                                             <>
                                                 <div className="grid w-full grid-cols-2 gap-4">
-                                                    {modelTiers.map((tier) => (
-                                                        <button
-                                                            key={tier.value}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                form.setData(
-                                                                    'model_tier',
-                                                                    tier.value,
-                                                                );
-                                                                form.setData(
-                                                                    'model_primary',
-                                                                    '',
-                                                                );
-                                                            }}
-                                                            className={cn(
-                                                                'rounded-xl border px-5 py-6 text-left transition-all',
-                                                                form.data
-                                                                    .model_tier ===
-                                                                    tier.value &&
-                                                                    !form.data
-                                                                        .model_primary
-                                                                    ? 'border-foreground bg-accent shadow-sm'
-                                                                    : 'border-border hover:border-foreground/30',
-                                                            )}
-                                                        >
-                                                            <div className="mb-2 text-2xl">
-                                                                {tier.value ===
-                                                                'efficient'
-                                                                    ? '\u26A1'
-                                                                    : '\uD83E\uDDE0'}
-                                                            </div>
-                                                            <p className="text-base font-bold">
-                                                                {tier.label}
-                                                            </p>
-                                                            <p className="mt-1 text-sm text-muted-foreground">
-                                                                {
-                                                                    tier.description
-                                                                }
-                                                            </p>
-                                                            <p className="mt-3 text-xs font-medium text-muted-foreground">
-                                                                {tier.cost} in
-                                                                AI costs
-                                                            </p>
-                                                        </button>
-                                                    ))}
+                                                    {modelTiers
+                                                        .filter(
+                                                            (tier) =>
+                                                                tier.value !==
+                                                                'subscription',
+                                                        )
+                                                        .map((tier) => (
+                                                            <button
+                                                                key={tier.value}
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    form.setData(
+                                                                        'model_tier',
+                                                                        tier.value,
+                                                                    );
+                                                                    form.setData(
+                                                                        'model_primary',
+                                                                        '',
+                                                                    );
+                                                                }}
+                                                                className={cn(
+                                                                    'rounded-xl border px-5 py-6 text-left transition-all',
+                                                                    form.data
+                                                                        .model_tier ===
+                                                                        tier.value &&
+                                                                        !form
+                                                                            .data
+                                                                            .model_primary
+                                                                        ? 'border-foreground bg-accent shadow-sm'
+                                                                        : 'border-border hover:border-foreground/30',
+                                                                )}
+                                                            >
+                                                                <div className="mb-2 text-2xl">
+                                                                    {tier.value ===
+                                                                    'efficient'
+                                                                        ? '\u26A1'
+                                                                        : '\uD83E\uDDE0'}
+                                                                </div>
+                                                                <p className="text-base font-bold">
+                                                                    {tier.label}
+                                                                </p>
+                                                                <p className="mt-1 text-sm text-muted-foreground">
+                                                                    {
+                                                                        tier.description
+                                                                    }
+                                                                </p>
+                                                                <p className="mt-3 text-xs font-medium text-muted-foreground">
+                                                                    {tier.cost}{' '}
+                                                                    in AI costs
+                                                                </p>
+                                                            </button>
+                                                        ))}
                                                 </div>
+
+                                                {modelTiers.find(
+                                                    (t) =>
+                                                        t.value ===
+                                                        'subscription',
+                                                ) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            form.setData(
+                                                                'model_tier',
+                                                                'subscription',
+                                                            );
+                                                            form.setData(
+                                                                'model_primary',
+                                                                '',
+                                                            );
+                                                        }}
+                                                        className={cn(
+                                                            'flex w-full items-center gap-4 rounded-xl border px-5 py-4 text-left transition-all',
+                                                            form.data
+                                                                .model_tier ===
+                                                                'subscription' &&
+                                                                !form.data
+                                                                    .model_primary
+                                                                ? 'border-foreground bg-accent shadow-sm'
+                                                                : 'border-border hover:border-foreground/30',
+                                                        )}
+                                                    >
+                                                        <div className="text-2xl">
+                                                            \uD83D\uDD17
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <p className="text-sm font-bold">
+                                                                Bring your own
+                                                                ChatGPT plan
+                                                            </p>
+                                                            <p className="mt-0.5 text-xs text-muted-foreground">
+                                                                Use your
+                                                                existing
+                                                                ChatGPT Pro or
+                                                                Team
+                                                                subscription \u2014
+                                                                we'll connect
+                                                                your account in
+                                                                the next step.
+                                                            </p>
+                                                        </div>
+                                                        <span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                                            $0 API costs
+                                                        </span>
+                                                    </button>
+                                                )}
 
                                                 {availableModels.length > 0 && (
                                                     <button

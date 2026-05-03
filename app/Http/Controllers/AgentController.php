@@ -280,6 +280,10 @@ class AgentController extends Controller
             'model' => $agent->model_primary,
         ]);
 
+        if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
+            return to_route('agents.connect-chatgpt', $agent);
+        }
+
         return to_route('agents.setup', $agent);
     }
 
@@ -490,6 +494,22 @@ class AgentController extends Controller
                 'cost' => $tier->estimatedMonthlyCost(),
                 'primaryModel' => $tier->primaryModel(),
             ])->values()->all(),
+        ]);
+    }
+
+    public function connectChatgpt(Request $request, Agent $agent): Response|RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+
+        if ($agent->auth_provider !== 'chatgpt' || $agent->chatgpt_email) {
+            return to_route('agents.setup', $agent);
+        }
+
+        return Inertia::render('agents/connect-chatgpt', [
+            'agent' => $agent->load('server'),
         ]);
     }
 
