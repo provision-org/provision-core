@@ -129,6 +129,12 @@ type ModelMeta = {
      * model don't end up silently failing.
      */
     reasoning?: boolean;
+    /**
+     * Codex models are billed against the user's ChatGPT subscription
+     * (Pro/Team) instead of metered API. After agent creation, the user
+     * must complete a device-code OAuth flow to connect their account.
+     */
+    chatgpt?: boolean;
 };
 
 const modelMeta: Record<string, ModelMeta> = {
@@ -139,12 +145,45 @@ const modelMeta: Record<string, ModelMeta> = {
         cost: '$$$',
         sort: 1,
     },
+    'gpt-5.5': {
+        label: 'GPT-5.5',
+        description: 'Latest, ChatGPT subscription',
+        tier: 'pro',
+        cost: 'sub',
+        sort: 0,
+        chatgpt: true,
+    },
+    'gpt-5.5-pro': {
+        label: 'GPT-5.5 Pro',
+        description: 'Top tier, ChatGPT subscription',
+        tier: 'pro',
+        cost: 'sub',
+        sort: 1,
+        chatgpt: true,
+    },
     'gpt-5.4': {
         label: 'GPT-5.4',
-        description: 'Latest & most capable',
+        description: 'ChatGPT subscription',
         tier: 'pro',
-        cost: '$$$',
+        cost: 'sub',
         sort: 2,
+        chatgpt: true,
+    },
+    'gpt-5.4-pro': {
+        label: 'GPT-5.4 Pro',
+        description: 'ChatGPT subscription',
+        tier: 'pro',
+        cost: 'sub',
+        sort: 2,
+        chatgpt: true,
+    },
+    'gpt-5.4-mini': {
+        label: 'GPT-5.4 Mini',
+        description: 'ChatGPT subscription',
+        tier: 'standard',
+        cost: 'sub',
+        sort: 9,
+        chatgpt: true,
     },
     'gpt-5.2-codex': {
         label: 'GPT-5.2 Codex',
@@ -1429,14 +1468,24 @@ export default function CreateAgent({
                                                                                                 {meta?.label ??
                                                                                                     model.label}
                                                                                             </p>
-                                                                                            {meta?.reasoning && (
-                                                                                                <span
-                                                                                                    title="Reasoning model — uses some response tokens for internal thinking. Best for complex tasks; can return empty output on very short prompts."
-                                                                                                    className="rounded bg-violet-100 px-1 py-0 text-[9px] font-semibold tracking-wide text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
-                                                                                                >
-                                                                                                    THINKS
-                                                                                                </span>
-                                                                                            )}
+                                                                                            <div className="flex shrink-0 gap-1">
+                                                                                                {meta?.chatgpt && (
+                                                                                                    <span
+                                                                                                        title="Billed via your ChatGPT Pro/Team subscription. You'll connect your account after the agent is created."
+                                                                                                        className="rounded bg-emerald-100 px-1 py-0 text-[9px] font-semibold tracking-wide text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                                                                                    >
+                                                                                                        CHATGPT
+                                                                                                    </span>
+                                                                                                )}
+                                                                                                {meta?.reasoning && (
+                                                                                                    <span
+                                                                                                        title="Reasoning model — uses some response tokens for internal thinking. Best for complex tasks; can return empty output on very short prompts."
+                                                                                                        className="rounded bg-violet-100 px-1 py-0 text-[9px] font-semibold tracking-wide text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                                                                                                    >
+                                                                                                        THINKS
+                                                                                                    </span>
+                                                                                                )}
+                                                                                            </div>
                                                                                         </div>
                                                                                         <p className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
                                                                                             {meta?.description ??

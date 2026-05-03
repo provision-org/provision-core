@@ -98,9 +98,10 @@ class CloudInitScriptBuilder
     {
         return <<<'BASH'
         ping_progress "installing_openclaw"
-        # Pinned to last-known-good version. `latest` has shipped with missing
-        # runtime deps (typebox, commander, @mariozechner/pi-ai) that break the CLI.
-        export OPENCLAW_VERSION=2026.4.15
+        # Pinned to a known-good version. Bumped from 2026.4.15 to 2026.5.2 for
+        # `--method device-code` support on the openai-codex provider, which we
+        # rely on for ChatGPT subscription auth.
+        export OPENCLAW_VERSION=2026.5.2
         curl -fsSL https://openclaw.ai/install.sh | bash || true
         command -v openclaw || { echo "OpenClaw install failed"; exit 1; }
 

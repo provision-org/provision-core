@@ -204,25 +204,47 @@ class AgentUpdateScriptService
         $lines[] = '';
 
         // Write auth-profiles.json for OpenClaw's auth resolver.
+        // When auth_provider = 'chatgpt' we leave the openai-codex profile alone
+        // (managed by openclaw's own OAuth login flow) and only write the openrouter entry.
         $envKeys = $this->collectLlmProviderEnvKeys($agent->server);
         if (! empty($envKeys['OPENROUTER_API_KEY'])) {
             $key = $envKeys['OPENROUTER_API_KEY'];
+            $usesChatGpt = $agent->usesChatGptSubscription();
+
+            $profiles = [
+                'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $key],
+            ];
+            $order = [
+                'openrouter' => ['openrouter:default'],
+            ];
+
+            if (! $usesChatGpt) {
+                $profiles['openai-codex:default'] = ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $key];
+                $order['openai-codex'] = ['openai-codex:default'];
+            }
+
             $authProfiles = json_encode([
-                'profiles' => [
-                    'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $key],
-                    'openai-codex:default' => ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $key],
-                ],
-                'order' => [
-                    'openrouter' => ['openrouter:default'],
-                    'openai-codex' => ['openai-codex:default'],
-                ],
+                'profiles' => $profiles,
+                'order' => $order,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
-            $lines[] = '# --- Write auth-profiles.json (OpenRouter + openai-codex) ---';
+            $lines[] = '# --- Write auth-profiles.json (OpenRouter'.($usesChatGpt ? '; ChatGPT OAuth managed by openclaw' : ' + openai-codex').') ---';
             $lines[] = "mkdir -p {$agentDir}/agent";
-            $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
-            $lines[] = 'mkdir -p /root/.openclaw/agents/main/agent';
-            $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
+
+            if ($usesChatGpt) {
+                $lines[] = '# Merge with existing file to preserve openai-codex OAuth profile written by `openclaw models auth login`';
+                $lines[] = "if [ -f {$agentDir}/agent/auth-profiles.json ]; then";
+                $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json.new", $authProfiles);
+                $lines[] = "  jq -s '.[0] as \$base | .[1] as \$new | \$base | .profiles = (.profiles + \$new.profiles | with_entries(select(.value != null))) | .order = (.order + \$new.order) | del(.profiles.\"openai-codex:default\") | del(.order.\"openai-codex:default\")' {$agentDir}/agent/auth-profiles.json {$agentDir}/agent/auth-profiles.json.new > {$agentDir}/agent/auth-profiles.json.merged && mv {$agentDir}/agent/auth-profiles.json.merged {$agentDir}/agent/auth-profiles.json && rm -f {$agentDir}/agent/auth-profiles.json.new";
+                $lines[] = 'else';
+                $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
+                $lines[] = 'fi';
+            } else {
+                $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
+                $lines[] = 'mkdir -p /root/.openclaw/agents/main/agent';
+                $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
+            }
+
             $lines[] = '';
         }
 

@@ -59,6 +59,12 @@ class Agent extends Model
         'status',
         'model_primary',
         'model_fallbacks',
+        'auth_provider',
+        'chatgpt_email',
+        'chatgpt_plan_type',
+        'chatgpt_account_id',
+        'chatgpt_connected_at',
+        'chatgpt_token_expires_at',
         'system_prompt',
         'identity',
         'soul',
@@ -103,7 +109,14 @@ class Agent extends Model
             'last_synced_at' => 'datetime',
             'stats_last_active_at' => 'datetime',
             'stats_synced_at' => 'datetime',
+            'chatgpt_connected_at' => 'datetime',
+            'chatgpt_token_expires_at' => 'datetime',
         ];
+    }
+
+    public function usesChatGptSubscription(): bool
+    {
+        return $this->auth_provider === 'chatgpt';
     }
 
     /**

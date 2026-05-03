@@ -187,6 +187,10 @@ class AgentController extends Controller
         }
         unset($data['model_tier']);
 
+        if (! empty($data['model_primary']) && LlmProvider::isChatGptSubscriptionModel($data['model_primary'])) {
+            $data['auth_provider'] = 'chatgpt';
+        }
+
         if (empty($data['user_context'])) {
             $data['user_context'] = $templateService->generateUserContext($request->user(), $team);
         }
@@ -509,7 +513,15 @@ class AgentController extends Controller
         abort_unless($agent->team_id === $team->id, 404);
         abort_unless($request->user()->isTeamAdmin($team), 403);
 
-        $agent->update($request->validated());
+        $data = $request->validated();
+
+        if (array_key_exists('model_primary', $data)) {
+            $data['auth_provider'] = LlmProvider::isChatGptSubscriptionModel($data['model_primary'] ?? '')
+                ? 'chatgpt'
+                : 'openrouter';
+        }
+
+        $agent->update($data);
 
         if ($agent->server_id) {
             $agent->update(['is_syncing' => true]);
@@ -582,8 +594,12 @@ class AgentController extends Controller
         return back()->with('status', 'Channel re-sync initiated. This will verify and repair the channel configuration on the server.');
     }
 
-    public function destroy(Request $request, Agent $agent, SlackAppCleanupService $slackCleanup): RedirectResponse
-    {
+    public function destroy(
+        Request $request,
+        Agent $agent,
+        SlackAppCleanupService $slackCleanup,
+        \App\Services\ChatGPTAuthService $chatgptAuth,
+    ): RedirectResponse {
         $team = $request->user()->currentTeam;
 
         abort_unless($agent->team_id === $team->id, 404);
@@ -592,6 +608,14 @@ class AgentController extends Controller
         $agentName = $agent->name;
 
         $slackCleanup->cleanup($agent);
+
+        if ($agent->server_id && $agent->server && $agent->usesChatGptSubscription()) {
+            try {
+                $chatgptAuth->disconnect($agent);
+            } catch (\Throwable $e) {
+                \Log::warning("ChatGPT cleanup on destroy failed for agent {$agent->id}: {$e->getMessage()}");
+            }
+        }
 
         if ($agent->server_id && $agent->server) {
             RemoveAgentFromServerJob::dispatch(

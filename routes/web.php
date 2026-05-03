@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AgentActivityController;
+use App\Http\Controllers\AgentChatGPTAuthController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentEnvController;
 use App\Http\Controllers\AgentMemoryController;
@@ -158,6 +159,10 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::get('agents/{agent}/discord', [DiscordConnectionController::class, 'create'])->name('agents.discord.create');
         Route::post('agents/{agent}/discord', [DiscordConnectionController::class, 'store'])->name('agents.discord.store');
         Route::delete('agents/{agent}/discord', [DiscordConnectionController::class, 'destroy'])->name('agents.discord.destroy');
+
+        Route::post('agents/{agent}/chatgpt-auth', [AgentChatGPTAuthController::class, 'store'])->name('agents.chatgpt-auth.store');
+        Route::get('agents/{agent}/chatgpt-auth', [AgentChatGPTAuthController::class, 'show'])->name('agents.chatgpt-auth.show');
+        Route::delete('agents/{agent}/chatgpt-auth', [AgentChatGPTAuthController::class, 'destroy'])->name('agents.chatgpt-auth.destroy');
     });
 
     // API Keys

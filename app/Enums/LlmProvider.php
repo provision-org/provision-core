@@ -7,6 +7,7 @@ enum LlmProvider: string
     case Anthropic = 'anthropic';
     case OpenAi = 'openai';
     case OpenRouter = 'open_router';
+    case OpenAiCodex = 'openai_codex';
 
     public const DEFAULT_MODEL = 'z-ai/glm-4.7';
 
@@ -19,6 +20,7 @@ enum LlmProvider: string
             self::Anthropic => 'ANTHROPIC_API_KEY',
             self::OpenAi => 'OPENAI_API_KEY',
             self::OpenRouter => 'OPENROUTER_API_KEY',
+            self::OpenAiCodex => 'OPENAI_API_KEY',
         };
     }
 
@@ -28,6 +30,7 @@ enum LlmProvider: string
             self::Anthropic => 'Anthropic',
             self::OpenAi => 'OpenAI',
             self::OpenRouter => 'OpenRouter',
+            self::OpenAiCodex => 'ChatGPT Subscription',
         };
     }
 
@@ -56,7 +59,19 @@ enum LlmProvider: string
                 'moonshotai/kimi-k2.5',
                 'minimax/minimax-m2.5',
             ],
+            self::OpenAiCodex => [
+                'gpt-5.5',
+                'gpt-5.5-pro',
+                'gpt-5.4',
+                'gpt-5.4-pro',
+                'gpt-5.4-mini',
+            ],
         };
+    }
+
+    public static function isChatGptSubscriptionModel(string $modelId): bool
+    {
+        return in_array($modelId, self::OpenAiCodex->models(), true);
     }
 
     /**
@@ -95,6 +110,7 @@ enum LlmProvider: string
             self::OpenRouter => "openrouter/{$modelId}",
             self::Anthropic => "openrouter/anthropic/{$modelId}",
             self::OpenAi => "openrouter/openai/{$modelId}",
+            self::OpenAiCodex => "openai-codex/{$modelId}",
         };
     }
 }

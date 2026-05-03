@@ -859,6 +859,17 @@ function OverviewTab({ agent }: { agent: Agent }) {
                     <dt className="text-muted-foreground">Model</dt>
                     <dd className="font-medium">
                         {agent.model_primary ?? 'Not set'}
+                        {agent.chatgpt_email && (
+                            <span
+                                className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                title={`Billed via ChatGPT subscription (${agent.chatgpt_email})`}
+                            >
+                                via ChatGPT
+                                {agent.chatgpt_plan_type
+                                    ? ` ${agent.chatgpt_plan_type}`
+                                    : ''}
+                            </span>
+                        )}
                     </dd>
                     <dt className="text-muted-foreground">Last synced</dt>
                     <dd className="font-medium">

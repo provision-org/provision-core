@@ -1,5 +1,6 @@
 import { Transition } from '@headlessui/react';
 import { Form, Head, Link, usePage } from '@inertiajs/react';
+import { ChatGPTAuthCard } from '@/components/agents/chatgpt-auth-card';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,14 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import AppLayout from '@/layouts/app-layout';
 import type { Agent, BreadcrumbItem, SharedData } from '@/types';
+
+const CHATGPT_MODEL_PREFIXES = ['gpt-5.4', 'gpt-5.5'];
+
+function requiresChatGptAuth(modelId: string | null | undefined): boolean {
+    if (!modelId) return false;
+
+    return CHATGPT_MODEL_PREFIXES.some((p) => modelId.startsWith(p));
+}
 
 type AvailableModel = {
     value: string;
@@ -123,7 +132,22 @@ export default function EditAgent({
                                         className="mt-2"
                                         message={errors.model_primary}
                                     />
+
+                                    {requiresChatGptAuth(agent.model_primary) &&
+                                        !agent.chatgpt_email && (
+                                            <p className="mt-2 rounded bg-amber-100 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
+                                                This model is billed via your
+                                                ChatGPT subscription. Connect
+                                                your account below to start
+                                                using it.
+                                            </p>
+                                        )}
                                 </div>
+
+                                {(requiresChatGptAuth(agent.model_primary) ||
+                                    agent.chatgpt_email) && (
+                                    <ChatGPTAuthCard agent={agent} />
+                                )}
 
                                 <Separator />
 
