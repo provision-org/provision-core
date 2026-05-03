@@ -245,6 +245,20 @@ class ChatGPTAuthService
             300,
         );
 
+        // Defensive: 2026.5.2 may regenerate a scope-upgrade pending request
+        // on first startup that the CLI can't approve (chicken-and-egg). Patch
+        // paired.json directly. Idempotent on boxes where scopes are already fine.
+        $this->sshService->exec(
+            'if [ -f /root/.openclaw/devices/paired.json ]; then'
+            .' jq \'map_values(.scopes |= ((. // []) + ["operator.read"] | unique)'
+            .' | .approvedScopes |= ((. // []) + ["operator.read"] | unique)'
+            .' | (.tokens // {}) |= map_values(.scopes |= ((. // []) + ["operator.read"] | unique)))\''
+            .' /root/.openclaw/devices/paired.json > /root/.openclaw/devices/paired.json.new'
+            .' && mv /root/.openclaw/devices/paired.json.new /root/.openclaw/devices/paired.json;'
+            .' echo "{}" > /root/.openclaw/devices/pending.json;'
+            .' fi',
+        );
+
         $this->sshService->exec(
             'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway 2>&1 || true',
         );

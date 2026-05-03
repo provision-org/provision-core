@@ -257,16 +257,24 @@ OVERRIDE
             $lines[] = 'systemctl --user restart openclaw-gateway';
             $lines[] = '';
 
-            // 8. Wait for gateway + approve device pairing
-            $lines[] = '# --- Step 8: Wait for Gateway & Approve Device Pairing ---';
+            // 8. Wait for gateway + grant operator.read scope
+            $lines[] = '# --- Step 8: Wait for Gateway & Grant operator.read Scope ---';
             $lines[] = 'ping_progress "starting_services"';
             $lines[] = 'sleep 15';
             $lines[] = '';
-            $lines[] = '# Approve all pending device pairing requests';
-            $lines[] = 'for REQ_ID in $(openclaw devices list 2>/dev/null | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"); do';
-            $lines[] = '  openclaw devices approve "$REQ_ID" 2>/dev/null || true';
-            $lines[] = 'done';
-            $lines[] = 'sleep 3';
+            $lines[] = '# OpenClaw 2026.5.2+ split bootstrap into operator.pairing (auto) and';
+            $lines[] = '# operator.read (must be explicitly approved). The CLI `devices approve`';
+            $lines[] = '# itself requires operator.read to talk to the gateway — chicken-and-egg.';
+            $lines[] = '# Patch paired.json directly to grant operator.read, drop any pending';
+            $lines[] = '# scope-upgrade requests, and restart the gateway. Idempotent on older';
+            $lines[] = '# versions where the scope was already auto-granted.';
+            $lines[] = 'if [ -f /root/.openclaw/devices/paired.json ]; then';
+            $lines[] = '  cp /root/.openclaw/devices/paired.json /root/.openclaw/devices/paired.json.bak.$(date +%s)';
+            $lines[] = '  jq \'map_values(.scopes |= ((. // []) + ["operator.read"] | unique) | .approvedScopes |= ((. // []) + ["operator.read"] | unique) | (.tokens // {}) |= map_values(.scopes |= ((. // []) + ["operator.read"] | unique)))\' /root/.openclaw/devices/paired.json > /root/.openclaw/devices/paired.json.new && mv /root/.openclaw/devices/paired.json.new /root/.openclaw/devices/paired.json';
+            $lines[] = '  echo "{}" > /root/.openclaw/devices/pending.json';
+            $lines[] = '  systemctl --user restart openclaw-gateway';
+            $lines[] = '  sleep 5';
+            $lines[] = 'fi';
             $lines[] = '';
 
             // Gateway health check retry loop
@@ -277,10 +285,12 @@ OVERRIDE
             $lines[] = '    GATEWAY_READY=1';
             $lines[] = '    break';
             $lines[] = '  fi';
-            $lines[] = '  # Re-approve any new pairing requests between retries';
-            $lines[] = '  for REQ_ID in $(openclaw devices list 2>/dev/null | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"); do';
-            $lines[] = '    openclaw devices approve "$REQ_ID" 2>/dev/null || true';
-            $lines[] = '  done';
+            $lines[] = '  # Re-grant operator.read in case a new device pairing came in mid-startup';
+            $lines[] = '  if [ -f /root/.openclaw/devices/paired.json ]; then';
+            $lines[] = '    jq \'map_values(.scopes |= ((. // []) + ["operator.read"] | unique) | .approvedScopes |= ((. // []) + ["operator.read"] | unique) | (.tokens // {}) |= map_values(.scopes |= ((. // []) + ["operator.read"] | unique)))\' /root/.openclaw/devices/paired.json > /root/.openclaw/devices/paired.json.new 2>/dev/null && mv /root/.openclaw/devices/paired.json.new /root/.openclaw/devices/paired.json';
+            $lines[] = '    echo "{}" > /root/.openclaw/devices/pending.json';
+            $lines[] = '    systemctl --user restart openclaw-gateway 2>/dev/null || true';
+            $lines[] = '  fi';
             $lines[] = '  sleep $DELAY';
             $lines[] = 'done';
             $lines[] = '';
