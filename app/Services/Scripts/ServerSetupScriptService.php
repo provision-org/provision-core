@@ -503,6 +503,13 @@ OVERRIDE
             ],
         ];
 
+        // openclaw 2026.5.2+ requires a meta block; without it the gateway
+        // rolls back to the previous "last-good" backup on next restart.
+        $config['meta'] = [
+            'lastTouchedVersion' => $server->openclaw_version ?? '2026.5.2',
+            'lastTouchedAt' => now()->toIso8601ZuluString('millisecond'),
+        ];
+
         return $config;
     }
 

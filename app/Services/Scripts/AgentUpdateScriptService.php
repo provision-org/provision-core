@@ -493,6 +493,13 @@ class AgentUpdateScriptService
         $config['skills']['entries'] = $config['skills']['entries'] ?? [];
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
 
+        // openclaw 2026.5.2+ requires a meta block; without it the gateway
+        // detects "missing-meta-vs-last-good" and rolls back to the prior backup.
+        $config['meta'] = [
+            'lastTouchedVersion' => $server->openclaw_version ?? '2026.5.2',
+            'lastTouchedAt' => now()->toIso8601ZuluString('millisecond'),
+        ];
+
         return $config;
     }
 

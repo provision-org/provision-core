@@ -147,6 +147,11 @@ class ProvisionDockerServerJob implements ShouldQueue
                 'deny' => ['canvas', 'nodes', 'gateway', 'config', 'system', 'telegram', 'whatsapp', 'discord', 'irc', 'googlechat', 'slack', 'signal', 'imessage'],
                 'loopDetection' => ['enabled' => true, 'historySize' => 30, 'warningThreshold' => 10, 'criticalThreshold' => 20],
             ],
+            // openclaw 2026.5.2+ requires a meta block to avoid auto-restore from backup.
+            'meta' => [
+                'lastTouchedVersion' => $this->server->openclaw_version ?? '2026.5.2',
+                'lastTouchedAt' => now()->toIso8601ZuluString('millisecond'),
+            ],
         ];
     }
 }
