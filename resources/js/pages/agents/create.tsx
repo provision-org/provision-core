@@ -121,6 +121,14 @@ type ModelMeta = {
     tier: 'pro' | 'standard' | 'lite';
     cost: string;
     sort: number;
+    /**
+     * Reasoning models spend a portion of the response token budget on
+     * internal thinking before producing visible output. They can return
+     * empty content if the agent's max_tokens cap is too low — particularly
+     * on short prompts. Surfaced as a badge so users picking a "cheap"
+     * model don't end up silently failing.
+     */
+    reasoning?: boolean;
 };
 
 const modelMeta: Record<string, ModelMeta> = {
@@ -144,6 +152,7 @@ const modelMeta: Record<string, ModelMeta> = {
         tier: 'pro',
         cost: '$$$',
         sort: 3,
+        reasoning: true,
     },
     'claude-opus-4-5': {
         label: 'Claude Opus 4.5',
@@ -165,6 +174,7 @@ const modelMeta: Record<string, ModelMeta> = {
         tier: 'standard',
         cost: '$$',
         sort: 11,
+        reasoning: true,
     },
     'z-ai/glm-5': {
         label: 'GLM-5',
@@ -200,6 +210,7 @@ const modelMeta: Record<string, ModelMeta> = {
         tier: 'lite',
         cost: '$',
         sort: 20,
+        reasoning: true,
     },
     'z-ai/glm-4.7': {
         label: 'GLM-4.7',
@@ -1413,10 +1424,20 @@ export default function CreateAgent({
                                                                                                 : 'border-border hover:border-foreground/30',
                                                                                         )}
                                                                                     >
-                                                                                        <p className="text-[13px] leading-tight font-medium">
-                                                                                            {meta?.label ??
-                                                                                                model.label}
-                                                                                        </p>
+                                                                                        <div className="flex items-start justify-between gap-1">
+                                                                                            <p className="text-[13px] leading-tight font-medium">
+                                                                                                {meta?.label ??
+                                                                                                    model.label}
+                                                                                            </p>
+                                                                                            {meta?.reasoning && (
+                                                                                                <span
+                                                                                                    title="Reasoning model — uses some response tokens for internal thinking. Best for complex tasks; can return empty output on very short prompts."
+                                                                                                    className="rounded bg-violet-100 px-1 py-0 text-[9px] font-semibold tracking-wide text-violet-700 dark:bg-violet-900/40 dark:text-violet-300"
+                                                                                                >
+                                                                                                    THINKS
+                                                                                                </span>
+                                                                                            )}
+                                                                                        </div>
                                                                                         <p className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
                                                                                             {meta?.description ??
                                                                                                 model.provider}
