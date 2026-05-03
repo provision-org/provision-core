@@ -4,6 +4,7 @@ namespace App\Http\Requests\Settings;
 
 use App\Enums\AgentMode;
 use App\Enums\AgentRole;
+use App\Enums\ModelTier;
 use App\Http\Controllers\AgentController;
 use App\Models\AgentEmailConnection;
 use Illuminate\Foundation\Http\FormRequest;
@@ -43,7 +44,7 @@ class CreateAgentRequest extends FormRequest
             ],
             'role' => ['required', Rule::enum(AgentRole::class)],
             'job_description' => ['nullable', 'string', 'max:5000'],
-            'model_tier' => ['nullable', 'string', Rule::in(['efficient', 'powerful'])],
+            'model_tier' => ['nullable', Rule::enum(ModelTier::class)],
             'model_primary' => ['nullable', 'string', Rule::in($allowedModels)],
             'model_fallbacks' => ['nullable', 'array'],
             'model_fallbacks.*' => ['string', 'max:255'],
