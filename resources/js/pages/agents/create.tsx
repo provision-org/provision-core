@@ -1372,7 +1372,7 @@ export default function CreateAgent({
                                                         )}
                                                     >
                                                         <div className="text-2xl">
-                                                            \uD83D\uDD17
+                                                            {'\uD83D\uDD17'}
                                                         </div>
                                                         <div className="flex-1">
                                                             <p className="text-sm font-bold">
@@ -1384,10 +1384,11 @@ export default function CreateAgent({
                                                                 existing
                                                                 ChatGPT Pro or
                                                                 Team
-                                                                subscription \u2014
-                                                                we'll connect
-                                                                your account in
-                                                                the next step.
+                                                                subscription{' '}
+                                                                {'\u2014'} we'll
+                                                                connect your
+                                                                account in the
+                                                                next step.
                                                             </p>
                                                         </div>
                                                         <span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
