@@ -5,6 +5,7 @@ namespace App\Services\Scripts;
 use App\Enums\HarnessType;
 use App\Models\Server;
 use App\Services\OpenClawDefaultsService;
+use App\Support\OpenClawConfig;
 use Illuminate\Support\Str;
 
 class ServerSetupScriptService
@@ -53,7 +54,7 @@ class ServerSetupScriptService
         // Only build OpenClaw config for OpenClaw teams
         $onboardFlags = $isOpenClaw ? implode(' ', config('openclaw.onboard_flags')) : '';
         $openclawConfig = $isOpenClaw ? $this->buildOpenClawConfig($server) : [];
-        $openclawConfigJson = $isOpenClaw ? json_encode($openclawConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) : '{}';
+        $openclawConfigJson = $isOpenClaw ? OpenClawConfig::toJson($openclawConfig) : '{}';
 
         $lines = [
             '#!/bin/bash',
@@ -431,7 +432,7 @@ OVERRIDE
         ];
 
         // Channels — empty, agent install scripts add per-agent accounts
-        $config['channels'] = (object) [];
+        $config['channels'] = [];
 
         // Gateway — local mode with auth token, loopback binding + HTTP API
         $gatewayToken = $server->gateway_token ?: bin2hex(random_bytes(16));

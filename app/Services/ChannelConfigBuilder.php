@@ -149,6 +149,14 @@ class ChannelConfigBuilder
      */
     public function applyToConfig(array &$config, Server $server): void
     {
+        // Defensive: $config['channels'] may arrive as a stdClass (e.g. when a
+        // caller decoded the on-disk JSON without `assoc=true`, since openclaw
+        // serializes empty channels as `{}`). Normalize to a mutable array;
+        // OpenClawConfig::toJson re-applies the `{}` cast at write time.
+        if (! isset($config['channels']) || ! is_array($config['channels'])) {
+            $config['channels'] = [];
+        }
+
         // Clear existing channel config
         foreach (['slack', 'telegram', 'discord'] as $channel) {
             unset($config['channels'][$channel]);
@@ -160,7 +168,6 @@ class ChannelConfigBuilder
         $built = $this->buildConfig($channelAccounts);
 
         // Merge channels
-        $config['channels'] = $config['channels'] ?? [];
         foreach ($built['channels'] as $channel => $channelConfig) {
             $config['channels'][$channel] = $channelConfig;
         }

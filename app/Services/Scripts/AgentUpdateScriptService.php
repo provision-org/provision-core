@@ -527,7 +527,7 @@ class AgentUpdateScriptService
             'extraArgs' => ['--ozone-override-screen-size=1440,900', '--window-size=1440,900'],
         ];
 
-        $config['channels'] = (object) [];
+        $config['channels'] = [];
 
         $config['gateway'] = [
             'mode' => 'local',

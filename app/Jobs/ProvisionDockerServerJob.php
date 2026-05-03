@@ -118,7 +118,7 @@ class ProvisionDockerServerJob implements ShouldQueue
                 'snapshotDefaults' => ['mode' => 'efficient'],
                 'extraArgs' => ['--ozone-override-screen-size=1440,900', '--window-size=1440,900'],
             ],
-            'channels' => (object) [],
+            'channels' => [],
             'gateway' => [
                 'mode' => 'local',
                 'bind' => config('openclaw.gateway_bind'),
