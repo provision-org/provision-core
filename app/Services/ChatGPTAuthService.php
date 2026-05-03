@@ -25,10 +25,14 @@ class ChatGPTAuthService
      */
     public function startDeviceCodeFlow(Agent $agent): array
     {
-        $session = self::TMUX_SESSION_PREFIX.$agent->id;
+        if (! $agent->harness_agent_id) {
+            throw new RuntimeException('Agent has no harness_agent_id; provisioning may be incomplete.');
+        }
+
+        $session = self::TMUX_SESSION_PREFIX.$agent->harness_agent_id;
         $command = sprintf(
             'openclaw models --agent %s auth login --provider openai-codex --method device-code; sleep %d',
-            escapeshellarg($agent->id),
+            escapeshellarg($agent->harness_agent_id),
             self::DEVICE_CODE_TIMEOUT_SECONDS,
         );
 
@@ -91,8 +95,8 @@ class ChatGPTAuthService
      */
     public function pollAuthStatus(Agent $agent): array
     {
-        $session = self::TMUX_SESSION_PREFIX.$agent->id;
-        $agentDir = "/root/.openclaw/agents/{$agent->id}/agent";
+        $session = self::TMUX_SESSION_PREFIX.$agent->harness_agent_id;
+        $agentDir = "/root/.openclaw/agents/{$agent->harness_agent_id}/agent";
 
         $this->sshService->connect($agent->server);
 
@@ -125,7 +129,7 @@ class ChatGPTAuthService
 
             $this->sshService->exec(sprintf(
                 'openclaw models --agent %s auth order set --provider openai-codex %s 2>&1',
-                escapeshellarg($agent->id),
+                escapeshellarg($agent->harness_agent_id),
                 escapeshellarg($profileId),
             ));
 
@@ -171,8 +175,8 @@ class ChatGPTAuthService
             return;
         }
 
-        $session = self::TMUX_SESSION_PREFIX.$agent->id;
-        $agentDir = "/root/.openclaw/agents/{$agent->id}/agent";
+        $session = self::TMUX_SESSION_PREFIX.$agent->harness_agent_id;
+        $agentDir = "/root/.openclaw/agents/{$agent->harness_agent_id}/agent";
         $email = $agent->chatgpt_email;
 
         try {
@@ -204,7 +208,7 @@ class ChatGPTAuthService
                 'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway',
             );
         } catch (\Throwable $e) {
-            Log::warning("ChatGPT disconnect failed for agent {$agent->id}: {$e->getMessage()}");
+            Log::warning("ChatGPT disconnect failed for agent {$agent->harness_agent_id}: {$e->getMessage()}");
         } finally {
             $this->sshService->disconnect();
         }
