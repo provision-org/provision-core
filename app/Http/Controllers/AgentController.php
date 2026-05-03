@@ -280,8 +280,12 @@ class AgentController extends Controller
             'model' => $agent->model_primary,
         ]);
 
+        // ChatGPT-billed agents need the openclaw agent dir + auth-profiles.json
+        // before we can run device-code login. Send them through provisioning
+        // first; once status flips to Active, provisioning() redirects to
+        // connect-chatgpt automatically.
         if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
-            return to_route('agents.connect-chatgpt', $agent);
+            return to_route('agents.provisioning', $agent);
         }
 
         return to_route('agents.setup', $agent);
@@ -372,6 +376,10 @@ class AgentController extends Controller
         abort_unless($request->user()->isTeamAdmin($team), 403);
 
         if ($agent->status === AgentStatus::Active) {
+            if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
+                return to_route('agents.connect-chatgpt', $agent);
+            }
+
             return to_route('agents.show', $agent);
         }
 
@@ -406,6 +414,10 @@ class AgentController extends Controller
         abort_unless($agent->team_id === $team->id, 404);
 
         if ($agent->status === AgentStatus::Active) {
+            if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
+                return to_route('agents.connect-chatgpt', $agent);
+            }
+
             return to_route('agents.show', $agent);
         }
 
