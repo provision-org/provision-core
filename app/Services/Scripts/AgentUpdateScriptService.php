@@ -11,6 +11,7 @@ use App\Services\AgentScheduleService;
 use App\Services\ChannelConfigBuilder;
 use App\Services\Harness\HermesDriver;
 use App\Services\OpenClawDefaultsService;
+use App\Support\OpenClawConfig;
 
 class AgentUpdateScriptService
 {
@@ -94,9 +95,12 @@ class AgentUpdateScriptService
         // Generate API token early — needed for both .env and openclaw.json skill config
         $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
 
-        // Pre-compute the full openclaw.json target config
+        // Pre-compute the full openclaw.json target config. Use OpenClawConfig
+        // so empty object-shaped keys (e.g. channels with no connections) get
+        // serialized as {} rather than []; otherwise the gateway's 2026.5.2
+        // validator rejects the file and rolls back to last-known-good.
         $openclawConfig = $this->buildFullOpenClawConfig($agent, $plainToken);
-        $configJson = json_encode($openclawConfig, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $configJson = OpenClawConfig::toJson($openclawConfig);
 
         $lines = [
             '#!/bin/bash',
