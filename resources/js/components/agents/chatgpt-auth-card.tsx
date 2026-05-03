@@ -42,6 +42,7 @@ export function ChatGPTAuthCard({ agent }: { agent: Agent }) {
             const res = await fetch(`/agents/${agent.id}/chatgpt-auth`, {
                 method: 'POST',
                 headers: csrfHeaders(),
+                credentials: 'same-origin',
             });
 
             if (!res.ok) {
@@ -64,7 +65,13 @@ export function ChatGPTAuthCard({ agent }: { agent: Agent }) {
 
     async function pollStatus() {
         try {
-            const res = await fetch(`/agents/${agent.id}/chatgpt-auth`);
+            const res = await fetch(`/agents/${agent.id}/chatgpt-auth`, {
+                headers: {
+                    Accept: 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                },
+                credentials: 'same-origin',
+            });
             const data: StatusResponse = await res.json();
             setStatus(data);
 
@@ -95,6 +102,7 @@ export function ChatGPTAuthCard({ agent }: { agent: Agent }) {
             await fetch(`/agents/${agent.id}/chatgpt-auth`, {
                 method: 'DELETE',
                 headers: csrfHeaders(),
+                credentials: 'same-origin',
             });
             router.reload({ only: ['agent'] });
         } finally {
@@ -228,14 +236,14 @@ export function ChatGPTAuthCard({ agent }: { agent: Agent }) {
 }
 
 function csrfHeaders(): HeadersInit {
-    const token =
-        document
-            .querySelector<HTMLMetaElement>('meta[name="csrf-token"]')
-            ?.getAttribute('content') ?? '';
+    const token = decodeURIComponent(
+        document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '',
+    );
 
     return {
         'Content-Type': 'application/json',
-        'X-CSRF-TOKEN': token,
+        'X-XSRF-TOKEN': token,
+        'X-Requested-With': 'XMLHttpRequest',
         Accept: 'application/json',
     };
 }
