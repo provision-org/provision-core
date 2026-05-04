@@ -188,6 +188,29 @@ class Team extends Model
         return $this->hasOne(SlackConfigurationToken::class);
     }
 
+    /**
+     * @return HasOne<TeamEmailDomain, $this>
+     */
+    public function emailDomain(): HasOne
+    {
+        return $this->hasOne(TeamEmailDomain::class);
+    }
+
+    /**
+     * Resolve the active email domain for this team — the verified custom
+     * domain if present, otherwise the platform-default domain from config.
+     */
+    public function activeEmailDomain(): string
+    {
+        $custom = $this->emailDomain;
+
+        if ($custom && $custom->is_verified) {
+            return $custom->name;
+        }
+
+        return config('mailboxkit.email_domain');
+    }
+
     public function hasUser(User $user): bool
     {
         return $this->members()->where('user_id', $user->id)->exists();
