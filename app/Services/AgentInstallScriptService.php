@@ -1163,7 +1163,7 @@ class AgentInstallScriptService
     }
 
     /**
-     * npm install the @provision/openclaw-web plugin so the gateway can load it.
+     * npm install the provision-openclaw-web plugin so the gateway can load it.
      * The version is pinned via config('provision.provision_web_plugin_version').
      */
     private function buildInstallProvisionWebPluginScript(): string
@@ -1171,8 +1171,8 @@ class AgentInstallScriptService
         $version = config('provision.provision_web_plugin_version', 'latest');
 
         return <<<BASH
-        # Install/refresh @provision/openclaw-web at the pinned version
-        npm install -g @provision/openclaw-web@{$version} 2>&1 || echo 'WARNING: provision-web plugin install failed; continuing'
+        # Install/refresh provision-openclaw-web at the pinned version
+        npm install -g provision-openclaw-web@{$version} 2>&1 || echo 'WARNING: provision-web plugin install failed; continuing'
         BASH;
     }
 
