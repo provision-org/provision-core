@@ -736,9 +736,10 @@ function ErrorBanner({ agent }: { agent: Agent }) {
     );
 }
 
-function AutoTopUpNudge() {
+function AutoTopUpNudge({ agent }: { agent: Agent }) {
     const { wallet } = usePage<SharedData>().props;
     if (!wallet || wallet.auto_topup_enabled) return null;
+    if (agent.auth_provider === 'chatgpt') return null;
 
     const lowBalance = wallet.balance_cents < 300;
 
@@ -777,7 +778,7 @@ function OverviewTab({ agent }: { agent: Agent }) {
 
     return (
         <div className="space-y-8">
-            <AutoTopUpNudge />
+            <AutoTopUpNudge agent={agent} />
 
             {agent.status === 'active' && (
                 <section>

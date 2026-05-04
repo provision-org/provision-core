@@ -365,7 +365,11 @@ export default function Dashboard({
 }: DashboardProps) {
     const { auth, wallet } = usePage<SharedData>().props;
     const teamId = auth.user.current_team?.id ?? '';
-    const showAutoTopUpNudge = wallet && !wallet.auto_topup_enabled;
+    const hasOpenrouterAgent = agents.some(
+        (a) => (a.auth_provider ?? 'openrouter') === 'openrouter',
+    );
+    const showAutoTopUpNudge =
+        wallet && !wallet.auto_topup_enabled && hasOpenrouterAgent;
     const lowBalance = wallet && wallet.balance_cents < 300;
 
     const hasAgents = agents.length > 0;

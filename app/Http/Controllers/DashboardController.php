@@ -33,7 +33,7 @@ class DashboardController extends Controller
             ]);
 
         $agents = $team->agents()->get([
-            'id', 'name', 'status', 'avatar_path',
+            'id', 'name', 'status', 'avatar_path', 'auth_provider',
             'stats_tokens_input', 'stats_tokens_output',
             'stats_total_sessions', 'stats_total_messages',
             'stats_last_active_at',
