@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\AgentStatus;
 use App\Enums\ChatMessageRole;
+use App\Enums\HarnessType;
 use App\Events\ChatMessageErrorEvent;
 use App\Events\ChatMessageReceivedEvent;
 use App\Events\ChatMessageSendingEvent;
@@ -48,6 +49,14 @@ class SendAgentChatMessageJob implements ShouldQueue
 
         // Broadcast thinking indicator
         event(new ChatMessageSendingEvent($teamId, $this->conversation->id, $agent->id));
+
+        // OpenClaw agents go through the provision-web channel plugin: the
+        // plugin's SSE loop polls for unsent user messages and the agent's
+        // reply lands via /api/agents/web-channel/inbound, which broadcasts
+        // ChatMessageReceivedEvent itself. Nothing more to do here.
+        if ($agent->harness_type === HarnessType::OpenClaw) {
+            return;
+        }
 
         $textContent = $this->userMessage->textContent();
 

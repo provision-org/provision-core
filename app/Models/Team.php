@@ -199,8 +199,9 @@ class Team extends Model
     /**
      * Resolve the active email domain for this team — the verified custom
      * domain if present, otherwise the platform-default domain from config.
+     * Returns null if email is not configured at all.
      */
-    public function activeEmailDomain(): string
+    public function activeEmailDomain(): ?string
     {
         $custom = $this->emailDomain;
 

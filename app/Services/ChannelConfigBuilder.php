@@ -11,12 +11,12 @@ class ChannelConfigBuilder
     /**
      * Collect all channel accounts from agents on a server.
      *
-     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>}
+     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>, provision-web: list<array>}
      */
     public function collectAccounts(Server $server): array
     {
         $allAgents = $server->agents()
-            ->with(['slackConnection', 'telegramConnection', 'discordConnection'])
+            ->with(['slackConnection', 'telegramConnection', 'discordConnection', 'webConnection'])
             ->get();
 
         return $this->collectAccountsFromAgents($allAgents);
@@ -25,11 +25,11 @@ class ChannelConfigBuilder
     /**
      * Collect channel accounts from a given collection of agents.
      *
-     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>}
+     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>, provision-web: list<array>}
      */
     public function collectAccountsFromAgents(Collection $agents): array
     {
-        $channelAccounts = ['slack' => [], 'telegram' => [], 'discord' => []];
+        $channelAccounts = ['slack' => [], 'telegram' => [], 'discord' => [], 'provision-web' => []];
 
         foreach ($agents as $agent) {
             $agentId = $agent->harness_agent_id;
@@ -53,6 +53,15 @@ class ChannelConfigBuilder
                 $channelAccounts['discord'][] = [
                     'agentId' => $agentId,
                     'botToken' => $agent->discordConnection->token,
+                ];
+            }
+
+            if ($agent->webConnection?->webhook_secret && $agent->webConnection?->api_token) {
+                $channelAccounts['provision-web'][] = [
+                    'agentId' => $agentId,
+                    'accountId' => $agent->webConnection->account_id,
+                    'webhookSecret' => $agent->webConnection->webhook_secret,
+                    'apiToken' => $agent->webConnection->api_token,
                 ];
             }
         }
@@ -83,7 +92,7 @@ class ChannelConfigBuilder
         $plugins = [];
 
         foreach (['slack', 'telegram', 'discord'] as $channel) {
-            $accounts = $channelAccounts[$channel];
+            $accounts = $channelAccounts[$channel] ?? [];
             if (empty($accounts)) {
                 continue;
             }
@@ -135,6 +144,34 @@ class ChannelConfigBuilder
             $channels[$channel] = $channelConfig;
         }
 
+        $webAccounts = $channelAccounts['provision-web'] ?? [];
+        if (! empty($webAccounts)) {
+            $appUrl = rtrim((string) config('app.url'), '/');
+            $channels['provision-web'] = [
+                'enabled' => true,
+                'dmPolicy' => 'open',
+                'allowFrom' => ['*'],
+                'apiUrl' => $appUrl,
+                'accounts' => [],
+            ];
+            $plugins['provision-web'] = ['enabled' => true];
+
+            foreach ($webAccounts as $account) {
+                $accountId = $account['accountId'];
+                $channels['provision-web']['accounts'][$accountId] = [
+                    'name' => $accountId,
+                    'webhookSecret' => $account['webhookSecret'],
+                    'apiToken' => $account['apiToken'],
+                    'webhookUrl' => $appUrl.'/api/agents/web-channel/inbound',
+                    'streamUrl' => $appUrl."/api/agents/web-channel/{$accountId}/stream",
+                ];
+                $bindings[] = [
+                    'agentId' => $account['agentId'],
+                    'match' => ['channel' => 'provision-web', 'accountId' => $accountId],
+                ];
+            }
+        }
+
         return [
             'channels' => $channels,
             'bindings' => $bindings,
@@ -158,7 +195,7 @@ class ChannelConfigBuilder
         }
 
         // Clear existing channel config
-        foreach (['slack', 'telegram', 'discord'] as $channel) {
+        foreach (['slack', 'telegram', 'discord', 'provision-web'] as $channel) {
             unset($config['channels'][$channel]);
             unset($config['plugins']['entries'][$channel]);
         }

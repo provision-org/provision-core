@@ -83,9 +83,10 @@ test('buildConfig produces correct structure for single agent', function () {
     // Telegram should NOT have Slack-specific streaming keys
     expect($config['channels']['telegram'])->not->toHaveKey('nativeStreaming');
 
-    // Binding
-    expect($config['bindings'])->toHaveCount(1);
-    expect($config['bindings'][0])->toBe([
+    // Bindings: telegram + auto-created provision-web
+    expect($config['bindings'])->toHaveCount(2);
+    $telegramBinding = collect($config['bindings'])->firstWhere('match.channel', 'telegram');
+    expect($telegramBinding)->toBe([
         'agentId' => 'agent-1',
         'match' => ['channel' => 'telegram', 'accountId' => 'telegram-agent-1'],
     ]);
@@ -127,8 +128,10 @@ test('buildConfig handles multi-channel multi-agent', function () {
     expect($config['channels']['telegram']['accounts'])->toHaveKey('telegram-agent-1');
     expect($config['channels']['telegram']['accounts'])->toHaveKey('telegram-agent-2');
 
-    // Should have 3 bindings total
-    expect($config['bindings'])->toHaveCount(3);
+    // Bindings: 1 slack + 2 telegram + 2 provision-web (auto-created) = 5
+    expect($config['bindings'])->toHaveCount(5);
+    $nonWebBindings = collect($config['bindings'])->reject(fn ($b) => $b['match']['channel'] === 'provision-web');
+    expect($nonWebBindings)->toHaveCount(3);
 });
 
 test('applyToConfig clears old channels and rebuilds', function () {
@@ -157,11 +160,15 @@ test('applyToConfig clears old channels and rebuilds', function () {
     expect($config['channels'])->not->toHaveKey('slack');
     expect($config['plugins']['entries'])->not->toHaveKey('slack');
 
-    // New telegram should be added
+    // New telegram should be added (plus auto-created provision-web)
     expect($config['channels'])->toHaveKey('telegram');
     expect($config['plugins']['entries'])->toHaveKey('telegram');
-    expect($config['bindings'])->toHaveCount(1);
-    expect($config['bindings'][0]['match']['channel'])->toBe('telegram');
+    expect($config['channels'])->toHaveKey('provision-web');
+    expect($config['plugins']['entries'])->toHaveKey('provision-web');
+    expect($config['bindings'])->toHaveCount(2);
+    $channels = collect($config['bindings'])->pluck('match.channel')->all();
+    expect($channels)->toContain('telegram');
+    expect($channels)->toContain('provision-web');
 });
 
 test('resolveReplyChannel returns correct channel and account', function () {
@@ -192,6 +199,30 @@ test('resolveReplyChannel returns null without channels', function () {
     $result = $builder->resolveReplyChannel($agent);
 
     expect($result)->toBeNull();
+});
+
+test('every agent gets an auto-created provision-web account', function () {
+    $team = Team::factory()->subscribed()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-1',
+    ]);
+
+    $builder = app(ChannelConfigBuilder::class);
+    $accounts = $builder->collectAccounts($server);
+
+    expect($accounts['provision-web'])->toHaveCount(1);
+    expect($accounts['provision-web'][0]['accountId'])->toBe('provision-web-agent-1');
+    expect($accounts['provision-web'][0]['webhookSecret'])->not->toBeEmpty();
+    expect($accounts['provision-web'][0]['apiToken'])->not->toBeEmpty();
+
+    $config = $builder->buildConfig($accounts);
+    $accountConfig = $config['channels']['provision-web']['accounts']['provision-web-agent-1'];
+    expect($accountConfig['webhookUrl'])->toEndWith('/api/agents/web-channel/inbound');
+    expect($accountConfig['streamUrl'])->toEndWith('/api/agents/web-channel/provision-web-agent-1/stream');
+    expect($config['plugins']['provision-web'])->toBe(['enabled' => true]);
 });
 
 test('slack requires both bot_token and app_token', function () {

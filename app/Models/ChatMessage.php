@@ -23,6 +23,7 @@ class ChatMessage extends Model
         'role',
         'content',
         'sent_at',
+        'outbound_to_agent_at',
     ];
 
     /**
@@ -34,6 +35,7 @@ class ChatMessage extends Model
             'role' => ChatMessageRole::class,
             'content' => 'array',
             'sent_at' => 'datetime',
+            'outbound_to_agent_at' => 'datetime',
         ];
     }
 

@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\ServerCallbackController;
 use App\Http\Controllers\Api\ServerSetupCallbackController;
 use App\Http\Controllers\Api\ServerSetupScriptController;
 use App\Http\Controllers\Api\TaskController;
+use App\Http\Controllers\Api\WebChannelController;
 use App\Http\Controllers\CliController;
 use Illuminate\Support\Facades\Route;
 
@@ -55,6 +56,16 @@ Route::prefix('tasks')->middleware('auth.agent-token')->group(function () {
     Route::patch('/{task}/complete', [TaskController::class, 'complete']);
     Route::patch('/{task}/block', [TaskController::class, 'block']);
     Route::post('/{task}/notes', [TaskController::class, 'addNote']);
+});
+
+// Web channel — authenticated per-account via HMAC (inbound) or bearer (stream/probe)
+Route::prefix('agents/web-channel')->group(function () {
+    Route::post('/inbound', [WebChannelController::class, 'inbound'])
+        ->name('api.agents.web-channel.inbound');
+    Route::get('/{accountId}/stream', [WebChannelController::class, 'stream'])
+        ->name('api.agents.web-channel.stream');
+    Route::get('/{accountId}/probe', [WebChannelController::class, 'probe'])
+        ->name('api.agents.web-channel.probe');
 });
 
 // Daemon API — authenticated via server daemon_token

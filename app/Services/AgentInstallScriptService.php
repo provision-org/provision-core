@@ -110,6 +110,16 @@ class AgentInstallScriptService
             $lines[] = '';
         }
 
+        // 2d. Always add the provision-web channel — every agent gets one for in-app chat
+        $web = $agent->webConnection;
+        if ($web && $web->webhook_secret && $web->api_token) {
+            $lines[] = '# Install + configure provision-web channel plugin';
+            $lines[] = $this->buildInstallProvisionWebPluginScript();
+            $lines[] = $this->buildProvisionWebPatchScript($agent, $web, $configFile);
+            $lines[] = $this->buildEnableChannelPluginScript('provision-web', $configFile);
+            $lines[] = '';
+        }
+
         // 3. Install MailboxKit email skill if agent has email connection and module is active
         $emailConnection = $agent->emailConnection;
         $hasEmailModule = app()->bound(AgentEmailProvider::class);
@@ -1130,6 +1140,64 @@ class AgentInstallScriptService
           };
           c.bindings = (c.bindings || []).filter(b => !(b.agentId === cfg.agentId && b.match && b.match.channel === "discord"));
           c.bindings.push({ agentId: cfg.agentId, match: { channel: "discord", accountId: cfg.accountId } });
+          fs.writeFileSync(f, JSON.stringify(c, null, 2));
+        '
+        BASH;
+    }
+
+    /**
+     * npm install the @provision/openclaw-web plugin so the gateway can load it.
+     * The version is pinned via config('provision.provision_web_plugin_version').
+     */
+    private function buildInstallProvisionWebPluginScript(): string
+    {
+        $version = config('provision.provision_web_plugin_version', 'latest');
+
+        return <<<BASH
+        # Install/refresh @provision/openclaw-web at the pinned version
+        npm install -g @provision/openclaw-web@{$version} 2>&1 || echo 'WARNING: provision-web plugin install failed; continuing'
+        BASH;
+    }
+
+    /**
+     * Patch openclaw.json with the provision-web channel + account + binding.
+     * The channel plugin reads webhookSecret/apiToken/webhookUrl/streamUrl from
+     * c.channels["provision-web"].accounts[<accountId>].
+     */
+    private function buildProvisionWebPatchScript(Agent $agent, mixed $web, string $configFile): string
+    {
+        $agentId = $agent->harness_agent_id;
+        $appUrl = rtrim((string) config('app.url'), '/');
+
+        $encodedConfig = base64_encode(json_encode([
+            'accountId' => $web->account_id,
+            'agentId' => $agentId,
+            'webhookSecret' => $web->webhook_secret,
+            'apiToken' => $web->api_token,
+            'apiUrl' => $appUrl,
+            'webhookUrl' => $appUrl.'/api/agents/web-channel/inbound',
+            'streamUrl' => $appUrl.'/api/agents/web-channel/'.$web->account_id.'/stream',
+        ]));
+
+        return <<<BASH
+        node -e '
+          const fs = require("fs");
+          const f = "{$configFile}";
+          const c = JSON.parse(fs.readFileSync(f));
+          const cfg = JSON.parse(Buffer.from("{$encodedConfig}", "base64").toString());
+          c.channels = c.channels || {};
+          c.channels["provision-web"] = c.channels["provision-web"] || { enabled: true, dmPolicy: "open", allowFrom: ["*"], apiUrl: cfg.apiUrl };
+          c.channels["provision-web"].apiUrl = cfg.apiUrl;
+          c.channels["provision-web"].accounts = c.channels["provision-web"].accounts || {};
+          c.channels["provision-web"].accounts[cfg.accountId] = {
+            name: cfg.accountId,
+            webhookSecret: cfg.webhookSecret,
+            apiToken: cfg.apiToken,
+            webhookUrl: cfg.webhookUrl,
+            streamUrl: cfg.streamUrl
+          };
+          c.bindings = (c.bindings || []).filter(b => !(b.agentId === cfg.agentId && b.match && b.match.channel === "provision-web"));
+          c.bindings.push({ agentId: cfg.agentId, match: { channel: "provision-web", accountId: cfg.accountId } });
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;
