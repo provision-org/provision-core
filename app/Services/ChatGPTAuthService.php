@@ -3,6 +3,8 @@
 namespace App\Services;
 
 use App\Models\Agent;
+use App\Support\OperatorPairingPatch;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
@@ -11,8 +13,6 @@ class ChatGPTAuthService
     private const TMUX_SESSION_PREFIX = 'chatgpt-auth-';
 
     private const DEVICE_CODE_TIMEOUT_SECONDS = 900;
-
-    private const REQUIRED_OPENCLAW_VERSION = '2026.5.2';
 
     public function __construct(private SshService $sshService) {}
 
@@ -123,7 +123,7 @@ class ChatGPTAuthService
                 'chatgpt_account_id' => $value['accountId'] ?? null,
                 'chatgpt_connected_at' => now(),
                 'chatgpt_token_expires_at' => isset($value['expires'])
-                    ? \Carbon\Carbon::createFromTimestampMs($value['expires'])
+                    ? Carbon::createFromTimestampMs($value['expires'])
                     : null,
             ]);
 
@@ -156,7 +156,7 @@ class ChatGPTAuthService
                 'email' => $value['email'] ?? null,
                 'plan_type' => $value['chatgptPlanType'] ?? null,
                 'expires_at' => isset($value['expires'])
-                    ? \Carbon\Carbon::createFromTimestampMs($value['expires'])->toIso8601String()
+                    ? Carbon::createFromTimestampMs($value['expires'])->toIso8601String()
                     : null,
             ];
         } finally {
@@ -230,34 +230,24 @@ class ChatGPTAuthService
      */
     private function ensureOpenclawSupportsDeviceCode(): void
     {
+        $required = config('provision.openclaw_version');
+
         $version = trim($this->sshService->exec(
             "openclaw --version 2>/dev/null | sed -nE 's/.*OpenClaw ([0-9.]+).*/\\1/p' | head -1",
         ));
 
-        if ($version !== '' && version_compare($version, self::REQUIRED_OPENCLAW_VERSION, '>=')) {
+        if ($version !== '' && version_compare($version, $required, '>=')) {
             return;
         }
 
-        Log::info("Upgrading openclaw on agent server (was '{$version}', need ".self::REQUIRED_OPENCLAW_VERSION.')');
+        Log::info("Upgrading openclaw on agent server (was '{$version}', need {$required})");
 
         $this->sshService->exec(
-            'npm install -g openclaw@'.escapeshellarg(self::REQUIRED_OPENCLAW_VERSION).' 2>&1',
+            'npm install -g openclaw@'.escapeshellarg($required).' 2>&1',
             300,
         );
 
-        // Defensive: 2026.5.2 may regenerate a scope-upgrade pending request
-        // on first startup that the CLI can't approve (chicken-and-egg). Patch
-        // paired.json directly. Idempotent on boxes where scopes are already fine.
-        $this->sshService->exec(
-            'if [ -f /root/.openclaw/devices/paired.json ]; then'
-            .' jq \'map_values(.scopes |= ((. // []) + ["operator.read"] | unique)'
-            .' | .approvedScopes |= ((. // []) + ["operator.read"] | unique)'
-            .' | (.tokens // {}) |= map_values(.scopes |= ((. // []) + ["operator.read"] | unique)))\''
-            .' /root/.openclaw/devices/paired.json > /root/.openclaw/devices/paired.json.new'
-            .' && mv /root/.openclaw/devices/paired.json.new /root/.openclaw/devices/paired.json;'
-            .' echo "{}" > /root/.openclaw/devices/pending.json;'
-            .' fi',
-        );
+        $this->sshService->exec(OperatorPairingPatch::buildScript());
 
         $this->sshService->exec(
             'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway 2>&1 || true',

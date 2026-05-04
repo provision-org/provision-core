@@ -6,6 +6,7 @@ use App\Enums\HarnessType;
 use App\Models\Server;
 use App\Services\OpenClawDefaultsService;
 use App\Support\OpenClawConfig;
+use App\Support\OperatorPairingPatch;
 use Illuminate\Support\Str;
 
 class ServerSetupScriptService
@@ -258,24 +259,19 @@ OVERRIDE
             $lines[] = 'systemctl --user restart openclaw-gateway';
             $lines[] = '';
 
-            // 8. Wait for gateway + grant operator.read scope
-            $lines[] = '# --- Step 8: Wait for Gateway & Grant operator.read Scope ---';
+            // 8. Wait for gateway + grant the full operator scope set
+            $lines[] = '# --- Step 8: Wait for Gateway & Grant Full Operator Scopes ---';
             $lines[] = 'ping_progress "starting_services"';
             $lines[] = 'sleep 15';
             $lines[] = '';
-            $lines[] = '# OpenClaw 2026.5.2+ split bootstrap into operator.pairing (auto) and';
-            $lines[] = '# operator.read (must be explicitly approved). The CLI `devices approve`';
-            $lines[] = '# itself requires operator.read to talk to the gateway — chicken-and-egg.';
-            $lines[] = '# Patch paired.json directly to grant operator.read, drop any pending';
-            $lines[] = '# scope-upgrade requests, and restart the gateway. Idempotent on older';
-            $lines[] = '# versions where the scope was already auto-granted.';
-            $lines[] = 'if [ -f /root/.openclaw/devices/paired.json ]; then';
-            $lines[] = '  cp /root/.openclaw/devices/paired.json /root/.openclaw/devices/paired.json.bak.$(date +%s)';
-            $lines[] = '  jq \'map_values(.scopes |= ((. // []) + ["operator.read"] | unique) | .approvedScopes |= ((. // []) + ["operator.read"] | unique) | (.tokens // {}) |= map_values(.scopes |= ((. // []) + ["operator.read"] | unique)))\' /root/.openclaw/devices/paired.json > /root/.openclaw/devices/paired.json.new && mv /root/.openclaw/devices/paired.json.new /root/.openclaw/devices/paired.json';
-            $lines[] = '  echo "{}" > /root/.openclaw/devices/pending.json';
-            $lines[] = '  systemctl --user restart openclaw-gateway';
-            $lines[] = '  sleep 5';
-            $lines[] = 'fi';
+            $lines[] = '# OpenClaw 2026.5.x pairs the local CLI with operator.pairing+read by';
+            $lines[] = '# default. Anything beyond that triggers a scope-upgrade pending request,';
+            $lines[] = '# and approving it requires operator.admin — which nobody on a fresh box';
+            $lines[] = '# has. Seed full operator scopes directly on disk so the install script';
+            $lines[] = '# (channel sync, browser profile registration, etc.) can drive the gateway.';
+            $lines[] = OperatorPairingPatch::buildScript();
+            $lines[] = 'systemctl --user restart openclaw-gateway 2>/dev/null || true';
+            $lines[] = 'sleep 5';
             $lines[] = '';
 
             // Gateway health check retry loop
@@ -286,12 +282,9 @@ OVERRIDE
             $lines[] = '    GATEWAY_READY=1';
             $lines[] = '    break';
             $lines[] = '  fi';
-            $lines[] = '  # Re-grant operator.read in case a new device pairing came in mid-startup';
-            $lines[] = '  if [ -f /root/.openclaw/devices/paired.json ]; then';
-            $lines[] = '    jq \'map_values(.scopes |= ((. // []) + ["operator.read"] | unique) | .approvedScopes |= ((. // []) + ["operator.read"] | unique) | (.tokens // {}) |= map_values(.scopes |= ((. // []) + ["operator.read"] | unique)))\' /root/.openclaw/devices/paired.json > /root/.openclaw/devices/paired.json.new 2>/dev/null && mv /root/.openclaw/devices/paired.json.new /root/.openclaw/devices/paired.json';
-            $lines[] = '    echo "{}" > /root/.openclaw/devices/pending.json';
-            $lines[] = '    systemctl --user restart openclaw-gateway 2>/dev/null || true';
-            $lines[] = '  fi';
+            $lines[] = '  # Re-seed scopes in case a new device paired mid-startup';
+            $lines[] = '  '.OperatorPairingPatch::buildScript();
+            $lines[] = '  systemctl --user restart openclaw-gateway 2>/dev/null || true';
             $lines[] = '  sleep $DELAY';
             $lines[] = 'done';
             $lines[] = '';
@@ -506,7 +499,7 @@ OVERRIDE
         // openclaw 2026.5.2+ requires a meta block; without it the gateway
         // rolls back to the previous "last-good" backup on next restart.
         $config['meta'] = [
-            'lastTouchedVersion' => $server->openclaw_version ?? '2026.5.2',
+            'lastTouchedVersion' => $server->openclaw_version ?? config('provision.openclaw_version'),
             'lastTouchedAt' => now()->toIso8601ZuluString('millisecond'),
         ];
 

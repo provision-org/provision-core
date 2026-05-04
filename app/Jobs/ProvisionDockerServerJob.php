@@ -149,7 +149,7 @@ class ProvisionDockerServerJob implements ShouldQueue
             ],
             // openclaw 2026.5.2+ requires a meta block to avoid auto-restore from backup.
             'meta' => [
-                'lastTouchedVersion' => $this->server->openclaw_version ?? '2026.5.2',
+                'lastTouchedVersion' => $this->server->openclaw_version ?? config('provision.openclaw_version'),
                 'lastTouchedAt' => now()->toIso8601ZuluString('millisecond'),
             ],
         ];

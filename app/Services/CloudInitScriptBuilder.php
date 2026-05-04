@@ -96,12 +96,14 @@ class CloudInitScriptBuilder
 
     private function openClawInstall(): string
     {
-        return <<<'BASH'
+        $version = config('provision.openclaw_version');
+
+        return <<<BASH
         ping_progress "installing_openclaw"
-        # Pinned to a known-good version. Bumped from 2026.4.15 to 2026.5.2 for
-        # `--method device-code` support on the openai-codex provider, which we
-        # rely on for ChatGPT subscription auth.
-        export OPENCLAW_VERSION=2026.5.2
+        # Version pinned via config('provision.openclaw_version'). 2026.5.3-1 is the
+        # first release where `devices approve` has a local-pairing fallback over
+        # loopback and the gateway no longer auto-clobbers config edits.
+        export OPENCLAW_VERSION={$version}
         curl -fsSL https://openclaw.ai/install.sh | bash || true
         command -v openclaw || { echo "OpenClaw install failed"; exit 1; }
 

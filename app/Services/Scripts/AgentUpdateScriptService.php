@@ -500,7 +500,7 @@ class AgentUpdateScriptService
         // openclaw 2026.5.2+ requires a meta block; without it the gateway
         // detects "missing-meta-vs-last-good" and rolls back to the prior backup.
         $config['meta'] = [
-            'lastTouchedVersion' => $server->openclaw_version ?? '2026.5.2',
+            'lastTouchedVersion' => $server->openclaw_version ?? config('provision.openclaw_version'),
             'lastTouchedAt' => now()->toIso8601ZuluString('millisecond'),
         ];
 
