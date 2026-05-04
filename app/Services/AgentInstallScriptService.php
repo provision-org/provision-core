@@ -242,15 +242,21 @@ class AgentInstallScriptService
             $lines[] = '';
         }
 
-        // 6. Set up per-agent browser display, Chrome, VNC, and Caddy route
+        // 6. Disable device pairing FIRST (gateway-aware mutation). Must run
+        // before buildBrowserDisplayScript: `openclaw config set` does a full
+        // "config overwrite" from the gateway's in-memory state, which wipes
+        // any direct file mutations the gateway hasn't hot-reloaded yet —
+        // including the c.browser.profiles.<name> entry written below.
+        $lines[] = '# Disable device pairing (auto-approve all channel senders)';
+        $lines[] = 'openclaw config set plugins.entries.device-pair.enabled false 2>/dev/null || true';
+        $lines[] = '';
+
+        // 7. Set up per-agent browser display, Chrome, VNC, and Caddy route.
+        // Writes c.browser.profiles.<name> directly to openclaw.json. The
+        // explicit gateway restart below picks it up.
         $profileName = self::browserProfileName($agent);
         $lines[] = '# Set up per-agent browser with isolated display and VNC';
         $lines[] = $this->buildBrowserDisplayScript($agent, $configFile);
-        $lines[] = '';
-
-        // 6b. Ensure device-pair stays disabled
-        $lines[] = '# Disable device pairing (auto-approve all channel senders)';
-        $lines[] = 'openclaw config set plugins.entries.device-pair.enabled false 2>/dev/null || true';
         $lines[] = '';
 
         // 7. Restart gateway so it picks up the new agent config
