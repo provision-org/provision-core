@@ -853,7 +853,7 @@ class AgentInstallScriptService
      */
     public static function buildBootstrapContent(Agent $agent): string
     {
-        $agent->loadMissing(['emailConnection', 'tools']);
+        $agent->loadMissing(['emailConnection', 'tools', 'webConnection']);
 
         $lines = [];
         $lines[] = "# Welcome to the team, {$agent->name}!";
@@ -870,17 +870,32 @@ class AgentInstallScriptService
             $lines[] = '';
         }
 
+        // How to talk to the user
+        $hasWebChat = (bool) $agent->webConnection;
+        if ($hasWebChat) {
+            $lines[] = '## How to talk to your team';
+            $lines[] = '';
+            $lines[] = 'Your primary communication surface is the **Provision web chat** — when the user opens you in the dashboard, your messages reach them directly there.';
+            $lines[] = 'You can send messages anytime, even unprompted (e.g. "I just opened a PR for review", "I need an API key for X").';
+            $lines[] = 'When you need credentials, an OAuth link clicked, or a decision — ask the user via web chat. They will reply.';
+            $lines[] = '';
+        }
+
         // Accounts & access setup
         $lines[] = '## Onboarding Checklist';
         $lines[] = '';
-        $lines[] = 'Work through these items one by one. Ask your team for help when you need access or credentials.';
+        $lines[] = 'Work through these items one by one. When you need access, credentials, or an OAuth authorization, ask the user via web chat.';
         $lines[] = '';
 
         $step = 1;
 
         // Always: introduce yourself
         $lines[] = "### {$step}. Introduce yourself";
-        $lines[] = 'Send a brief hello to your team. Let them know you are online and ready to get set up.';
+        if ($hasWebChat) {
+            $lines[] = 'Send a brief hello via the web chat. Tell the user who you are, your role, and that you are starting onboarding.';
+        } else {
+            $lines[] = 'Send a brief hello to your team. Let them know you are online and ready to get set up.';
+        }
         $lines[] = '';
         $step++;
 
@@ -911,10 +926,12 @@ class AgentInstallScriptService
         if ($tools->isNotEmpty()) {
             $lines[] = "### {$step}. Set up your tools";
             $lines[] = '';
-            $lines[] = 'You need access to the following tools. For each one:';
-            $lines[] = '1. Check your email for an invite from your team';
-            $lines[] = '2. If no invite, go to the website and sign up using your email and password from IDENTITY.md';
-            $lines[] = '3. Complete the onboarding for each tool';
+            $lines[] = 'You need access to the following tools. For each one, work through this order:';
+            $lines[] = '';
+            $lines[] = '1. **Try to sign up yourself** — open the tool\'s website in the browser and create an account using your email + password from IDENTITY.md.';
+            $lines[] = '2. **If the tool needs an API key** — sign in, find the API/integration settings, and grab the key. If you cannot create one without help, ask the user via web chat.';
+            $lines[] = '3. **If the tool requires OAuth** (e.g. Google Search Console, GitHub App install) — explain to the user via web chat what permission you need and ask them to authorize it. They will return with a link or token for you to save.';
+            $lines[] = '4. **Store secrets** in your agent `.env` file or under `~/.openclaw/agents/'.$agent->harness_agent_id.'/agent/auth-profiles.json`. NEVER write secrets to MEMORY.md or any committed file.';
             $lines[] = '';
             $lines[] = '| Tool | Website | Status |';
             $lines[] = '|------|---------|--------|';
@@ -923,7 +940,7 @@ class AgentInstallScriptService
                 $lines[] = "| {$tool->name} | {$url} | Pending |";
             }
             $lines[] = '';
-            $lines[] = 'Let your team know which tools you still need invites for.';
+            $lines[] = 'After each tool is connected, briefly tell the user via web chat that the integration is working and what you can do with it now.';
             $lines[] = '';
             $step++;
         } elseif ($agent->job_description) {
@@ -959,7 +976,7 @@ class AgentInstallScriptService
 
         $lines[] = '---';
         $lines[] = '';
-        $lines[] = '*Once onboarding is complete, you can delete this file: `rm BOOTSTRAP.md`*';
+        $lines[] = '*Once onboarding is complete, delete this file with `rm BOOTSTRAP.md` so OpenClaw stops including it in your project context.*';
 
         return implode("\n", $lines);
     }
