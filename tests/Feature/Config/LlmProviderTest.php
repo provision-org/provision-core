@@ -3,10 +3,11 @@
 use App\Enums\LlmProvider;
 
 test('all enum values exist', function () {
-    expect(LlmProvider::cases())->toHaveCount(3)
+    expect(LlmProvider::cases())->toHaveCount(4)
         ->and(LlmProvider::Anthropic->value)->toBe('anthropic')
         ->and(LlmProvider::OpenAi->value)->toBe('openai')
-        ->and(LlmProvider::OpenRouter->value)->toBe('open_router');
+        ->and(LlmProvider::OpenRouter->value)->toBe('open_router')
+        ->and(LlmProvider::OpenAiCodex->value)->toBe('openai_codex');
 });
 
 test('envKeyName returns correct env var names', function () {

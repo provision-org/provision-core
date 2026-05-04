@@ -31,5 +31,7 @@
         <env name="PULSE_ENABLED" value="false"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
         <env name="NIGHTWATCH_ENABLED" value="false"/>
+        <env name="MAILBOXKIT_API_KEY" value="test-mailboxkit-key"/>
+        <env name="CLOUD_PROVIDER" value="docker"/>
     </php>
 </phpunit>

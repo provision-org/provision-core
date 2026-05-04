@@ -163,4 +163,11 @@
       0 => 'Prism\\Prism\\PrismServiceProvider',
     ),
   ),
+  'provision/module-mailboxkit' => 
+  array (
+    'providers' => 
+    array (
+      0 => 'Provision\\MailboxKit\\MailboxKitServiceProvider',
+    ),
+  ),
 );

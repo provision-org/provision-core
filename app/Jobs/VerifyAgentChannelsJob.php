@@ -30,11 +30,12 @@ class VerifyAgentChannelsJob implements ShouldQueue
             return;
         }
 
-        $this->agent->loadMissing(['slackConnection', 'telegramConnection', 'discordConnection']);
+        $this->agent->loadMissing(['slackConnection', 'telegramConnection', 'discordConnection', 'webConnection']);
 
         $hasChannels = $this->agent->slackConnection?->bot_token
             || $this->agent->telegramConnection?->bot_token
-            || $this->agent->discordConnection?->token;
+            || $this->agent->discordConnection?->token
+            || $this->agent->webConnection?->webhook_secret;
 
         if (! $hasChannels) {
             Log::info("Agent {$this->agent->id} has no channels configured — skipping verification");
@@ -145,10 +146,13 @@ class VerifyAgentChannelsJob implements ShouldQueue
                 $issues[] = "Binding missing for {$channel}/{$expectedAccountId}";
             }
 
-            // Verify dmPolicy is open (not pairing — doctor can reset this)
-            $accountDmPolicy = $serverAccount['dmPolicy'] ?? null;
-            if ($serverAccount && $accountDmPolicy !== 'open') {
-                $issues[] = "Account {$expectedAccountId} has dmPolicy '{$accountDmPolicy}' instead of 'open'";
+            // Verify dmPolicy is open (not pairing — doctor can reset this).
+            // provision-web defines dmPolicy at the channel level, not per-account.
+            if ($serverAccount && $channel !== 'provision-web') {
+                $accountDmPolicy = $serverAccount['dmPolicy'] ?? null;
+                if ($accountDmPolicy !== 'open') {
+                    $issues[] = "Account {$expectedAccountId} has dmPolicy '{$accountDmPolicy}' instead of 'open'";
+                }
             }
         }
 

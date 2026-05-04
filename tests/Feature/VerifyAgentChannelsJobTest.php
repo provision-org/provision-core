@@ -28,28 +28,16 @@ test('it passes verification when config matches database', function () {
         'bot_token' => 'test-token-123',
     ]);
 
-    // Server config matches what the builder would produce
+    // Build the config exactly the way the builder would, so verification passes.
+    $builder = app(ChannelConfigBuilder::class);
+    $accounts = $builder->collectAccountsFromAgents(collect([$agent->fresh()]));
+    $built = $builder->buildConfig($accounts);
+
     $correctConfig = json_encode([
         'agents' => ['list' => [['id' => 'agent-verify', 'name' => $agent->name]]],
-        'channels' => [
-            'telegram' => [
-                'enabled' => true,
-                'dmPolicy' => 'open',
-                'allowFrom' => ['*'],
-                'accounts' => [
-                    'telegram-agent-verify' => [
-                        'name' => 'telegram-agent-verify',
-                        'botToken' => 'test-token-123',
-                        'dmPolicy' => 'open',
-                        'allowFrom' => ['*'],
-                    ],
-                ],
-            ],
-        ],
-        'bindings' => [
-            ['agentId' => 'agent-verify', 'match' => ['channel' => 'telegram', 'accountId' => 'telegram-agent-verify']],
-        ],
-        'plugins' => ['entries' => ['telegram' => ['enabled' => true]]],
+        'channels' => $built['channels'],
+        'bindings' => $built['bindings'],
+        'plugins' => ['entries' => $built['plugins']],
     ]);
 
     $sshService = Mockery::mock(SshService::class);
