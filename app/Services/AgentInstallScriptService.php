@@ -489,7 +489,7 @@ class AgentInstallScriptService
           const c = JSON.parse(fs.readFileSync(f));
           c.plugins = c.plugins || {};
           c.plugins.entries = c.plugins.entries || {};
-          c.plugins.entries.{$channel} = { enabled: true };
+          c.plugins.entries["{$channel}"] = { enabled: true };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;
@@ -1163,16 +1163,22 @@ class AgentInstallScriptService
     }
 
     /**
-     * npm install the provision-openclaw-web plugin so the gateway can load it.
+     * Register the provision-openclaw-web plugin with the gateway via the
+     * supported `openclaw plugins install` discovery path. This writes an
+     * install record into ~/.openclaw/plugins/installs.json so the loader
+     * marks the package as origin: "global". Plain `npm install -g` lands
+     * the package in /usr/lib/node_modules but that directory is not on
+     * any of OpenClaw's discovery paths, so the plugin would never load.
      * The version is pinned via config('provision.provision_web_plugin_version').
      */
     private function buildInstallProvisionWebPluginScript(): string
     {
         $version = config('provision.provision_web_plugin_version', 'latest');
+        $spec = $version === 'latest' ? 'provision-openclaw-web' : "provision-openclaw-web@{$version}";
 
         return <<<BASH
         # Install/refresh provision-openclaw-web at the pinned version
-        npm install -g provision-openclaw-web@{$version} 2>&1 || echo 'WARNING: provision-web plugin install failed; continuing'
+        openclaw plugins install --force {$spec} 2>&1 || echo 'WARNING: provision-web plugin install failed; continuing'
         BASH;
     }
 
