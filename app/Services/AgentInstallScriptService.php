@@ -126,6 +126,12 @@ class AgentInstallScriptService
         $lines[] = "test -d {$agentDir}/knowledge && ! -d {$agentDir}/workspace && mv {$agentDir}/knowledge {$agentDir}/workspace || true";
         $lines[] = "mkdir -p {$agentDir}/workspace";
 
+        // Per-agent media dir under the global media root. The agent workspace
+        // dir isn't threaded into OpenClaw 2026.5.3's channel-send allowlist,
+        // but /root/.openclaw/media/ is — using a per-agent subdir keeps media
+        // isolated while still being attachable from chat channels.
+        $lines[] = "mkdir -p /root/.openclaw/media/{$agentId}";
+
         // Initialize ByteRover memory for this agent (isolated per-agent .brv/ directory)
         $lines[] = "if [ ! -d {$agentDir}/.brv ] && command -v /root/.brv-cli/bin/brv &>/dev/null; then";
         $lines[] = "  cd {$agentDir} && /root/.brv-cli/bin/brv init 2>/dev/null || true";
@@ -186,7 +192,7 @@ class AgentInstallScriptService
         }
 
         $toolsMd .= "\n\n".self::envToolsMd($agent);
-        $toolsMd .= "\n\n".self::workspaceToolsMd();
+        $toolsMd .= "\n\n".self::workspaceToolsMd($agent);
         $toolsMd .= "\n\n".self::gitToolsMd();
         $toolsMd .= "\n\n".self::browserToolsMd($agent);
 
@@ -544,12 +550,16 @@ class AgentInstallScriptService
         ]);
     }
 
-    public static function workspaceToolsMd(): string
+    public static function workspaceToolsMd(Agent $agent): string
     {
+        $agentId = $agent->harness_agent_id;
+        $workspace = "/root/.openclaw/agents/{$agentId}";
+        $mediaDir = "/root/.openclaw/media/{$agentId}";
+
         return implode("\n", [
             '## Workspace',
             '',
-            'Your current working directory IS your workspace. Your team can see all files here from the dashboard.',
+            "Your workspace is `{$workspace}` — it's your current working directory and is isolated to you (other agents can't see it). Your team can browse files here from the dashboard.",
             '',
             '**Reading:** Your team may upload reference documents, data files, and instructions here.',
             'Use `ls` to see available files, then read them as needed.',
@@ -557,6 +567,12 @@ class AgentInstallScriptService
             '**Writing:** Save all work output here — research reports, CSV exports, code files, analysis, drafts, etc.',
             'Organize output in subdirectories when appropriate (e.g., `./research/`, `./exports/`).',
             'Do NOT delete files uploaded by your team unless explicitly asked to.',
+            '',
+            '## Sharing media via chat',
+            '',
+            "When you need to attach a file (screenshot, PDF, image) to a chat message — e.g., the `media` field on Telegram, Slack, Discord — save it to `{$mediaDir}/` first, then reference that absolute path. This directory is allowlisted for channel uploads; files in your workspace are not.",
+            '',
+            "Example: `openclaw browser screenshot --output {$mediaDir}/page.png` then attach `{$mediaDir}/page.png` to the message.",
         ]);
     }
 

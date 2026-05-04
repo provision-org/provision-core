@@ -236,7 +236,7 @@ class OpenClawDriver implements HarnessDriver
             $toolsMd .= "\n\n".AgentInstallScriptService::emailToolsMd($emailConnection);
         }
 
-        $toolsMd .= "\n\n".AgentInstallScriptService::workspaceToolsMd();
+        $toolsMd .= "\n\n".AgentInstallScriptService::workspaceToolsMd($agent);
         $toolsMd .= "\n\n".AgentInstallScriptService::gitToolsMd();
         $toolsMd .= "\n\n".AgentInstallScriptService::browserToolsMd($agent);
 

@@ -661,7 +661,7 @@ class AgentUpdateScriptService
             $toolsMd .= "\n\n".AgentInstallScriptService::emailToolsMd($agent->emailConnection);
         }
 
-        $toolsMd .= "\n\n".AgentInstallScriptService::workspaceToolsMd();
+        $toolsMd .= "\n\n".AgentInstallScriptService::workspaceToolsMd($agent);
         $toolsMd .= "\n\n".AgentInstallScriptService::gitToolsMd();
         $toolsMd .= "\n\n".AgentInstallScriptService::browserToolsMd($agent);
 
