@@ -240,6 +240,15 @@ export default function Chat({
                             setIsThinking(false);
                             setStreamingText(null);
                             break;
+
+                        case 'handoff':
+                            // OpenClaw agents flow through the provision-web
+                            // channel — the response comes via Reverb, not
+                            // this SSE stream. Reset to "thinking" until the
+                            // assistant message arrives via .chat.message.received.
+                            setStreamingText(null);
+                            setIsThinking(true);
+                            break;
                     }
                 });
 
