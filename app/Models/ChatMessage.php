@@ -96,6 +96,15 @@ class ChatMessage extends Model
                     return $block;
                 }
 
+                if (is_string($block['url'] ?? null) && $block['url'] !== '') {
+                    return [
+                        'type' => $block['type'],
+                        'url' => $block['url'],
+                        'fileName' => $block['fileName'] ?? basename(parse_url($block['url'], PHP_URL_PATH) ?: ''),
+                        'mimeType' => $block['mimeType'] ?? 'application/octet-stream',
+                    ];
+                }
+
                 $filename = basename($block['path'] ?? '');
                 if (! $filename) {
                     return null;

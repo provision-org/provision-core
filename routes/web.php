@@ -41,6 +41,11 @@ Route::get('/', function () {
 Route::get('auth/google', [GoogleController::class, 'redirect'])->name('auth.google');
 Route::get('auth/google/callback', [GoogleController::class, 'callback'])->name('auth.google.callback');
 
+// Signed chat attachment URLs — kept outside the auth group because the signed
+// middleware authenticates via the URL signature itself (used by external
+// channel plugins that fetch images without a session cookie).
+Route::get('chat-attachments/{conversation}/{filename}', [ChatController::class, 'attachment'])->name('agents.chat.attachment')->middleware('signed');
+
 // CLI authentication (requires login but not team/subscription)
 Route::middleware('auth')->group(function () {
     Route::get('auth/cli', [CliAuthController::class, 'show'])->name('cli.auth');
@@ -149,7 +154,6 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::get('agents/{agent}/chat/{conversation}', [ChatController::class, 'show'])->name('agents.chat.show');
         Route::post('agents/{agent}/chat/{conversation}', [ChatController::class, 'sendMessage'])->name('agents.chat.send');
         Route::post('agents/{agent}/chat/{conversation}/stream', [ChatController::class, 'stream'])->name('agents.chat.stream');
-        Route::get('chat-attachments/{conversation}/{filename}', [ChatController::class, 'attachment'])->name('agents.chat.attachment')->middleware('signed');
 
         Route::get('agents/{agent}/channels', [AgentController::class, 'channels'])->name('agents.channels');
 

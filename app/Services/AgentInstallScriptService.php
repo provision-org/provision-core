@@ -215,26 +215,34 @@ class AgentInstallScriptService
         $lines[] = '';
 
         // Write auth-profiles.json for OpenClaw's auth resolver.
-        // Includes both openrouter and openai-codex providers (OpenClaw's internal
-        // systems use openai-codex as fallback even with openrouter models).
+        // Includes openrouter always, and openai-codex only when the key is a
+        // real OpenAI key (not an OpenRouter `sk-or-...` key — those 401 against
+        // api.openai.com). For OpenRouter-only teams, ChatGPTAuthService later
+        // writes a proper OAuth openai-codex profile if/when the user signs in.
         $agent->loadMissing('server.team.apiKeys', 'server.team.managedApiKey');
         $team = $agent->server?->team;
         $managedKey = $team?->managedApiKey;
+        $openAiKey = $team?->apiKeys()->where('provider', LlmProvider::OpenAi)->where('is_active', true)->first();
         $openRouterKey = $team?->apiKeys()->where('provider', LlmProvider::OpenRouter)->where('is_active', true)->first();
         $apiKey = $openRouterKey?->api_key ?? $managedKey?->api_key;
+        $codexKey = $openAiKey?->api_key;
         if ($apiKey) {
+            $profiles = [
+                'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $apiKey],
+            ];
+            $order = [
+                'openrouter' => ['openrouter:default'],
+            ];
+            if ($codexKey) {
+                $profiles['openai-codex:default'] = ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $codexKey];
+                $order['openai-codex'] = ['openai-codex:default'];
+            }
             $authProfiles = json_encode([
-                'profiles' => [
-                    'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $apiKey],
-                    'openai-codex:default' => ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $apiKey],
-                ],
-                'order' => [
-                    'openrouter' => ['openrouter:default'],
-                    'openai-codex' => ['openai-codex:default'],
-                ],
+                'profiles' => $profiles,
+                'order' => $order,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
-            $lines[] = '# Write auth-profiles.json (OpenRouter + openai-codex providers)';
+            $lines[] = '# Write auth-profiles.json (OpenRouter always; openai-codex only with real OpenAI key)';
             $lines[] = "mkdir -p {$agentDir}/agent";
             $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
             // Also write to 'main' agent path (OpenClaw bug #24016 workaround)
@@ -580,9 +588,24 @@ class AgentInstallScriptService
             '',
             '## Sharing media via chat',
             '',
-            "When you need to attach a file (screenshot, PDF, image) to a chat message — e.g., the `media` field on Telegram, Slack, Discord — save it to `{$mediaDir}/` first, then reference that absolute path. This directory is allowlisted for channel uploads; files in your workspace are not.",
+            "Tools that produce media (e.g. `browser` action `screenshot`, `image_generate`) save the file under `/root/.openclaw/media/` and return the path in the tool result's `details.media.mediaUrl`. The runtime will replace your reply with `⚠️ Media failed.` if it can't find that exact file, so DO NOT retype or reformat the path from memory. The reliable recipe is:",
             '',
-            "Example: `openclaw browser screenshot --output {$mediaDir}/page.png` then attach `{$mediaDir}/page.png` to the message.",
+            '1. Call the media-producing tool (e.g. `browser` action `screenshot`).',
+            "2. Read the path from the tool result's `details.media.mediaUrl` (or its top-level `path` field). Pass that path verbatim through `exec` with a copy command into your media directory:",
+            '',
+            '```',
+            "cp '<path-from-tool-result>' '{$mediaDir}/share.png'",
+            '```',
+            '',
+            "3. Reply with a single MEDIA line pointing at the copy you just made — this filename never changes, so the agent doesn't have to remember a UUID:",
+            '',
+            '```',
+            'Here is the screenshot.',
+            '',
+            "MEDIA:{$mediaDir}/share.png",
+            '```',
+            '',
+            'Files in your workspace are NOT allowlisted for chat attachments — only `/root/.openclaw/media/` paths work.',
         ]);
     }
 
@@ -624,6 +647,12 @@ class AgentInstallScriptService
             '',
             '**IMPORTANT:** When using ANY browser tool, always pass `profile: "'.$profileName.'"` as a parameter.',
             'This ensures you use your own browser session and not the shared default.',
+            '',
+            '### Sending screenshots back to chat',
+            '',
+            'See "Sharing media via chat" in TOOLS.md — use the `exec cp` recipe to a fixed',
+            'filename. Don\'t MEDIA: the raw `details.media.mediaUrl` UUID directly; copy it',
+            'to your media directory under a stable name first.',
             '',
             'If you encounter a CAPTCHA or human verification that you cannot solve, tell your team member:',
             '"I need help with a verification step. Please check the Browser tab on my dashboard to take over."',

@@ -62,10 +62,16 @@ Route::prefix('tasks')->middleware('auth.agent-token')->group(function () {
 Route::prefix('agents/web-channel')->group(function () {
     Route::post('/inbound', [WebChannelController::class, 'inbound'])
         ->name('api.agents.web-channel.inbound');
+    Route::post('/activity', [WebChannelController::class, 'activity'])
+        ->name('api.agents.web-channel.activity');
+    Route::post('/stream-chunk', [WebChannelController::class, 'streamChunk'])
+        ->name('api.agents.web-channel.stream-chunk');
     Route::get('/{accountId}/stream', [WebChannelController::class, 'stream'])
         ->name('api.agents.web-channel.stream');
     Route::get('/{accountId}/probe', [WebChannelController::class, 'probe'])
         ->name('api.agents.web-channel.probe');
+    Route::post('/{accountId}/upload', [WebChannelController::class, 'upload'])
+        ->name('api.agents.web-channel.upload');
 });
 
 // Daemon API — authenticated via server daemon_token

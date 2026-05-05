@@ -1,6 +1,6 @@
 import { Head, usePage } from '@inertiajs/react';
 import { ArrowLeft } from 'lucide-react';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import ChatConversationList from '@/components/agents/chat-conversation-list';
 import ChatInput from '@/components/agents/chat-input';
@@ -94,6 +94,8 @@ export default function Chat({
     const lastStreamedMessageId = useRef<string | null>(null);
     const [isThinking, setIsThinking] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
+    const [activityLabel, setActivityLabel] = useState<string | null>(null);
+    const activeStreamId = useRef<string | null>(null);
 
     // Ref to avoid stale closures in useEcho callbacks
     const activeConversationRef = useRef(activeConversationId);
@@ -108,14 +110,16 @@ export default function Chat({
         sent_at: string;
     }>(`team.${teamId}`, '.chat.message.received', (data) => {
         if (data.chat_conversation_id === activeConversationRef.current) {
-            // Skip if we're streaming or if this message was already added by the stream
-            if (streamingText !== null) return;
+            // Skip if this message was already added by the stream
             if (data.id && data.id === lastStreamedMessageId.current) return;
             setMessages((prev) => {
                 if (prev.some((m) => m.id === data.id)) return prev;
                 return [...prev, data];
             });
             setIsThinking(false);
+            setActivityLabel(null);
+            setStreamingText(null);
+            activeStreamId.current = null;
         }
     });
 
@@ -136,9 +140,46 @@ export default function Chat({
             if (data.chat_conversation_id === activeConversationRef.current) {
                 setIsThinking(false);
                 setStreamingText(null);
+                setActivityLabel(null);
+                activeStreamId.current = null;
             }
         },
     );
+
+    useEcho<{
+        chat_conversation_id: string;
+        kind: string;
+        tool: string | null;
+        label: string | null;
+        phase: string | null;
+    }>(`team.${teamId}`, '.chat.agent.activity', (data) => {
+        if (data.chat_conversation_id !== activeConversationRef.current) return;
+        if (data.kind === 'idle') {
+            setActivityLabel(null);
+            return;
+        }
+        setActivityLabel(data.label ?? data.tool ?? null);
+        setIsThinking(true);
+    });
+
+    useEcho<{
+        chat_conversation_id: string;
+        stream_id: string;
+        delta: string;
+        cumulative: string;
+        is_final: boolean;
+    }>(`team.${teamId}`, '.chat.message.streaming', (data) => {
+        if (data.chat_conversation_id !== activeConversationRef.current) return;
+        if (data.is_final) {
+            setStreamingText(null);
+            activeStreamId.current = null;
+            return;
+        }
+        activeStreamId.current = data.stream_id;
+        setStreamingText(data.cumulative);
+        setActivityLabel(null);
+        setIsThinking(true);
+    });
 
     const loadConversation = useCallback(
         async (conversation: ChatConversation) => {
@@ -146,6 +187,8 @@ export default function Chat({
             setIsLoading(true);
             setIsThinking(false);
             setStreamingText(null);
+            setActivityLabel(null);
+            activeStreamId.current = null;
 
             try {
                 const res = await fetch(
@@ -164,6 +207,83 @@ export default function Chat({
         },
         [agent.id],
     );
+
+    // Polling fallback for environments where the Reverb WebSocket can't
+    // reach the browser (e.g. expose tunnels in dev). Lifecycle is gated on
+    // `activeConversationId` (not `isThinking`) so dismissing the typing
+    // indicator from inside the poll doesn't tear the loop down. The poll
+    // runs while `isThinkingRef.current` is true, dismisses the indicator on
+    // the first new assistant message, and continues for a few cycles past
+    // the last new message to catch trailing messages from agents that emit
+    // multiple blocks back-to-back.
+    const isThinkingRef = useRef(isThinking);
+    isThinkingRef.current = isThinking;
+
+    useEffect(() => {
+        if (!activeConversationId) return;
+
+        let stopped = false;
+        let attempts = 0;
+        const maxAttempts = 90; // 3 minutes at 2s cadence
+        let pollsSinceLastNew = 0;
+        const trailingIdleCycles = 5; // ~10s of quiet after last block before stopping
+        let firstReplySeen = false;
+
+        const poll = async () => {
+            if (stopped || attempts >= maxAttempts) return;
+            // Only poll while we're actively waiting for an assistant reply.
+            if (!isThinkingRef.current && !firstReplySeen) {
+                setTimeout(poll, 2000);
+                return;
+            }
+            attempts += 1;
+            try {
+                const res = await fetch(
+                    `/agents/${agent.id}/chat/${activeConversationId}`,
+                    { headers: fetchHeaders() },
+                );
+                const data = await res.json();
+                const fresh: ChatMessage[] = data.messages ?? [];
+
+                let foundNew = false;
+                setMessages((prev) => {
+                    const known = new Set(prev.map((m) => m.id));
+                    const newAssistant = fresh.filter(
+                        (m) =>
+                            m.role === 'assistant' && !known.has(m.id),
+                    );
+                    if (newAssistant.length === 0) return prev;
+                    foundNew = true;
+                    return [...prev, ...newAssistant];
+                });
+
+                if (foundNew) {
+                    pollsSinceLastNew = 0;
+                    if (!firstReplySeen) {
+                        firstReplySeen = true;
+                        setIsThinking(false);
+                        setStreamingText(null);
+                    }
+                } else if (firstReplySeen) {
+                    pollsSinceLastNew += 1;
+                    if (pollsSinceLastNew >= trailingIdleCycles) {
+                        stopped = true;
+                    }
+                }
+            } catch {
+                // ignore and retry
+            }
+            if (!stopped) {
+                setTimeout(poll, 2000);
+            }
+        };
+
+        const t = setTimeout(poll, 2000);
+        return () => {
+            stopped = true;
+            clearTimeout(t);
+        };
+    }, [activeConversationId, agent.id]);
 
     const handleNewChat = useCallback(() => {
         setActiveConversationId(null);
@@ -187,6 +307,8 @@ export default function Chat({
             };
             setMessages((prev) => [...prev, optimisticMsg]);
             setIsThinking(true);
+
+            let sawHandoff = false;
 
             try {
                 const res = await fetch(
@@ -243,18 +365,23 @@ export default function Chat({
 
                         case 'handoff':
                             // OpenClaw agents flow through the provision-web
-                            // channel — the response comes via Reverb, not
-                            // this SSE stream. Reset to "thinking" until the
-                            // assistant message arrives via .chat.message.received.
+                            // channel. The reply comes via Reverb or polling
+                            // fallback, not this stream — keep isThinking true
+                            // so the fallback effect stays armed after close.
+                            sawHandoff = true;
                             setStreamingText(null);
                             setIsThinking(true);
                             break;
                     }
                 });
 
-                // Ensure streaming state is cleared after stream ends
+                // Ensure streaming state is cleared after stream ends, but
+                // keep isThinking armed when handoff handed the reply off to
+                // an out-of-band channel.
                 setStreamingText(null);
-                setIsThinking(false);
+                if (!sawHandoff) {
+                    setIsThinking(false);
+                }
             } catch {
                 // Fallback: clear streaming and let Reverb handle the response
                 setStreamingText(null);
@@ -365,10 +492,15 @@ export default function Chat({
                             agent={agent}
                             isThinking={isThinking}
                             streamingText={streamingText}
+                            activityLabel={activityLabel}
                         />
                     )}
 
-                    <ChatInput onSend={handleSend} disabled={isThinking} />
+                    <ChatInput
+                        key={activeConversationId ?? 'new'}
+                        onSend={handleSend}
+                        disabled={isThinking}
+                    />
                 </div>
             </div>
         </AppLayout>
