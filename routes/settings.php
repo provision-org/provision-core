@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Settings\ApiTokenController;
 use App\Http\Controllers\Settings\CurrentTeamController;
+use App\Http\Controllers\Settings\EmailDomainController;
 use App\Http\Controllers\Settings\PasswordController;
 use App\Http\Controllers\Settings\ProfileController;
 use App\Http\Controllers\Settings\TeamController;
@@ -51,6 +52,12 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-profile-compl
     Route::get('settings/teams/{team}/provisioning', [TeamController::class, 'provisioning'])->name('teams.provisioning');
     Route::patch('settings/teams/{team}', [TeamController::class, 'update'])->name('teams.update');
     Route::delete('settings/teams/{team}', [TeamController::class, 'destroy'])->name('teams.destroy');
+
+    // Email domain (custom MailboxKit sending domain per team)
+    Route::get('settings/teams/{team}/email-domain', [EmailDomainController::class, 'show'])->name('teams.email-domain.show');
+    Route::post('settings/teams/{team}/email-domain', [EmailDomainController::class, 'store'])->name('teams.email-domain.store');
+    Route::post('settings/teams/{team}/email-domain/verify', [EmailDomainController::class, 'verify'])->name('teams.email-domain.verify');
+    Route::delete('settings/teams/{team}/email-domain', [EmailDomainController::class, 'destroy'])->name('teams.email-domain.destroy');
 
     // Slack Configuration Tokens
     Route::get('settings/teams/{team}/slack-config', [SlackConfigurationTokenController::class, 'create'])->name('teams.slack-config.create');

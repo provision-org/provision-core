@@ -99,18 +99,20 @@ export default function ChatMessageThread({
     agent,
     isThinking,
     streamingText,
+    activityLabel,
 }: {
     messages: ChatMessage[];
     agent: Agent;
     isThinking: boolean;
     streamingText: string | null;
+    activityLabel?: string | null;
 }) {
     const bottomRef = useRef<HTMLDivElement>(null);
     const isStreaming = streamingText !== null;
 
     useEffect(() => {
         bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [messages.length, isThinking, streamingText]);
+    }, [messages.length, isThinking, streamingText, activityLabel]);
 
     return (
         <div className="flex-1 overflow-y-auto px-4 py-4">
@@ -146,16 +148,23 @@ export default function ChatMessageThread({
                             agent={agent}
                             className="size-7 shrink-0 text-xs"
                         />
-                        <div className="rounded-2xl bg-muted px-4 py-2.5 text-sm">
-                            <div className="flex items-center gap-1">
-                                <span className="animate-bounce">·</span>
-                                <span className="animate-bounce [animation-delay:150ms]">
-                                    ·
-                                </span>
-                                <span className="animate-bounce [animation-delay:300ms]">
-                                    ·
-                                </span>
+                        <div className="space-y-1">
+                            <div className="rounded-2xl bg-muted px-4 py-2.5 text-sm">
+                                <div className="flex items-center gap-1">
+                                    <span className="animate-bounce">·</span>
+                                    <span className="animate-bounce [animation-delay:150ms]">
+                                        ·
+                                    </span>
+                                    <span className="animate-bounce [animation-delay:300ms]">
+                                        ·
+                                    </span>
+                                </div>
                             </div>
+                            {activityLabel && (
+                                <p className="px-1 text-xs text-muted-foreground">
+                                    {agent.name} is {activityLabel}…
+                                </p>
+                            )}
                         </div>
                     </div>
                 )}

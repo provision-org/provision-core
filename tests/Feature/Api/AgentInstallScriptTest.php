@@ -111,6 +111,49 @@ test('bootstrap content omits job-specific step when no job description', functi
         ->not->toContain('Review your job description');
 });
 
+test('bootstrap content tells the agent to use web chat when available', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->deploying()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-riley',
+        'name' => 'Riley',
+    ]);
+
+    // Observer auto-creates web connection on agent creation.
+    expect($agent->fresh()->webConnection)->not->toBeNull();
+
+    $content = AgentInstallScriptService::buildBootstrapContent($agent->fresh());
+    expect($content)
+        ->toContain('How to talk to your team')
+        ->toContain('Provision web chat')
+        ->toContain('ask the user via web chat');
+});
+
+test('bootstrap content credential pattern guides through API key + OAuth flows', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->deploying()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-riley-2',
+        'name' => 'Riley',
+    ]);
+    $agent->tools()->create([
+        'name' => 'Ahrefs',
+        'url' => 'https://ahrefs.com',
+        'category' => 'seo',
+    ]);
+
+    $content = AgentInstallScriptService::buildBootstrapContent($agent);
+    expect($content)
+        ->toContain('Try to sign up yourself')
+        ->toContain('OAuth')
+        ->toContain('NEVER write secrets to MEMORY.md')
+        ->toContain('| Ahrefs | [https://ahrefs.com]');
+});
+
 test('install script endpoint rejects invalid signature', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);

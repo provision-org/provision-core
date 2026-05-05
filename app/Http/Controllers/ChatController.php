@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Enums\AgentStatus;
 use App\Enums\ChatMessageRole;
+use App\Enums\HarnessType;
 use App\Events\ChatMessageReceivedEvent;
 use App\Http\Requests\SendChatMessageRequest;
 use App\Jobs\SendAgentChatMessageJob;
@@ -189,6 +190,28 @@ class ChatController extends Controller
         ]);
 
         $conversation->update(['last_message_at' => now()]);
+
+        // OpenClaw agents now flow through the provision-web channel plugin.
+        // The plugin polls our SSE for unsent user messages and the assistant
+        // reply comes back via /api/agents/web-channel/inbound, which
+        // broadcasts ChatMessageReceivedEvent. The web UI listens via Echo,
+        // so we just emit the saved user message and close the stream.
+        if ($agent->harness_type === HarnessType::OpenClaw) {
+            return new StreamedResponse(function () use ($userMessage) {
+                $this->sendSseEvent('message', [
+                    'id' => $userMessage->id,
+                    'chat_conversation_id' => $userMessage->chat_conversation_id,
+                    'role' => $userMessage->role->value,
+                    'content' => $userMessage->contentWithUrls(),
+                    'sent_at' => $userMessage->sent_at->toISOString(),
+                ]);
+                $this->sendSseEvent('handoff', ['transport' => 'provision-web']);
+            }, 200, [
+                'Content-Type' => 'text/event-stream',
+                'Cache-Control' => 'no-cache, no-store, must-revalidate',
+                'X-Accel-Buffering' => 'no',
+            ]);
+        }
 
         $textContent = $userMessage->textContent();
         $attachments = $this->buildAttachmentsFromMessage($userMessage);

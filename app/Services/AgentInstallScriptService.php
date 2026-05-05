@@ -110,6 +110,16 @@ class AgentInstallScriptService
             $lines[] = '';
         }
 
+        // 2d. Always add the provision-web channel — every agent gets one for in-app chat
+        $web = $agent->webConnection;
+        if ($web && $web->webhook_secret && $web->api_token) {
+            $lines[] = '# Install + configure provision-web channel plugin';
+            $lines[] = $this->buildInstallProvisionWebPluginScript();
+            $lines[] = $this->buildProvisionWebPatchScript($agent, $web, $configFile);
+            $lines[] = $this->buildEnableChannelPluginScript('provision-web', $configFile);
+            $lines[] = '';
+        }
+
         // 3. Install MailboxKit email skill if agent has email connection and module is active
         $emailConnection = $agent->emailConnection;
         $hasEmailModule = app()->bound(AgentEmailProvider::class);
@@ -205,26 +215,34 @@ class AgentInstallScriptService
         $lines[] = '';
 
         // Write auth-profiles.json for OpenClaw's auth resolver.
-        // Includes both openrouter and openai-codex providers (OpenClaw's internal
-        // systems use openai-codex as fallback even with openrouter models).
+        // Includes openrouter always, and openai-codex only when the key is a
+        // real OpenAI key (not an OpenRouter `sk-or-...` key — those 401 against
+        // api.openai.com). For OpenRouter-only teams, ChatGPTAuthService later
+        // writes a proper OAuth openai-codex profile if/when the user signs in.
         $agent->loadMissing('server.team.apiKeys', 'server.team.managedApiKey');
         $team = $agent->server?->team;
         $managedKey = $team?->managedApiKey;
+        $openAiKey = $team?->apiKeys()->where('provider', LlmProvider::OpenAi)->where('is_active', true)->first();
         $openRouterKey = $team?->apiKeys()->where('provider', LlmProvider::OpenRouter)->where('is_active', true)->first();
         $apiKey = $openRouterKey?->api_key ?? $managedKey?->api_key;
+        $codexKey = $openAiKey?->api_key;
         if ($apiKey) {
+            $profiles = [
+                'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $apiKey],
+            ];
+            $order = [
+                'openrouter' => ['openrouter:default'],
+            ];
+            if ($codexKey) {
+                $profiles['openai-codex:default'] = ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $codexKey];
+                $order['openai-codex'] = ['openai-codex:default'];
+            }
             $authProfiles = json_encode([
-                'profiles' => [
-                    'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $apiKey],
-                    'openai-codex:default' => ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $apiKey],
-                ],
-                'order' => [
-                    'openrouter' => ['openrouter:default'],
-                    'openai-codex' => ['openai-codex:default'],
-                ],
+                'profiles' => $profiles,
+                'order' => $order,
             ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
-            $lines[] = '# Write auth-profiles.json (OpenRouter + openai-codex providers)';
+            $lines[] = '# Write auth-profiles.json (OpenRouter always; openai-codex only with real OpenAI key)';
             $lines[] = "mkdir -p {$agentDir}/agent";
             $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
             // Also write to 'main' agent path (OpenClaw bug #24016 workaround)
@@ -479,7 +497,7 @@ class AgentInstallScriptService
           const c = JSON.parse(fs.readFileSync(f));
           c.plugins = c.plugins || {};
           c.plugins.entries = c.plugins.entries || {};
-          c.plugins.entries.{$channel} = { enabled: true };
+          c.plugins.entries["{$channel}"] = { enabled: true };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;
@@ -570,9 +588,24 @@ class AgentInstallScriptService
             '',
             '## Sharing media via chat',
             '',
-            "When you need to attach a file (screenshot, PDF, image) to a chat message — e.g., the `media` field on Telegram, Slack, Discord — save it to `{$mediaDir}/` first, then reference that absolute path. This directory is allowlisted for channel uploads; files in your workspace are not.",
+            "Tools that produce media (e.g. `browser` action `screenshot`, `image_generate`) save the file under `/root/.openclaw/media/` and return the path in the tool result's `details.media.mediaUrl`. The runtime will replace your reply with `⚠️ Media failed.` if it can't find that exact file, so DO NOT retype or reformat the path from memory. The reliable recipe is:",
             '',
-            "Example: `openclaw browser screenshot --output {$mediaDir}/page.png` then attach `{$mediaDir}/page.png` to the message.",
+            '1. Call the media-producing tool (e.g. `browser` action `screenshot`).',
+            "2. Read the path from the tool result's `details.media.mediaUrl` (or its top-level `path` field). Pass that path verbatim through `exec` with a copy command into your media directory:",
+            '',
+            '```',
+            "cp '<path-from-tool-result>' '{$mediaDir}/share.png'",
+            '```',
+            '',
+            "3. Reply with a single MEDIA line pointing at the copy you just made — this filename never changes, so the agent doesn't have to remember a UUID:",
+            '',
+            '```',
+            'Here is the screenshot.',
+            '',
+            "MEDIA:{$mediaDir}/share.png",
+            '```',
+            '',
+            'Files in your workspace are NOT allowlisted for chat attachments — only `/root/.openclaw/media/` paths work.',
         ]);
     }
 
@@ -614,6 +647,12 @@ class AgentInstallScriptService
             '',
             '**IMPORTANT:** When using ANY browser tool, always pass `profile: "'.$profileName.'"` as a parameter.',
             'This ensures you use your own browser session and not the shared default.',
+            '',
+            '### Sending screenshots back to chat',
+            '',
+            'See "Sharing media via chat" in TOOLS.md — use the `exec cp` recipe to a fixed',
+            'filename. Don\'t MEDIA: the raw `details.media.mediaUrl` UUID directly; copy it',
+            'to your media directory under a stable name first.',
             '',
             'If you encounter a CAPTCHA or human verification that you cannot solve, tell your team member:',
             '"I need help with a verification step. Please check the Browser tab on my dashboard to take over."',
@@ -843,7 +882,7 @@ class AgentInstallScriptService
      */
     public static function buildBootstrapContent(Agent $agent): string
     {
-        $agent->loadMissing(['emailConnection', 'tools']);
+        $agent->loadMissing(['emailConnection', 'tools', 'webConnection']);
 
         $lines = [];
         $lines[] = "# Welcome to the team, {$agent->name}!";
@@ -860,17 +899,32 @@ class AgentInstallScriptService
             $lines[] = '';
         }
 
+        // How to talk to the user
+        $hasWebChat = (bool) $agent->webConnection;
+        if ($hasWebChat) {
+            $lines[] = '## How to talk to your team';
+            $lines[] = '';
+            $lines[] = 'Your primary communication surface is the **Provision web chat** — when the user opens you in the dashboard, your messages reach them directly there.';
+            $lines[] = 'You can send messages anytime, even unprompted (e.g. "I just opened a PR for review", "I need an API key for X").';
+            $lines[] = 'When you need credentials, an OAuth link clicked, or a decision — ask the user via web chat. They will reply.';
+            $lines[] = '';
+        }
+
         // Accounts & access setup
         $lines[] = '## Onboarding Checklist';
         $lines[] = '';
-        $lines[] = 'Work through these items one by one. Ask your team for help when you need access or credentials.';
+        $lines[] = 'Work through these items one by one. When you need access, credentials, or an OAuth authorization, ask the user via web chat.';
         $lines[] = '';
 
         $step = 1;
 
         // Always: introduce yourself
         $lines[] = "### {$step}. Introduce yourself";
-        $lines[] = 'Send a brief hello to your team. Let them know you are online and ready to get set up.';
+        if ($hasWebChat) {
+            $lines[] = 'Send a brief hello via the web chat. Tell the user who you are, your role, and that you are starting onboarding.';
+        } else {
+            $lines[] = 'Send a brief hello to your team. Let them know you are online and ready to get set up.';
+        }
         $lines[] = '';
         $step++;
 
@@ -901,10 +955,12 @@ class AgentInstallScriptService
         if ($tools->isNotEmpty()) {
             $lines[] = "### {$step}. Set up your tools";
             $lines[] = '';
-            $lines[] = 'You need access to the following tools. For each one:';
-            $lines[] = '1. Check your email for an invite from your team';
-            $lines[] = '2. If no invite, go to the website and sign up using your email and password from IDENTITY.md';
-            $lines[] = '3. Complete the onboarding for each tool';
+            $lines[] = 'You need access to the following tools. For each one, work through this order:';
+            $lines[] = '';
+            $lines[] = '1. **Try to sign up yourself** — open the tool\'s website in the browser and create an account using your email + password from IDENTITY.md.';
+            $lines[] = '2. **If the tool needs an API key** — sign in, find the API/integration settings, and grab the key. If you cannot create one without help, ask the user via web chat.';
+            $lines[] = '3. **If the tool requires OAuth** (e.g. Google Search Console, GitHub App install) — explain to the user via web chat what permission you need and ask them to authorize it. They will return with a link or token for you to save.';
+            $lines[] = '4. **Store secrets** in your agent `.env` file or under `~/.openclaw/agents/'.$agent->harness_agent_id.'/agent/auth-profiles.json`. NEVER write secrets to MEMORY.md or any committed file.';
             $lines[] = '';
             $lines[] = '| Tool | Website | Status |';
             $lines[] = '|------|---------|--------|';
@@ -913,7 +969,7 @@ class AgentInstallScriptService
                 $lines[] = "| {$tool->name} | {$url} | Pending |";
             }
             $lines[] = '';
-            $lines[] = 'Let your team know which tools you still need invites for.';
+            $lines[] = 'After each tool is connected, briefly tell the user via web chat that the integration is working and what you can do with it now.';
             $lines[] = '';
             $step++;
         } elseif ($agent->job_description) {
@@ -949,7 +1005,7 @@ class AgentInstallScriptService
 
         $lines[] = '---';
         $lines[] = '';
-        $lines[] = '*Once onboarding is complete, you can delete this file: `rm BOOTSTRAP.md`*';
+        $lines[] = '*Once onboarding is complete, delete this file with `rm BOOTSTRAP.md` so OpenClaw stops including it in your project context.*';
 
         return implode("\n", $lines);
     }
@@ -1130,6 +1186,70 @@ class AgentInstallScriptService
           };
           c.bindings = (c.bindings || []).filter(b => !(b.agentId === cfg.agentId && b.match && b.match.channel === "discord"));
           c.bindings.push({ agentId: cfg.agentId, match: { channel: "discord", accountId: cfg.accountId } });
+          fs.writeFileSync(f, JSON.stringify(c, null, 2));
+        '
+        BASH;
+    }
+
+    /**
+     * Register the provision-openclaw-web plugin with the gateway via the
+     * supported `openclaw plugins install` discovery path. This writes an
+     * install record into ~/.openclaw/plugins/installs.json so the loader
+     * marks the package as origin: "global". Plain `npm install -g` lands
+     * the package in /usr/lib/node_modules but that directory is not on
+     * any of OpenClaw's discovery paths, so the plugin would never load.
+     * The version is pinned via config('provision.provision_web_plugin_version').
+     */
+    private function buildInstallProvisionWebPluginScript(): string
+    {
+        $version = config('provision.provision_web_plugin_version', 'latest');
+        $spec = $version === 'latest' ? 'provision-openclaw-web' : "provision-openclaw-web@{$version}";
+
+        return <<<BASH
+        # Install/refresh provision-openclaw-web at the pinned version
+        openclaw plugins install --force {$spec} 2>&1 || echo 'WARNING: provision-web plugin install failed; continuing'
+        BASH;
+    }
+
+    /**
+     * Patch openclaw.json with the provision-web channel + account + binding.
+     * The channel plugin reads webhookSecret/apiToken/webhookUrl/streamUrl from
+     * c.channels["provision-web"].accounts[<accountId>].
+     */
+    private function buildProvisionWebPatchScript(Agent $agent, mixed $web, string $configFile): string
+    {
+        $agentId = $agent->harness_agent_id;
+        $appUrl = rtrim((string) config('app.url'), '/');
+
+        $encodedConfig = base64_encode(json_encode([
+            'accountId' => $web->account_id,
+            'agentId' => $agentId,
+            'webhookSecret' => $web->webhook_secret,
+            'apiToken' => $web->api_token,
+            'apiUrl' => $appUrl,
+            'webhookUrl' => $appUrl.'/api/agents/web-channel/inbound',
+            'streamUrl' => $appUrl.'/api/agents/web-channel/'.$web->account_id.'/stream',
+        ]));
+
+        return <<<BASH
+        node -e '
+          const fs = require("fs");
+          const f = "{$configFile}";
+          const c = JSON.parse(fs.readFileSync(f));
+          const cfg = JSON.parse(Buffer.from("{$encodedConfig}", "base64").toString());
+          c.channels = c.channels || {};
+          c.channels["provision-web"] = c.channels["provision-web"] || { enabled: true, dmPolicy: "open", allowFrom: ["*"], apiUrl: cfg.apiUrl };
+          c.channels["provision-web"].apiUrl = cfg.apiUrl;
+          c.channels["provision-web"].accounts = c.channels["provision-web"].accounts || {};
+          c.channels["provision-web"].accounts[cfg.accountId] = {
+            name: cfg.accountId,
+            webhookSecret: cfg.webhookSecret,
+            apiToken: cfg.apiToken,
+            webhookUrl: cfg.webhookUrl,
+            streamUrl: cfg.streamUrl
+          };
+          c.bindings = (c.bindings || []).filter(b => !(b.agentId === cfg.agentId && b.match && b.match.channel === "provision-web"));
+          c.bindings.push({ agentId: cfg.agentId, match: { channel: "provision-web", accountId: cfg.accountId } });
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;

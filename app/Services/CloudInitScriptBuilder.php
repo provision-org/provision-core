@@ -61,6 +61,18 @@ class CloudInitScriptBuilder
         ping_progress "installing_vnc"
         apt-get install -y --no-install-recommends xvfb x11vnc novnc python3-websockify
 
+        # Install image-processing runtimes used by agent screenshot/canvas
+        # tools (sharp/libvips, node-canvas backends). Without these the
+        # browser plugin's screenshot encoding fails with "missing image library".
+        ping_progress "installing_image_libs"
+        apt-get install -y --no-install-recommends \
+          libvips42 \
+          libcairo2 \
+          libpango-1.0-0 \
+          libjpeg-turbo8 \
+          libgif7 \
+          librsvg2-2
+
         # Install Caddy (reverse proxy with automatic Let's Encrypt TLS)
         ping_progress "installing_caddy"
         curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
@@ -106,6 +118,11 @@ class CloudInitScriptBuilder
         export OPENCLAW_VERSION={$version}
         curl -fsSL https://openclaw.ai/install.sh | bash || true
         command -v openclaw || { echo "OpenClaw install failed"; exit 1; }
+
+        # OpenClaw's browser:screenshot tool requires `sharp` for image attachment
+        # processing. Without it the agent gets "Optional dependency sharp is required"
+        # and never delivers the screenshot bytes.
+        (cd /usr/lib/node_modules/openclaw && npm install sharp --no-save) || true
 
         # Install QMD memory backend for improved agent recall
         npm install -g qmd 2>/dev/null || true

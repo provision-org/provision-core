@@ -10,4 +10,6 @@ return [
     'provisiond_version' => env('PROVISIOND_VERSION', '0.3.0'),
 
     'openclaw_version' => env('OPENCLAW_VERSION', '2026.5.3-1'),
+
+    'provision_web_plugin_version' => env('PROVISION_WEB_PLUGIN_VERSION', 'latest'),
 ];

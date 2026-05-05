@@ -7,7 +7,9 @@ use App\Enums\AgentRole;
 use App\Enums\AgentStatus;
 use App\Enums\HarnessType;
 use App\Enums\LlmProvider;
+use App\Observers\AgentObserver;
 use Database\Factories\AgentFactory;
+use Illuminate\Database\Eloquent\Attributes\ObservedBy;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -18,6 +20,7 @@ use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Support\Str;
 use Provision\Skills\Models\Skill;
 
+#[ObservedBy(AgentObserver::class)]
 class Agent extends Model
 {
     /** @use HasFactory<AgentFactory> */
@@ -173,6 +176,14 @@ class Agent extends Model
     public function discordConnection(): HasOne
     {
         return $this->hasOne(AgentDiscordConnection::class);
+    }
+
+    /**
+     * @return HasOne<AgentWebConnection, $this>
+     */
+    public function webConnection(): HasOne
+    {
+        return $this->hasOne(AgentWebConnection::class);
     }
 
     /**

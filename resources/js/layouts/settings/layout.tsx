@@ -55,6 +55,11 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
                       href: `/settings/teams/${currentTeamId}/slack-config`,
                       icon: null,
                   } as NavItem,
+                  {
+                      title: 'Email domain',
+                      href: `/settings/teams/${currentTeamId}/email-domain`,
+                      icon: null,
+                  } as NavItem,
               ]
             : []),
     ];
