@@ -11,5 +11,6 @@ export type SharedData = {
     teams: Team[];
     sidebarOpen: boolean;
     wallet: CreditWallet | null;
+    posthog: { key: string; host: string } | null;
     [key: string]: unknown;
 };

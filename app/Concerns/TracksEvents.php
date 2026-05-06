@@ -2,12 +2,12 @@
 
 namespace App\Concerns;
 
-use App\Services\MixpanelService;
+use App\Services\AnalyticsService;
 
 trait TracksEvents
 {
-    protected function mixpanel(): MixpanelService
+    protected function analytics(): AnalyticsService
     {
-        return app(MixpanelService::class);
+        return app(AnalyticsService::class);
     }
 }

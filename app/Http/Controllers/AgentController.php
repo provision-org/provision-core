@@ -31,6 +31,7 @@ use App\Models\Team;
 use App\Models\TeamPack;
 use App\Services\AgentInstallScriptService;
 use App\Services\AgentTemplateService;
+use App\Services\ChatGPTAuthService;
 use App\Services\Harness\HermesDriver;
 use App\Services\ModuleRegistry;
 use App\Services\ServerProvisioningDispatcher;
@@ -274,10 +275,13 @@ class AgentController extends Controller
 
         GenerateAgentAvatarJob::dispatch($agent);
 
-        $this->mixpanel()->track($request->user(), 'Agent Created', [
+        $this->analytics()->track($request->user(), 'Agent Created', [
+            'agent_id' => $agent->id,
             'agent_name' => $agent->name,
             'role' => $agent->role?->value ?? 'custom',
             'model' => $agent->model_primary,
+            'auth_provider' => $agent->auth_provider,
+            'harness_type' => $agent->harness_type?->value,
         ]);
 
         // ChatGPT-billed agents need the openclaw agent dir + auth-profiles.json
@@ -630,7 +634,7 @@ class AgentController extends Controller
         Request $request,
         Agent $agent,
         SlackAppCleanupService $slackCleanup,
-        \App\Services\ChatGPTAuthService $chatgptAuth,
+        ChatGPTAuthService $chatgptAuth,
     ): RedirectResponse {
         $team = $request->user()->currentTeam;
 
@@ -675,6 +679,12 @@ class AgentController extends Controller
         }
 
         Mail::to($request->user()->email)->send(new AgentDeletedMail($agentName, $team));
+
+        $this->analytics()->track($request->user(), 'Agent Deleted', [
+            'agent_id' => $agent->id,
+            'agent_name' => $agentName,
+            'role' => $agent->role?->value ?? 'custom',
+        ]);
 
         return to_route('agents.index');
     }

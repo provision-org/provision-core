@@ -48,10 +48,6 @@ return [
         'provisioning_api_key' => env('OPENROUTER_PROVISIONING_API_KEY'),
     ],
 
-    'mixpanel' => [
-        'token' => env('MIXPANEL_TOKEN'),
-    ],
-
     'google' => [
         'client_id' => env('GOOGLE_CLIENT_ID'),
         'client_secret' => env('GOOGLE_CLIENT_SECRET'),
@@ -60,6 +56,11 @@ return [
 
     'calendly' => [
         'url' => env('CALENDLY_URL'),
+    ],
+
+    'posthog' => [
+        'key' => env('POSTHOG_KEY'),
+        'host' => env('POSTHOG_HOST', 'https://us.i.posthog.com'),
     ],
 
 ];

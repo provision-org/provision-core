@@ -2,12 +2,12 @@
 
 namespace App\Observers;
 
-use App\Services\MixpanelService;
+use App\Services\AnalyticsService;
 use Illuminate\Database\Eloquent\Model;
 
 class ChannelConnectionObserver
 {
-    public function __construct(private MixpanelService $mixpanel) {}
+    public function __construct(private AnalyticsService $analytics) {}
 
     public function created(Model $connection): void
     {
@@ -28,8 +28,9 @@ class ChannelConnectionObserver
             default => 'unknown',
         };
 
-        $this->mixpanel->track($user, 'Channel Connected', [
+        $this->analytics->track($user, 'Channel Connected', [
             'channel' => $channel,
+            'agent_id' => $agent->id,
             'agent_name' => $agent->name,
         ]);
     }

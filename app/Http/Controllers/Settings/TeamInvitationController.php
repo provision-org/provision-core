@@ -7,6 +7,7 @@ use App\Http\Requests\Settings\InviteTeamMemberRequest;
 use App\Mail\TeamInvitationMail;
 use App\Models\Team;
 use App\Models\TeamInvitation;
+use App\Services\AnalyticsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -14,6 +15,8 @@ use Illuminate\Validation\ValidationException;
 
 class TeamInvitationController extends Controller
 {
+    public function __construct(private AnalyticsService $analytics) {}
+
     /**
      * Invite a new team member.
      */
@@ -40,6 +43,11 @@ class TeamInvitationController extends Controller
 
         Mail::to($request->email)->send(new TeamInvitationMail($invitation));
 
+        $this->analytics->track($request->user(), 'Team Member Invited', [
+            'team_id' => $team->id,
+            'role' => $request->role,
+        ]);
+
         return back();
     }
 
@@ -59,6 +67,11 @@ class TeamInvitationController extends Controller
         $request->user()->switchTeam($team);
 
         $invitation->delete();
+
+        $this->analytics->track($request->user(), 'Team Member Joined', [
+            'team_id' => $team->id,
+            'role' => $invitation->role->value,
+        ]);
 
         return to_route('teams.show', $team);
     }

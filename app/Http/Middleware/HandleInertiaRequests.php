@@ -74,6 +74,24 @@ class HandleInertiaRequests extends Middleware
             ],
             'modules' => fn () => app(ModuleRegistry::class)->sharedProps($request),
             'googleAuthEnabled' => (bool) config('services.google.client_id'),
+            'posthog' => $this->posthogConfig(),
+        ];
+    }
+
+    /**
+     * @return array{key: string, host: string}|null
+     */
+    private function posthogConfig(): ?array
+    {
+        $key = config('services.posthog.key');
+
+        if (! is_string($key) || $key === '') {
+            return null;
+        }
+
+        return [
+            'key' => $key,
+            'host' => (string) config('services.posthog.host'),
         ];
     }
 }
