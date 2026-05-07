@@ -21,7 +21,13 @@ export type UseCurrentUrlReturn = {
 
 export function useCurrentUrl(): UseCurrentUrlReturn {
     const page = usePage();
-    const currentUrlPath = new URL(page.url, window?.location.origin).pathname;
+    // During SSR `window` is undefined; new URL needs a base for relative
+    // paths. The base only matters for parsing — we extract pathname after.
+    const baseOrigin =
+        typeof window !== 'undefined'
+            ? window.location.origin
+            : 'http://localhost';
+    const currentUrlPath = new URL(page.url, baseOrigin).pathname;
 
     const isCurrentUrl: IsCurrentUrlFn = (
         urlToCheck: NonNullable<InertiaLinkProps['href']>,

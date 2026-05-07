@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::create('chat_conversations', function (Blueprint $table) {
             $table->ulid('id')->primary();
             $table->foreignUlid('agent_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignUlid('user_id')->constrained()->cascadeOnDelete();
             $table->string('title')->nullable();
             $table->string('session_key')->unique();
             $table->timestamp('last_message_at')->nullable();

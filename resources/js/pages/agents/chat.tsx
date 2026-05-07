@@ -414,18 +414,27 @@ export default function Chat({
                         body: formData,
                         headers: fetchHeaders(),
                     });
+
+                    if (!res.ok) {
+                        throw new Error(`Server returned ${res.status}`);
+                    }
+
                     const data = await res.json();
 
-                    const newConv = data.conversation;
-                    setConversations((prev) => [newConv, ...prev]);
-                    setActiveConversationId(newConv.id);
+                    if (!data?.conversation?.id || !data?.message) {
+                        throw new Error('Malformed response from server');
+                    }
+
+                    setConversations((prev) => [data.conversation, ...prev]);
+                    setActiveConversationId(data.conversation.id);
                     setMessages([data.message]);
 
                     // The job was already dispatched by store(), so use
                     // Reverb for the response (streaming will be used
-                    // on subsequent messages in this conversation)
-                } catch {
+                    // on subsequent messages in this conversation).
+                } catch (err) {
                     setIsThinking(false);
+                    console.error('Failed to start chat conversation', err);
                 }
             }
         },
