@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Jobs\FinalizeChatGPTAuthJob;
 use App\Models\Agent;
 use App\Support\OperatorPairingPatch;
 use Carbon\Carbon;
@@ -116,6 +117,13 @@ class ChatGPTAuthService
             $profileId = $profile['key'];
             $value = $profile['value'];
 
+            // Idempotency: if we've already finalized this email, skip the heavy
+            // post-pairing work and just return the active state. Polling the
+            // endpoint a second time after navigation shouldn't re-dispatch the
+            // gateway restart.
+            $alreadyFinalized = $agent->chatgpt_email === ($value['email'] ?? null)
+                && $agent->auth_provider === 'chatgpt';
+
             $agent->update([
                 'auth_provider' => 'chatgpt',
                 'chatgpt_email' => $value['email'] ?? null,
@@ -127,29 +135,14 @@ class ChatGPTAuthService
                     : null,
             ]);
 
-            $this->sshService->exec(sprintf(
-                'openclaw models --agent %s auth order set --provider openai-codex %s 2>&1',
-                escapeshellarg($agent->harness_agent_id),
-                escapeshellarg($profileId),
-            ));
-
-            // Remove the synthesized openai-codex:default api_key so it can't out-rank
-            // the OAuth profile on subsequent runs (the env var OPENAI_API_KEY also
-            // synthesizes one at runtime, but auth-state.json's order has the OAuth
-            // profile pinned first, which wins).
-            $this->sshService->exec(sprintf(
-                "jq 'del(.profiles.\"openai-codex:default\")' %s/auth-profiles.json > %s/auth-profiles.json.tmp && mv %s/auth-profiles.json.tmp %s/auth-profiles.json 2>/dev/null || true",
-                $agentDir,
-                $agentDir,
-                $agentDir,
-                $agentDir,
-            ));
-
-            $this->sshService->exec("tmux kill-session -t {$session} 2>/dev/null; true");
-
-            $this->sshService->exec(
-                'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway',
-            );
+            // Dispatch the slow post-pairing work (auth order pin, profile cleanup,
+            // tmux kill, gateway restart) so the polling endpoint can return fast
+            // and the modal can flip to its success state immediately. Without
+            // this, each poll would block on ~10-30s of SSH and the UI would
+            // appear stuck on the device-code screen.
+            if (! $alreadyFinalized) {
+                FinalizeChatGPTAuthJob::dispatch($agent, $profileId, $session);
+            }
 
             return [
                 'state' => 'active',
@@ -158,6 +151,7 @@ class ChatGPTAuthService
                 'expires_at' => isset($value['expires'])
                     ? Carbon::createFromTimestampMs($value['expires'])->toIso8601String()
                     : null,
+                'redirect_to' => route('agents.setup', $agent),
             ];
         } finally {
             $this->sshService->disconnect();

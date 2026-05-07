@@ -291,7 +291,20 @@ export default function Chat({
         let firstReplySeen = false;
 
         const poll = async () => {
-            if (stopped || attempts >= maxAttempts) return;
+            if (stopped) return;
+            // If we've waited the full window without any reply, surface a
+            // soft failure: dismiss the typing indicator and re-enable the
+            // composer so the user isn't stuck. The kickoff message can be
+            // dropped during a gateway restart cycle, and without this
+            // recovery the chat would lock up indefinitely.
+            if (attempts >= maxAttempts) {
+                if (!firstReplySeen) {
+                    setIsThinking(false);
+                    setStreamingText(null);
+                }
+                stopped = true;
+                return;
+            }
             // Only poll while we're actively waiting for an assistant reply.
             if (!isThinkingRef.current && !firstReplySeen) {
                 setTimeout(poll, 2000);

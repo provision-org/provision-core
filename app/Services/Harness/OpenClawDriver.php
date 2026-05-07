@@ -485,8 +485,11 @@ BASH;
                 OpenClawConfig::toJson($config)
             );
 
-            // Restart gateway to pick up new config
-            $executor->exec('export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway 2>&1 || true');
+            // Defer the gateway restart to RestartGatewayJob so it coalesces
+            // with the install-script restart and any VerifyAgentChannelsJob
+            // restart that follows. Direct systemctl calls here used to stack
+            // 3 restarts on top of each other, dropping in-flight chat messages.
+            RestartGatewayJob::dispatch($server);
 
             Log::info("Rebuilt all channel configs for server {$server->id} ({$agentCount} agents)");
         } catch (\RuntimeException $e) {

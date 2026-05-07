@@ -16,6 +16,7 @@ type StatusResponse = {
     email?: string;
     plan_type?: string;
     expires_at?: string;
+    redirect_to?: string;
 };
 
 type Phase = 'idle' | 'connecting' | 'requesting' | 'ready';
@@ -119,9 +120,17 @@ export function ChatGPTAuthCard({ agent }: { agent: Agent }) {
             if (data.state === 'active') {
                 if (pollRef.current) window.clearInterval(pollRef.current);
 
+                // Hold the success state on screen for a beat so the user
+                // sees confirmation, then navigate. router.visit beats
+                // router.reload here — partial reloads can short-circuit
+                // controller-level redirects (the connect-chatgpt action
+                // sends users back to /setup once chatgpt_email is set,
+                // and we want that redirect honored).
                 window.setTimeout(() => {
                     setOpen(false);
-                    router.reload({ only: ['agent'] });
+                    router.visit(
+                        data.redirect_to ?? `/agents/${agent.id}/setup`,
+                    );
                 }, 1500);
             }
 

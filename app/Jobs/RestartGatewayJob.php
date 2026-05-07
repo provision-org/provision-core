@@ -12,16 +12,38 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
 class RestartGatewayJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    /**
+     * Window during which back-to-back restarts collapse into one. Adding a
+     * second agent dispatches three restarts in quick succession (install
+     * script + rebuildAllChannelConfigs + VerifyAgentChannelsJob); without
+     * coalescing, systemd hits its StartLimit and in-flight chat messages
+     * get dropped during the thrash.
+     */
+    private const COALESCE_WINDOW_SECONDS = 25;
+
     public function __construct(public Server $server) {}
 
     public function handle(HarnessManager $harnessManager): void
     {
+        $cacheKey = "gateway_restart:{$this->server->id}";
+
+        // If another restart fired within the coalesce window, skip this one.
+        // The earlier restart already picked up any config changes we'd want.
+        if (Cache::has($cacheKey)) {
+            Log::info("RestartGatewayJob coalesced — recent restart still cached for server {$this->server->id}");
+
+            return;
+        }
+
+        Cache::put($cacheKey, now()->toIso8601String(), self::COALESCE_WINDOW_SECONDS);
+
         $executor = $harnessManager->resolveExecutor($this->server);
 
         try {
