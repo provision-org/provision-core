@@ -1208,9 +1208,33 @@ class AgentInstallScriptService
         $version = config('provision.provision_web_plugin_version', 'latest');
         $spec = $version === 'latest' ? 'provision-openclaw-web' : "provision-openclaw-web@{$version}";
 
+        // Two safeguards over the old `... || echo WARNING; continue` form:
+        //
+        // 1. If the install fails, we want the script to fail too — silent
+        //    failure here means the gateway boots without the provision-web
+        //    plugin, the SSE poll loop never starts, and the agent's
+        //    kickoff message stays at outbound_to_agent_at=null forever.
+        //
+        // 2. After install, poll for the plugin directory. The install
+        //    command can return success before the install record finishes
+        //    flushing, and the next gateway restart in the install script
+        //    fires too quickly on slow disks. The gateway then boots without
+        //    discovering the plugin.
         return <<<BASH
-        # Install/refresh provision-openclaw-web at the pinned version
-        openclaw plugins install --force {$spec} 2>&1 || echo 'WARNING: provision-web plugin install failed; continuing'
+        # Install provision-openclaw-web. Failing this aborts the install —
+        # without the plugin, the agent's web chat is dead in the water.
+        openclaw plugins install --force {$spec} 2>&1
+        # Verify the plugin actually landed on disk before we move on.
+        for _ in \$(seq 1 20); do
+          if [ -d /root/.openclaw/npm/node_modules/provision-openclaw-web/dist ]; then
+            break
+          fi
+          sleep 1
+        done
+        if [ ! -d /root/.openclaw/npm/node_modules/provision-openclaw-web/dist ]; then
+          echo "ERROR: provision-openclaw-web plugin directory missing after install"
+          exit 1
+        fi
         BASH;
     }
 
