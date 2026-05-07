@@ -32,7 +32,7 @@ class AgentWorkspaceController extends Controller
 
     /** OpenClaw system files and internal directories hidden from the dashboard. */
     private const HIDDEN_SYSTEM_FILES = [
-        'AGENTS.md', 'BOOTSTRAP.md', 'HEARTBEAT.md',
+        'AGENTS.md', 'ONBOARDING.md', 'HEARTBEAT.md',
         'IDENTITY.md', 'SOUL.md', 'TOOLS.md', 'USER.md',
         'agent', 'memory', 'projects', 'sessions',
     ];

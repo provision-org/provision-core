@@ -78,7 +78,7 @@ test('index hides system files from listing', function () {
             'f|100|1709654400.0|SOUL.md',
             'f|100|1709654400.0|IDENTITY.md',
             'f|100|1709654400.0|USER.md',
-            'f|100|1709654400.0|BOOTSTRAP.md',
+            'f|100|1709654400.0|ONBOARDING.md',
             'f|100|1709654400.0|.env',
             'd|4096|1709654400.0|agent',
             'd|4096|1709654400.0|workspace',

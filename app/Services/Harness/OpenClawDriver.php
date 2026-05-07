@@ -212,16 +212,17 @@ class OpenClawDriver implements HarnessDriver
             $executor->writeFile("{$agentDir}/USER.md", $agent->user_context);
         }
 
-        // Write BOOTSTRAP.md: first-run onboarding checklist (only if it doesn't exist yet)
-        $bootstrapExists = false;
+        // Write ONBOARDING.md: first-run onboarding checklist (only if it doesn't exist yet).
+        // (Renamed from BOOTSTRAP.md — OpenClaw auto-removes that filename.)
+        $onboardingExists = false;
         try {
-            $executor->readFile("{$agentDir}/BOOTSTRAP.md");
-            $bootstrapExists = true;
+            $executor->readFile("{$agentDir}/ONBOARDING.md");
+            $onboardingExists = true;
         } catch (\RuntimeException) {
             // File doesn't exist yet
         }
-        if (! $bootstrapExists) {
-            $executor->writeFile("{$agentDir}/BOOTSTRAP.md", AgentInstallScriptService::buildBootstrapContent($agent));
+        if (! $onboardingExists) {
+            $executor->writeFile("{$agentDir}/ONBOARDING.md", AgentInstallScriptService::buildOnboardingContent($agent));
         }
 
         // Write HEARTBEAT.md: periodic checks (task polling always, email if connected)

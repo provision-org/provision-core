@@ -183,7 +183,7 @@ class ChatController extends Controller
             'role' => ChatMessageRole::User,
             'content' => [[
                 'type' => 'text',
-                'text' => "Hi! I just hired you — this is our first conversation. Introduce yourself: say hello, tell me who you are and your role, and walk me through the onboarding steps you'll work through first. Then ask what I want you to focus on. Don't mention any internal files (BOOTSTRAP.md, IDENTITY.md, etc.) by name — just talk to me like a new teammate would.",
+                'text' => "Hi! I just hired you — this is our first conversation. Introduce yourself: say hello, tell me who you are and your role, and walk me through the onboarding steps you'll work through first. Then ask what I want you to focus on. Don't mention any internal files (ONBOARDING.md, IDENTITY.md, etc.) by name — just talk to me like a new teammate would.",
             ]],
             'is_internal' => true,
             'sent_at' => now(),

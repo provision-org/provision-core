@@ -265,7 +265,7 @@ test('buildCallbackUrl generates valid HMAC URL', function () {
         ->toContain('signature=');
 });
 
-test('openclaw update script writes BOOTSTRAP.md only if missing', function () {
+test('openclaw update script writes ONBOARDING.md only if missing', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);
     $agent = Agent::factory()->create([
@@ -280,9 +280,12 @@ test('openclaw update script writes BOOTSTRAP.md only if missing', function () {
     $scriptService = app(AgentUpdateScriptService::class);
     $script = $scriptService->generateOpenClawScript($agent);
 
-    // BOOTSTRAP.md should be conditional
-    expect($script)->toContain('if [ ! -f')
-        ->toContain('BOOTSTRAP.md');
+    expect($script)
+        ->toContain('if [ ! -f')
+        ->toContain('ONBOARDING.md')
+        // Cleanup of the legacy reserved filename runs unconditionally.
+        ->toContain('rm -f')
+        ->toContain('/BOOTSTRAP.md');
 });
 
 test('hermes update script preserves BROWSER_CDP_URL from existing env', function () {

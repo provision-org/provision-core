@@ -65,7 +65,7 @@ test('install script includes per-agent browser display services', function () {
         ->toContain('browser.profiles');
 });
 
-test('install script includes BOOTSTRAP.md with onboarding checklist', function () {
+test('install script includes ONBOARDING.md with onboarding checklist', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);
     $agent = Agent::factory()->deploying()->create([
@@ -83,17 +83,18 @@ test('install script includes BOOTSTRAP.md with onboarding checklist', function 
 
     $script = $response->getContent();
     expect($script)
-        ->toContain('BOOTSTRAP.md')
+        ->toContain('ONBOARDING.md')
         ->toContain('Welcome to the team, Atlas!')
         ->toContain('Onboarding Checklist')
         ->toContain('Pull daily reports from Mixpanel')
         ->toContain('Review your job description and identify what you need')
         ->toContain('Introduce yourself')
         ->toContain('Set up GitHub')
-        ->toContain('rm BOOTSTRAP.md');
+        // Reserved filename — never re-introduce; OpenClaw auto-removes it.
+        ->not->toContain('BOOTSTRAP.md');
 });
 
-test('bootstrap content omits job-specific step when no job description', function () {
+test('onboarding content omits job-specific step when no job description', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);
     $agent = Agent::factory()->deploying()->create([
@@ -102,7 +103,7 @@ test('bootstrap content omits job-specific step when no job description', functi
         'name' => 'Luna',
     ]);
 
-    $content = AgentInstallScriptService::buildBootstrapContent($agent);
+    $content = AgentInstallScriptService::buildOnboardingContent($agent);
     expect($content)
         ->toContain('Welcome to the team, Luna!')
         ->toContain('Introduce yourself')
@@ -111,7 +112,7 @@ test('bootstrap content omits job-specific step when no job description', functi
         ->not->toContain('Review your job description');
 });
 
-test('bootstrap content tells the agent to use web chat when available', function () {
+test('onboarding content tells the agent to use web chat when available', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);
     $agent = Agent::factory()->deploying()->create([
@@ -124,14 +125,14 @@ test('bootstrap content tells the agent to use web chat when available', functio
     // Observer auto-creates web connection on agent creation.
     expect($agent->fresh()->webConnection)->not->toBeNull();
 
-    $content = AgentInstallScriptService::buildBootstrapContent($agent->fresh());
+    $content = AgentInstallScriptService::buildOnboardingContent($agent->fresh());
     expect($content)
         ->toContain('How to talk to your team')
         ->toContain('Provision web chat')
         ->toContain('ask the user via web chat');
 });
 
-test('bootstrap content credential pattern guides through API key + OAuth flows', function () {
+test('onboarding content credential pattern guides through API key + OAuth flows', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);
     $agent = Agent::factory()->deploying()->create([
@@ -146,7 +147,7 @@ test('bootstrap content credential pattern guides through API key + OAuth flows'
         'category' => 'seo',
     ]);
 
-    $content = AgentInstallScriptService::buildBootstrapContent($agent);
+    $content = AgentInstallScriptService::buildOnboardingContent($agent);
     expect($content)
         ->toContain('Try to sign up yourself')
         ->toContain('OAuth')

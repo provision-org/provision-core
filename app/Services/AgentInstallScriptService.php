@@ -189,8 +189,11 @@ class AgentInstallScriptService
             $lines[] = $this->buildHeredoc("{$agentDir}/USER.md", $agent->user_context);
         }
 
-        // Write BOOTSTRAP.md: first-run onboarding checklist
-        $lines[] = $this->buildHeredoc("{$agentDir}/BOOTSTRAP.md", self::buildBootstrapContent($agent));
+        // Write ONBOARDING.md: first-run onboarding checklist.
+        // (Avoid BOOTSTRAP.md — OpenClaw treats that filename specially and
+        // auto-removes it after the first agent run, even when it doesn't
+        // contain the identity-formation ritual it expects.)
+        $lines[] = $this->buildHeredoc("{$agentDir}/ONBOARDING.md", self::buildOnboardingContent($agent));
 
         // Write HEARTBEAT.md: periodic checks (task polling always, email if connected)
         $lines[] = $this->buildHeredoc("{$agentDir}/HEARTBEAT.md", self::buildHeartbeatContent($emailConnection));
@@ -875,12 +878,12 @@ class AgentInstallScriptService
     }
 
     /**
-     * Build the BOOTSTRAP.md content — a first-run onboarding document for the agent.
+     * Build the ONBOARDING.md content — a first-run onboarding document for the agent.
      *
      * Mimics an employee onboarding doc: introduces the role, lists accounts to set up,
      * and provides a checklist the agent works through on its first conversation.
      */
-    public static function buildBootstrapContent(Agent $agent): string
+    public static function buildOnboardingContent(Agent $agent): string
     {
         $agent->loadMissing(['emailConnection', 'tools', 'webConnection']);
 

@@ -182,11 +182,16 @@ class AgentUpdateScriptService
             $lines[] = '';
         }
 
-        // BOOTSTRAP.md: only write if it doesn't exist yet
-        $bootstrapContent = AgentInstallScriptService::buildBootstrapContent($agent);
-        $lines[] = "if [ ! -f {$agentDir}/BOOTSTRAP.md ]; then";
-        $lines[] = $this->buildHeredoc("{$agentDir}/BOOTSTRAP.md", $bootstrapContent);
+        // ONBOARDING.md: only write if it doesn't exist yet
+        $onboardingContent = AgentInstallScriptService::buildOnboardingContent($agent);
+        $lines[] = "if [ ! -f {$agentDir}/ONBOARDING.md ]; then";
+        $lines[] = $this->buildHeredoc("{$agentDir}/ONBOARDING.md", $onboardingContent);
         $lines[] = 'fi';
+        $lines[] = '';
+
+        // Cleanup: remove the legacy BOOTSTRAP.md from earlier installs. It
+        // was renamed to avoid OpenClaw's reserved-filename auto-removal.
+        $lines[] = "rm -f {$agentDir}/BOOTSTRAP.md";
         $lines[] = '';
 
         // HEARTBEAT.md: always overwrite
