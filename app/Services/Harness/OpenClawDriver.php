@@ -299,7 +299,11 @@ class OpenClawDriver implements HarnessDriver
             sleep(2);
             $executor->exec('export DISPLAY=:99 && nohup openclaw gateway >> /root/.openclaw/logs/gateway.log 2>&1 &');
         } else {
-            $executor->execWithRetry('export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway');
+            // reset-failed clears systemd's StartLimit counter so repeated
+            // restarts during a multi-agent deploy don't tip the unit into
+            // 'start-limit-hit' (where it stops auto-recovering and we end
+            // up with a healthy config but no running gateway).
+            $executor->execWithRetry('export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user reset-failed openclaw-gateway 2>/dev/null; systemctl --user restart openclaw-gateway');
         }
 
         sleep(5);
