@@ -278,6 +278,17 @@ const tierConfig = {
     },
 };
 
+const COMMON_TOOLS: ReadonlyArray<{ name: string; url: string }> = [
+    { name: 'HubSpot', url: 'https://hubspot.com' },
+    { name: 'Ahrefs', url: 'https://ahrefs.com' },
+    { name: 'Google Analytics', url: 'https://analytics.google.com' },
+    { name: 'Mixpanel', url: 'https://mixpanel.com' },
+    { name: 'Linear', url: 'https://linear.app' },
+    { name: 'Notion', url: 'https://notion.so' },
+    { name: 'Slack', url: 'https://slack.com' },
+    { name: 'Zendesk', url: 'https://zendesk.com' },
+];
+
 /* ═══ Animated step wrapper ═══ */
 
 function StepTransition({
@@ -1082,192 +1093,249 @@ export default function CreateAgent({
                                 )}
 
                                 {/* ── Tools ── */}
-                                {step === 'tools' && (
-                                    <div className="flex flex-col items-center gap-6">
-                                        <div className="text-center">
-                                            <h1 className="text-2xl font-bold tracking-tight">
-                                                What tools does {form.data.name}{' '}
-                                                need?
-                                            </h1>
-                                            <p className="mt-2 text-sm text-muted-foreground">
-                                                List the services{' '}
-                                                {form.data.name} should have
-                                                access to. They'll sign up or
-                                                request invites during
-                                                onboarding.
-                                            </p>
-                                        </div>
-
-                                        {/* Tool input row */}
-                                        <div className="flex w-full gap-2">
-                                            <Input
-                                                value={toolName}
-                                                onChange={(e) =>
-                                                    setToolName(e.target.value)
-                                                }
-                                                placeholder="Tool name (e.g. HubSpot)"
-                                                className="flex-1"
-                                                autoFocus
-                                                onKeyDown={(e) => {
-                                                    if (
-                                                        e.key === 'Enter' &&
-                                                        toolName.trim()
-                                                    ) {
-                                                        e.preventDefault();
-                                                        form.setData('tools', [
-                                                            ...form.data.tools,
-                                                            {
-                                                                name: toolName.trim(),
-                                                                url: toolUrl.trim(),
-                                                            },
-                                                        ]);
-                                                        setToolName('');
-                                                        setToolUrl('');
-                                                    }
-                                                }}
-                                            />
-                                            <Input
-                                                value={toolUrl}
-                                                onChange={(e) =>
-                                                    setToolUrl(e.target.value)
-                                                }
-                                                placeholder="Website URL (optional)"
-                                                className="flex-1"
-                                                onKeyDown={(e) => {
-                                                    if (
-                                                        e.key === 'Enter' &&
-                                                        toolName.trim()
-                                                    ) {
-                                                        e.preventDefault();
-                                                        form.setData('tools', [
-                                                            ...form.data.tools,
-                                                            {
-                                                                name: toolName.trim(),
-                                                                url: toolUrl.trim(),
-                                                            },
-                                                        ]);
-                                                        setToolName('');
-                                                        setToolUrl('');
-                                                    }
-                                                }}
-                                            />
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                onClick={() => {
-                                                    if (toolName.trim()) {
-                                                        form.setData('tools', [
-                                                            ...form.data.tools,
-                                                            {
-                                                                name: toolName.trim(),
-                                                                url: toolUrl.trim(),
-                                                            },
-                                                        ]);
-                                                        setToolName('');
-                                                        setToolUrl('');
-                                                    }
-                                                }}
-                                                disabled={!toolName.trim()}
-                                            >
-                                                Add
-                                            </Button>
-                                        </div>
-
-                                        {/* Tool list */}
-                                        {form.data.tools.length > 0 && (
-                                            <div className="w-full space-y-2">
-                                                {form.data.tools.map(
-                                                    (tool, i) => (
-                                                        <div
-                                                            key={i}
-                                                            className="flex items-center justify-between rounded-lg border border-border px-4 py-2.5"
-                                                        >
-                                                            <div>
-                                                                <span className="text-sm font-medium">
-                                                                    {tool.name}
-                                                                </span>
-                                                                {tool.url && (
-                                                                    <span className="ml-2 text-xs text-muted-foreground">
-                                                                        {
-                                                                            tool.url
-                                                                        }
-                                                                    </span>
-                                                                )}
-                                                            </div>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => {
-                                                                    form.setData(
-                                                                        'tools',
-                                                                        form.data.tools.filter(
-                                                                            (
-                                                                                _,
-                                                                                j,
-                                                                            ) =>
-                                                                                j !==
-                                                                                i,
-                                                                        ),
-                                                                    );
-                                                                }}
-                                                                className="text-muted-foreground hover:text-destructive"
-                                                            >
-                                                                <X className="size-4" />
-                                                            </button>
-                                                        </div>
+                                {step === 'tools' &&
+                                    (() => {
+                                        const trimmedName = toolName.trim();
+                                        const trimmedUrl = toolUrl.trim();
+                                        const isKnownTool = COMMON_TOOLS.some(
+                                            (t) =>
+                                                t.name.toLowerCase() ===
+                                                trimmedName.toLowerCase(),
+                                        );
+                                        // Custom tools — anything the user typed that
+                                        // isn't in our common list — must include a URL
+                                        // so the agent has somewhere to start.
+                                        const urlRequired =
+                                            !!trimmedName && !isKnownTool;
+                                        const canAddTool =
+                                            !!trimmedName &&
+                                            (!urlRequired || !!trimmedUrl);
+                                        const addCurrentTool = () => {
+                                            if (!canAddTool) {
+                                                return;
+                                            }
+                                            const known = COMMON_TOOLS.find(
+                                                (t) =>
+                                                    t.name.toLowerCase() ===
+                                                    trimmedName.toLowerCase(),
+                                            );
+                                            form.setData('tools', [
+                                                ...form.data.tools,
+                                                {
+                                                    name:
+                                                        known?.name ??
+                                                        trimmedName,
+                                                    url:
+                                                        trimmedUrl ||
+                                                        known?.url ||
+                                                        '',
+                                                },
+                                            ]);
+                                            setToolName('');
+                                            setToolUrl('');
+                                        };
+                                        const remainingPills =
+                                            COMMON_TOOLS.filter(
+                                                (t) =>
+                                                    !form.data.tools.some(
+                                                        (added) =>
+                                                            added.name.toLowerCase() ===
+                                                            t.name.toLowerCase(),
                                                     ),
-                                                )}
-                                            </div>
-                                        )}
+                                            );
 
-                                        {/* Common suggestions based on role */}
-                                        {form.data.tools.length === 0 && (
-                                            <div className="w-full">
-                                                <p className="mb-2 text-xs text-muted-foreground">
-                                                    Common tools:
-                                                </p>
-                                                <div className="flex flex-wrap gap-2">
-                                                    {[
-                                                        'HubSpot',
-                                                        'Ahrefs',
-                                                        'Google Analytics',
-                                                        'Mixpanel',
-                                                        'Linear',
-                                                        'Notion',
-                                                        'Slack',
-                                                        'Zendesk',
-                                                    ].map((suggestion) => (
-                                                        <button
-                                                            key={suggestion}
-                                                            type="button"
-                                                            onClick={() => {
-                                                                form.setData(
-                                                                    'tools',
-                                                                    [
-                                                                        ...form
-                                                                            .data
-                                                                            .tools,
-                                                                        {
-                                                                            name: suggestion,
-                                                                            url: '',
-                                                                        },
-                                                                    ],
-                                                                );
-                                                            }}
-                                                            className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
-                                                        >
-                                                            + {suggestion}
-                                                        </button>
-                                                    ))}
+                                        return (
+                                            <div className="flex flex-col items-center gap-6">
+                                                <div className="text-center">
+                                                    <h1 className="text-2xl font-bold tracking-tight">
+                                                        What tools does{' '}
+                                                        {form.data.name} need?
+                                                    </h1>
+                                                    <p className="mt-2 text-sm text-muted-foreground">
+                                                        List the services{' '}
+                                                        {form.data.name} should
+                                                        have access to. They'll
+                                                        sign up or request
+                                                        invites during
+                                                        onboarding.
+                                                    </p>
                                                 </div>
-                                            </div>
-                                        )}
 
-                                        <SkipNavButtons
-                                            onBack={back}
-                                            onNext={next}
-                                        />
-                                    </div>
-                                )}
+                                                {/* Tool input row */}
+                                                <div className="flex w-full flex-col gap-2">
+                                                    <div className="flex w-full gap-2">
+                                                        <Input
+                                                            value={toolName}
+                                                            onChange={(e) =>
+                                                                setToolName(
+                                                                    e.target
+                                                                        .value,
+                                                                )
+                                                            }
+                                                            placeholder="Tool name (e.g. HubSpot)"
+                                                            className="flex-1"
+                                                            autoFocus
+                                                            onKeyDown={(e) => {
+                                                                if (
+                                                                    e.key ===
+                                                                        'Enter' &&
+                                                                    canAddTool
+                                                                ) {
+                                                                    e.preventDefault();
+                                                                    addCurrentTool();
+                                                                }
+                                                            }}
+                                                        />
+                                                        <Input
+                                                            value={toolUrl}
+                                                            onChange={(e) =>
+                                                                setToolUrl(
+                                                                    e.target
+                                                                        .value,
+                                                                )
+                                                            }
+                                                            placeholder={
+                                                                urlRequired
+                                                                    ? 'Website URL (required)'
+                                                                    : 'Website URL (optional)'
+                                                            }
+                                                            className="flex-1"
+                                                            onKeyDown={(e) => {
+                                                                if (
+                                                                    e.key ===
+                                                                        'Enter' &&
+                                                                    canAddTool
+                                                                ) {
+                                                                    e.preventDefault();
+                                                                    addCurrentTool();
+                                                                }
+                                                            }}
+                                                        />
+                                                        <Button
+                                                            type="button"
+                                                            variant="outline"
+                                                            onClick={
+                                                                addCurrentTool
+                                                            }
+                                                            disabled={
+                                                                !canAddTool
+                                                            }
+                                                        >
+                                                            Add
+                                                        </Button>
+                                                    </div>
+                                                    {urlRequired &&
+                                                        !trimmedUrl && (
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Add a website
+                                                                URL so{' '}
+                                                                {form.data.name}{' '}
+                                                                knows where to
+                                                                sign up.
+                                                            </p>
+                                                        )}
+                                                </div>
+
+                                                {/* Tool list */}
+                                                {form.data.tools.length > 0 && (
+                                                    <div className="w-full space-y-2">
+                                                        {form.data.tools.map(
+                                                            (tool, i) => (
+                                                                <div
+                                                                    key={i}
+                                                                    className="flex items-center justify-between rounded-lg border border-border px-4 py-2.5"
+                                                                >
+                                                                    <div>
+                                                                        <span className="text-sm font-medium">
+                                                                            {
+                                                                                tool.name
+                                                                            }
+                                                                        </span>
+                                                                        {tool.url && (
+                                                                            <span className="ml-2 text-xs text-muted-foreground">
+                                                                                {
+                                                                                    tool.url
+                                                                                }
+                                                                            </span>
+                                                                        )}
+                                                                    </div>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            form.setData(
+                                                                                'tools',
+                                                                                form.data.tools.filter(
+                                                                                    (
+                                                                                        _,
+                                                                                        j,
+                                                                                    ) =>
+                                                                                        j !==
+                                                                                        i,
+                                                                                ),
+                                                                            );
+                                                                        }}
+                                                                        className="text-muted-foreground hover:text-destructive"
+                                                                    >
+                                                                        <X className="size-4" />
+                                                                    </button>
+                                                                </div>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* Common tool suggestions — stay
+                                            visible so users can pick more than
+                                            one without retyping. */}
+                                                {remainingPills.length > 0 && (
+                                                    <div className="w-full">
+                                                        <p className="mb-2 text-xs text-muted-foreground">
+                                                            Common tools:
+                                                        </p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {remainingPills.map(
+                                                                (
+                                                                    suggestion,
+                                                                ) => (
+                                                                    <button
+                                                                        key={
+                                                                            suggestion.name
+                                                                        }
+                                                                        type="button"
+                                                                        onClick={() => {
+                                                                            form.setData(
+                                                                                'tools',
+                                                                                [
+                                                                                    ...form
+                                                                                        .data
+                                                                                        .tools,
+                                                                                    {
+                                                                                        name: suggestion.name,
+                                                                                        url: suggestion.url,
+                                                                                    },
+                                                                                ],
+                                                                            );
+                                                                        }}
+                                                                        className="rounded-full border border-border px-3 py-1 text-xs text-muted-foreground transition-colors hover:border-foreground/20 hover:text-foreground"
+                                                                    >
+                                                                        +{' '}
+                                                                        {
+                                                                            suggestion.name
+                                                                        }
+                                                                    </button>
+                                                                ),
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
+
+                                                <SkipNavButtons
+                                                    onBack={back}
+                                                    onNext={next}
+                                                />
+                                            </div>
+                                        );
+                                    })()}
 
                                 {/* ── Model ── */}
                                 {step === 'model' && (
@@ -1381,9 +1449,8 @@ export default function CreateAgent({
                                                             </p>
                                                             <p className="mt-0.5 text-xs text-muted-foreground">
                                                                 Use your
-                                                                existing
-                                                                ChatGPT Pro or
-                                                                Team
+                                                                existing ChatGPT
+                                                                Pro or Team
                                                                 subscription{' '}
                                                                 {'\u2014'} we'll
                                                                 connect your
