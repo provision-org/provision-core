@@ -183,7 +183,7 @@ class ChatController extends Controller
             'role' => ChatMessageRole::User,
             'content' => [[
                 'type' => 'text',
-                'text' => "Hi! I just hired you — this is our first conversation. Introduce yourself: say hello, tell me who you are and your role, and walk me through the onboarding steps you'll work through first. Then ask what I want you to focus on. Don't mention any internal files (ONBOARDING.md, IDENTITY.md, etc.) by name — just talk to me like a new teammate would.",
+                'text' => "Hi! I just hired you — this is our first conversation. Read your ONBOARDING.md and use it to introduce yourself: say hello, tell me who you are and your role, then walk me through the specific onboarding steps you'll work through. If your ONBOARDING.md lists particular tools (like Linear, Notion, Ahrefs, etc.), name them explicitly and tell me how you plan to connect each one (sign up yourself, ask me for an API key, or request OAuth). Finish by asking what I want you to focus on. Don't mention internal filenames (ONBOARDING.md, IDENTITY.md, etc.) — just talk to me like a new teammate would.",
             ]],
             'is_internal' => true,
             'sent_at' => now(),
