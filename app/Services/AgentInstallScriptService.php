@@ -1005,7 +1005,7 @@ class AgentInstallScriptService
 
         $lines[] = '---';
         $lines[] = '';
-        $lines[] = '*Once onboarding is complete, delete this file with `rm BOOTSTRAP.md` so OpenClaw stops including it in your project context.*';
+        $lines[] = '*This is your onboarding plan — keep this file around as a reference. Do not delete it; the user wants to be able to revisit your onboarding context later.*';
 
         return implode("\n", $lines);
     }
