@@ -63,7 +63,7 @@ export default function AgentProvisioning({ agent }: Props) {
                 0,
             );
             const redirectTimeout = setTimeout(() => {
-                router.visit(`/agents/${agent.id}`);
+                router.visit(`/agents/${agent.id}/chat?greet=1`);
             }, 800);
 
             return () => {

@@ -22,6 +22,7 @@ class ChatMessage extends Model
         'chat_conversation_id',
         'role',
         'content',
+        'is_internal',
         'sent_at',
         'outbound_to_agent_at',
     ];
@@ -34,6 +35,7 @@ class ChatMessage extends Model
         return [
             'role' => ChatMessageRole::class,
             'content' => 'array',
+            'is_internal' => 'boolean',
             'sent_at' => 'datetime',
             'outbound_to_agent_at' => 'datetime',
         ];

@@ -69,6 +69,7 @@ class ChatController extends Controller
         abort_unless($conversation->user_id === $request->user()->id, 404);
 
         $messages = $conversation->messages()
+            ->where('is_internal', false)
             ->orderBy('sent_at')
             ->get()
             ->map(fn ($msg) => [
@@ -129,6 +130,76 @@ class ChatController extends Controller
                 'content' => $userMessage->contentWithUrls(),
                 'sent_at' => $userMessage->sent_at->toISOString(),
             ],
+        ], 201);
+    }
+
+    /**
+     * Open a new conversation with a hidden onboarding prompt so the agent
+     * introduces itself first. Used by the post-creation flow — the user
+     * lands on chat and immediately sees the agent typing instead of
+     * staring at an empty thread.
+     *
+     * Idempotent: if any conversation already exists for this user+agent,
+     * we return the most recent one and skip the kickoff.
+     */
+    public function kickoff(Agent $agent, Request $request): JsonResponse
+    {
+        $team = $request->user()->currentTeam;
+        abort_unless($agent->team_id === $team->id, 404);
+
+        if ($agent->status !== AgentStatus::Active) {
+            return response()->json(['error' => 'Agent is not ready yet.'], 409);
+        }
+
+        $existing = ChatConversation::query()
+            ->where('agent_id', $agent->id)
+            ->where('user_id', $request->user()->id)
+            ->orderByDesc('last_message_at')
+            ->first();
+
+        if ($existing) {
+            return response()->json([
+                'conversation' => [
+                    'id' => $existing->id,
+                    'title' => $existing->title,
+                    'last_message_at' => $existing->last_message_at?->toISOString(),
+                    'created_at' => $existing->created_at->toISOString(),
+                ],
+                'kicked_off' => false,
+            ]);
+        }
+
+        $ulid = strtolower((string) Str::ulid());
+
+        $conversation = ChatConversation::query()->create([
+            'agent_id' => $agent->id,
+            'user_id' => $request->user()->id,
+            'title' => 'Onboarding',
+            'session_key' => "web:{$ulid}",
+            'last_message_at' => now(),
+        ]);
+
+        $conversation->messages()->create([
+            'role' => ChatMessageRole::User,
+            'content' => [[
+                'type' => 'text',
+                'text' => "Please introduce yourself based on your BOOTSTRAP.md — say hello, tell me your role, and walk me through what you'll do first.",
+            ]],
+            'is_internal' => true,
+            'sent_at' => now(),
+        ]);
+
+        $kickoffMessage = $conversation->messages()->latest('sent_at')->first();
+        SendAgentChatMessageJob::dispatch($conversation, $kickoffMessage);
+
+        return response()->json([
+            'conversation' => [
+                'id' => $conversation->id,
+                'title' => $conversation->title,
+                'last_message_at' => $conversation->last_message_at->toISOString(),
+                'created_at' => $conversation->created_at->toISOString(),
+            ],
+            'kicked_off' => true,
         ], 201);
     }
 

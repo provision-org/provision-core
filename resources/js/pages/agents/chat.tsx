@@ -1,5 +1,5 @@
 import { Head, usePage } from '@inertiajs/react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import ChatConversationList from '@/components/agents/chat-conversation-list';
@@ -96,6 +96,26 @@ export default function Chat({
     const [isLoading, setIsLoading] = useState(false);
     const [activityLabel, setActivityLabel] = useState<string | null>(null);
     const activeStreamId = useRef<string | null>(null);
+    const [historyCollapsed, setHistoryCollapsed] = useState<boolean>(() => {
+        if (typeof window === 'undefined') return false;
+        return window.localStorage.getItem('chat-history-collapsed') === '1';
+    });
+    const kickoffAttempted = useRef(false);
+
+    const toggleHistory = useCallback(() => {
+        setHistoryCollapsed((prev) => {
+            const next = !prev;
+            try {
+                window.localStorage.setItem(
+                    'chat-history-collapsed',
+                    next ? '1' : '0',
+                );
+            } catch {
+                // localStorage unavailable — preference doesn't persist, fine
+            }
+            return next;
+        });
+    }, []);
 
     // Ref to avoid stale closures in useEcho callbacks
     const activeConversationRef = useRef(activeConversationId);
@@ -218,6 +238,47 @@ export default function Chat({
     // multiple blocks back-to-back.
     const isThinkingRef = useRef(isThinking);
     isThinkingRef.current = isThinking;
+
+    // Silent kickoff: when the post-creation flow drops the user here with
+    // ?greet=1 and there are no conversations yet, ask the backend to insert
+    // a hidden onboarding prompt so the agent introduces itself first. The
+    // user sees a typing indicator immediately rather than an empty thread.
+    useEffect(() => {
+        if (kickoffAttempted.current) return;
+        if (typeof window === 'undefined') return;
+
+        const params = new URLSearchParams(window.location.search);
+        if (params.get('greet') !== '1') return;
+        if (conversations.length > 0) {
+            kickoffAttempted.current = true;
+            window.history.replaceState({}, '', window.location.pathname);
+            return;
+        }
+
+        kickoffAttempted.current = true;
+        setIsThinking(true);
+
+        (async () => {
+            try {
+                const res = await fetch(`/agents/${agent.id}/chat/kickoff`, {
+                    method: 'POST',
+                    headers: fetchHeaders(),
+                });
+                if (!res.ok) throw new Error(`Kickoff returned ${res.status}`);
+                const data = await res.json();
+                if (data?.conversation?.id) {
+                    setConversations((prev) => [data.conversation, ...prev]);
+                    setActiveConversationId(data.conversation.id);
+                    setMessages([]);
+                }
+            } catch (err) {
+                setIsThinking(false);
+                console.error('Failed to kick off onboarding chat', err);
+            } finally {
+                window.history.replaceState({}, '', window.location.pathname);
+            }
+        })();
+    }, [agent.id, conversations.length]);
 
     useEffect(() => {
         if (!activeConversationId) return;
@@ -452,8 +513,12 @@ export default function Chat({
             <Head title={`Chat with ${agent.name}`} />
 
             <div className="flex min-h-0 flex-1">
-                {/* Sidebar */}
-                <div className="hidden w-72 shrink-0 border-r md:flex md:flex-col">
+                {/* Conversation history sidebar — collapsible on md+ */}
+                <div
+                    className={`hidden shrink-0 overflow-hidden border-r transition-[width] duration-200 ease-out md:flex md:flex-col ${
+                        historyCollapsed ? 'w-0 border-r-0' : 'w-72'
+                    }`}
+                >
                     <ChatConversationList
                         conversations={conversations}
                         activeId={activeConversationId}
@@ -475,6 +540,28 @@ export default function Chat({
                             <a href={`/agents/${agent.id}`}>
                                 <ArrowLeft className="size-4" />
                             </a>
+                        </Button>
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="hidden size-8 md:inline-flex"
+                            onClick={toggleHistory}
+                            aria-label={
+                                historyCollapsed
+                                    ? 'Show conversation history'
+                                    : 'Hide conversation history'
+                            }
+                            title={
+                                historyCollapsed
+                                    ? 'Show conversation history'
+                                    : 'Hide conversation history'
+                            }
+                        >
+                            {historyCollapsed ? (
+                                <PanelLeftOpen className="size-4" />
+                            ) : (
+                                <PanelLeftClose className="size-4" />
+                            )}
                         </Button>
                         <AgentAvatar agent={agent} className="size-8 text-xs" />
                         <div>
