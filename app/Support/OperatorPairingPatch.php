@@ -27,12 +27,28 @@ class OperatorPairingPatch
      * device on the current host and clears any pending scope-upgrade requests.
      *
      * Idempotent: re-running on a box that already has the scopes is a no-op.
+     *
+     * Waits up to ~30s for the gateway to finish auto-pairing the local device
+     * before running the patch. Without this wait, the script can race the
+     * gateway: paired.json doesn't exist yet, the patch is a no-op, then the
+     * gateway pairs the device with read-only scopes and the install dies on
+     * the first scope-upgrade request.
      */
     public static function buildScript(): string
     {
         $scopesJson = json_encode(self::SCOPES);
 
         return implode(' ', [
+            // Poll up to ~30s for the device to actually be in paired.json.
+            // We check non-empty content (`jq -e ". != {}"`) so an empty `{}`
+            // doesn't satisfy the wait — the gateway writes `{}` early then
+            // populates it once auto-pairing completes.
+            'for _ in $(seq 1 30); do',
+            '  if [ -s /root/.openclaw/devices/paired.json ] && jq -e ". != {} and (length > 0)" /root/.openclaw/devices/paired.json >/dev/null 2>&1; then',
+            '    break;',
+            '  fi;',
+            '  sleep 1;',
+            'done;',
             'if [ -f /root/.openclaw/devices/paired.json ]; then',
             '  cp /root/.openclaw/devices/paired.json /root/.openclaw/devices/paired.json.bak.$(date +%s);',
             '  jq \'map_values(.scopes |= (('.$scopesJson.') | unique)',
