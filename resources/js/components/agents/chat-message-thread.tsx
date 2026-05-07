@@ -1,11 +1,74 @@
 import { useEffect, useRef } from 'react';
+import Markdown from 'react-markdown';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
 import type { Agent, ChatMessage, ChatContentBlock } from '@/types';
 
+const markdownComponents = {
+    p: ({ children }: { children?: React.ReactNode }) => (
+        <p className="whitespace-pre-wrap [&:not(:first-child)]:mt-2">
+            {children}
+        </p>
+    ),
+    strong: ({ children }: { children?: React.ReactNode }) => (
+        <strong className="font-semibold">{children}</strong>
+    ),
+    em: ({ children }: { children?: React.ReactNode }) => (
+        <em className="italic">{children}</em>
+    ),
+    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => (
+        <a
+            href={href}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2 hover:opacity-80"
+        >
+            {children}
+        </a>
+    ),
+    ul: ({ children }: { children?: React.ReactNode }) => (
+        <ul className="my-2 ml-4 list-disc space-y-1">{children}</ul>
+    ),
+    ol: ({ children }: { children?: React.ReactNode }) => (
+        <ol className="my-2 ml-4 list-decimal space-y-1">{children}</ol>
+    ),
+    li: ({ children }: { children?: React.ReactNode }) => (
+        <li className="leading-snug">{children}</li>
+    ),
+    h1: ({ children }: { children?: React.ReactNode }) => (
+        <h1 className="mt-3 mb-1 text-base font-semibold">{children}</h1>
+    ),
+    h2: ({ children }: { children?: React.ReactNode }) => (
+        <h2 className="mt-3 mb-1 text-sm font-semibold">{children}</h2>
+    ),
+    h3: ({ children }: { children?: React.ReactNode }) => (
+        <h3 className="mt-2 mb-1 text-sm font-semibold">{children}</h3>
+    ),
+    code: ({ children }: { children?: React.ReactNode }) => (
+        <code className="rounded bg-foreground/10 px-1 py-0.5 font-mono text-[0.85em]">
+            {children}
+        </code>
+    ),
+    pre: ({ children }: { children?: React.ReactNode }) => (
+        <pre className="my-2 overflow-x-auto rounded-md bg-foreground/10 p-3 font-mono text-xs">
+            {children}
+        </pre>
+    ),
+    hr: () => <hr className="my-3 border-foreground/15" />,
+    blockquote: ({ children }: { children?: React.ReactNode }) => (
+        <blockquote className="my-2 border-l-2 border-foreground/30 pl-3 italic opacity-90">
+            {children}
+        </blockquote>
+    ),
+};
+
 function ContentBlock({ block }: { block: ChatContentBlock }) {
     if (block.type === 'text') {
-        return <p className="whitespace-pre-wrap">{block.text}</p>;
+        return (
+            <div className="text-sm leading-relaxed">
+                <Markdown components={markdownComponents}>{block.text}</Markdown>
+            </div>
+        );
     }
 
     if (block.type === 'image') {
@@ -85,10 +148,10 @@ function StreamingBubble({ text, agent }: { text: string; agent: Agent }) {
             <AgentAvatar agent={agent} className="size-7 shrink-0 text-xs" />
 
             <div className="max-w-[75%] space-y-1 rounded-2xl bg-muted px-4 py-2.5 text-sm">
-                <p className="whitespace-pre-wrap">
-                    {text}
-                    <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/70" />
-                </p>
+                <div className="text-sm leading-relaxed">
+                    <Markdown components={markdownComponents}>{text}</Markdown>
+                </div>
+                <span className="ml-0.5 inline-block h-4 w-0.5 animate-pulse bg-foreground/70" />
             </div>
         </div>
     );

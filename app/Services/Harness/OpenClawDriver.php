@@ -289,6 +289,8 @@ class OpenClawDriver implements HarnessDriver
 
     public function restartGateway(Server $server, CommandExecutor $executor): void
     {
+        $this->sanitizeConfigBeforeStart($executor);
+
         if ($server->isDocker()) {
             // Docker: kill and respawn (no systemd)
             try {
@@ -327,6 +329,41 @@ class OpenClawDriver implements HarnessDriver
     public function checkHealth(Agent $agent, CommandExecutor $executor): bool
     {
         return $this->checkGatewayHealth($executor);
+    }
+
+    /**
+     * Repair config shapes that crash the gateway on boot.
+     *
+     * `agents.defaults.models.*` must be objects, but earlier OpenClaw versions
+     * occasionally wrote `[]` for entries with no overrides. The new gateway
+     * rejects that shape (`expected object, received array`) and refuses to
+     * start, leaving an otherwise-healthy server stuck in start-limit-hit.
+     */
+    private function sanitizeConfigBeforeStart(CommandExecutor $executor): void
+    {
+        $script = <<<'BASH'
+node -e '
+  const fs = require("fs");
+  const f = "/root/.openclaw/openclaw.json";
+  try {
+    const c = JSON.parse(fs.readFileSync(f, "utf8"));
+    const models = c && c.agents && c.agents.defaults && c.agents.defaults.models;
+    if (models && typeof models === "object" && !Array.isArray(models)) {
+      let dirty = false;
+      for (const k of Object.keys(models)) {
+        if (Array.isArray(models[k])) { models[k] = {}; dirty = true; }
+      }
+      if (dirty) fs.writeFileSync(f, JSON.stringify(c, null, 2));
+    }
+  } catch (e) { /* tolerate missing/invalid config — gateway boot will surface it */ }
+'
+BASH;
+
+        try {
+            $executor->exec($script);
+        } catch (\Throwable $e) {
+            Log::warning("Config sanitize skipped: {$e->getMessage()}");
+        }
     }
 
     public function agentDir(Agent $agent): string
