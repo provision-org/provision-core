@@ -18,7 +18,7 @@ export default function Register() {
             title="Create an account"
             description="Enter your details below to create your account"
         >
-            <Head title="Sign up — Provision">
+            <Head title="Sign up">
                 <meta
                     name="description"
                     content="Create your Provision account and deploy your first AI employee in minutes."

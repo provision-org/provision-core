@@ -30,7 +30,7 @@ export default function Login({
             title="Log in to your account"
             description="Enter your email and password below to log in"
         >
-            <Head title="Log in — Provision">
+            <Head title="Log in">
                 <meta
                     name="description"
                     content="Sign in to your Provision account to manage your AI employees."
