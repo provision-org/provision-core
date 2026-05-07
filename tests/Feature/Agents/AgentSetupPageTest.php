@@ -29,14 +29,14 @@ test('deploying agent redirects to provisioning', function () {
     $response->assertRedirect(route('agents.provisioning', $agent));
 });
 
-test('active agent redirects to show', function () {
+test('active channel-mode agent redirects to channels', function () {
     $user = User::factory()->withPersonalTeam()->create();
     $team = $user->currentTeam;
     $agent = Agent::factory()->create(['team_id' => $team->id, 'status' => AgentStatus::Active]);
 
     $response = $this->actingAs($user)->get(route('agents.setup', $agent));
 
-    $response->assertRedirect(route('agents.show', $agent));
+    $response->assertRedirect(route('agents.channels', $agent));
 });
 
 test('non-admin cannot access setup page', function () {

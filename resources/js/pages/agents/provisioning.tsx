@@ -62,8 +62,12 @@ export default function AgentProvisioning({ agent }: Props) {
                 () => setSimulatedStep(steps.length - 1),
                 0,
             );
+            // Provisioning is a checkpoint — once the agent is live, hand
+            // the user to the server so it can route to channels (or to
+            // the ChatGPT pairing screen for that path). Channel selection
+            // is the user-facing "where do I want my agent to live?" step.
             const redirectTimeout = setTimeout(() => {
-                router.visit(`/agents/${agent.id}/chat?greet=1`);
+                router.visit(`/agents/${agent.id}/provisioning`);
             }, 800);
 
             return () => {

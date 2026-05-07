@@ -102,7 +102,7 @@ test('an admin can create an agent', function () {
             ->and($emailConnection->status)->toBe('connected');
     }
 
-    $response->assertRedirect(route('agents.setup', $agent));
+    $response->assertRedirect(route('agents.provisioning', $agent));
     Bus::assertNotDispatched(CreateAgentOnServerJob::class);
 });
 
@@ -511,7 +511,7 @@ test('agent creation continues when mailboxkit provisioning fails', function () 
     expect($agent)->not->toBeNull()
         ->and($agent->emailConnection)->toBeNull();
 
-    $response->assertRedirect(route('agents.setup', $agent));
+    $response->assertRedirect(route('agents.provisioning', $agent));
 });
 
 test('agent deletion calls mailboxkit to delete inbox', function () {

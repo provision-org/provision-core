@@ -67,14 +67,14 @@ test('refreshing provisioning page does not re-dispatch job', function () {
     Bus::assertNotDispatched(CreateAgentOnServerJob::class);
 });
 
-test('provisioning page redirects to show when agent is active', function () {
+test('provisioning page redirects to channels when agent is active', function () {
     $user = User::factory()->withPersonalTeam()->create();
     $team = $user->currentTeam;
     $agent = Agent::factory()->create(['team_id' => $team->id, 'status' => AgentStatus::Active]);
 
     $response = $this->actingAs($user)->get(route('agents.provisioning', $agent));
 
-    $response->assertRedirect(route('agents.show', $agent));
+    $response->assertRedirect(route('agents.channels', $agent));
 });
 
 test('provisioning page renders error state', function () {

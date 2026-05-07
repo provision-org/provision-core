@@ -57,7 +57,7 @@ export default function Channels({ agent }: { agent: Agent }) {
                     {/* already active) and lands the user in chat with the */}
                     {/* silent kickoff so the agent introduces itself first. */}
                     <Link
-                        href={`/agents/${agent.id}/provisioning`}
+                        href={`/agents/${agent.id}/chat?greet=1`}
                         className="group block rounded-lg border border-primary/30 bg-primary/[0.04] p-4 transition-colors hover:bg-primary/[0.08]"
                     >
                         <div className="flex items-center justify-between gap-4">
@@ -122,14 +122,14 @@ export default function Channels({ agent }: { agent: Agent }) {
 
                     <div className="flex items-center justify-between border-t pt-6">
                         <Link
-                            href={`/agents/${agent.id}/provisioning`}
+                            href={`/agents/${agent.id}`}
                             className="text-sm text-muted-foreground hover:text-foreground"
                         >
                             Skip for now
                         </Link>
                         <Button asChild>
-                            <Link href={`/agents/${agent.id}/provisioning`}>
-                                Continue to deploy
+                            <Link href={`/agents/${agent.id}/chat?greet=1`}>
+                                Open chat
                             </Link>
                         </Button>
                     </div>

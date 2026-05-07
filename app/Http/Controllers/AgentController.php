@@ -284,15 +284,11 @@ class AgentController extends Controller
             'harness_type' => $agent->harness_type?->value,
         ]);
 
-        // ChatGPT-billed agents need the openclaw agent dir + auth-profiles.json
-        // before we can run device-code login. Send them through provisioning
-        // first; once status flips to Active, provisioning() redirects to
-        // connect-chatgpt automatically.
-        if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
-            return to_route('agents.provisioning', $agent);
-        }
-
-        return to_route('agents.setup', $agent);
+        // Always go to provisioning first — by the time it lands on Active,
+        // the agent is reachable from the channels picker and the OpenClaw
+        // dir exists for the ChatGPT device-code flow if needed. The
+        // provisioning controller routes to the right next step on Active.
+        return to_route('agents.provisioning', $agent);
     }
 
     public function hire(Request $request, AgentTemplate $agentTemplate, AgentTemplateService $templateService): RedirectResponse
@@ -430,13 +426,12 @@ class AgentController extends Controller
             }
 
             // Workforce agents land on their config page — they have no
-            // chat surface. Channel-mode agents go to chat with the silent
-            // kickoff so they introduce themselves on arrival.
+            // channel surface. Channel-mode agents go to the channel picker.
             if ($agent->agent_mode === AgentMode::Workforce) {
                 return to_route('agents.show', $agent);
             }
 
-            return redirect(route('agents.chat', $agent).'?greet=1');
+            return to_route('agents.channels', $agent);
         }
 
         if ($agent->status === AgentStatus::Pending) {
