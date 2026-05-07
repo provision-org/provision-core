@@ -4,25 +4,9 @@
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
-        {{-- Default SEO meta tags (overridden per-page via Inertia Head) --}}
-        <meta name="description" content="Deploy AI employees that work alongside your team. They join your Slack, get their own email and browser, and learn your workflows by watching you work.">
-        <meta name="keywords" content="AI employees, AI agents, AI workforce, OpenClaw, Slack AI, AI automation, AI coworkers, provision">
-
-        {{-- Open Graph --}}
-        <meta property="og:type" content="website">
-        <meta property="og:site_name" content="Provision">
-        <meta property="og:title" content="Provision — Meet your AI workforce">
-        <meta property="og:description" content="Deploy AI employees that work alongside your team. They join your Slack, get their own email and browser, and learn your workflows by watching you work.">
-        <meta property="og:image" content="{{ url('/og/default.png') }}">
-        <meta property="og:image:width" content="1200">
-        <meta property="og:image:height" content="630">
-        <meta property="og:url" content="{{ url()->current() }}">
-
-        {{-- Twitter Card --}}
-        <meta name="twitter:card" content="summary_large_image">
-        <meta name="twitter:title" content="Provision — Meet your AI workforce">
-        <meta name="twitter:description" content="Deploy AI employees that work alongside your team. They join your Slack, get their own email and browser, and learn your workflows by watching you work.">
-        <meta name="twitter:image" content="{{ url('/og/default.png') }}">
+        {{-- This is the authenticated app shell — public marketing lives at provision.ai. --}}
+        {{-- Keep these pages out of search results to avoid duplicate-content noise. --}}
+        <meta name="robots" content="noindex, nofollow">
 
         {{-- Canonical URL --}}
         <link rel="canonical" href="{{ url()->current() }}">
