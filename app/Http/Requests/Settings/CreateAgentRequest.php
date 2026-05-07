@@ -18,6 +18,36 @@ class CreateAgentRequest extends FormRequest
     }
 
     /**
+     * Normalize tool URLs before validation — users routinely paste bare
+     * hostnames ("mixpanel.com") and shouldn't be punished with a hard error.
+     */
+    protected function prepareForValidation(): void
+    {
+        $tools = $this->input('tools');
+        if (! is_array($tools)) {
+            return;
+        }
+
+        foreach ($tools as $i => $tool) {
+            if (! is_array($tool)) {
+                continue;
+            }
+            $url = isset($tool['url']) && is_string($tool['url']) ? trim($tool['url']) : '';
+            if ($url === '') {
+                $tools[$i]['url'] = null;
+
+                continue;
+            }
+            if (! preg_match('#^[a-z][a-z0-9+.-]*://#i', $url)) {
+                $url = 'https://'.ltrim($url, '/');
+            }
+            $tools[$i]['url'] = $url;
+        }
+
+        $this->merge(['tools' => $tools]);
+    }
+
+    /**
      * @return array<string, array<int, mixed>>
      */
     public function rules(): array
@@ -74,6 +104,7 @@ class CreateAgentRequest extends FormRequest
         return [
             'model_primary.in' => 'The selected model is not available. Please configure an API key for that provider.',
             'email_prefix.regex' => 'Email prefix must contain only letters, numbers, dots, hyphens, and underscores.',
+            'tools.*.url.url' => 'One of the tool URLs looks invalid. Please use a full domain like "mixpanel.com" or "https://mixpanel.com".',
         ];
     }
 }
