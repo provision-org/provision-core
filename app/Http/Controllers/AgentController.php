@@ -384,7 +384,14 @@ class AgentController extends Controller
                 return to_route('agents.connect-chatgpt', $agent);
             }
 
-            return to_route('agents.show', $agent);
+            // Workforce agents don't have a channel surface — send them home.
+            if ($agent->agent_mode === AgentMode::Workforce) {
+                return to_route('agents.show', $agent);
+            }
+
+            // Channel-mode agents (including the ChatGPT path that just
+            // finished pairing) pick where they live next.
+            return to_route('agents.channels', $agent);
         }
 
         if ($agent->status !== AgentStatus::Pending) {

@@ -1,5 +1,5 @@
 import { Head, Link } from '@inertiajs/react';
-import { Hash, MessageCircle, MessageSquare, Send } from 'lucide-react';
+import { ArrowRight, Hash, MessageCircle, MessageSquare, Send } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
@@ -52,9 +52,15 @@ export default function Channels({ agent }: { agent: Agent }) {
                         </p>
                     </div>
 
-                    {/* Web Chat — always available, no setup */}
-                    <div className="rounded-lg border border-primary/20 bg-primary/[0.03] p-4">
-                        <div className="flex items-center justify-between">
+                    {/* Web Chat — primary CTA, always available, no setup. */}
+                    {/* Click runs the agent through provisioning (instant if */}
+                    {/* already active) and lands the user in chat with the */}
+                    {/* silent kickoff so the agent introduces itself first. */}
+                    <Link
+                        href={`/agents/${agent.id}/provisioning`}
+                        className="group block rounded-lg border border-primary/30 bg-primary/[0.04] p-4 transition-colors hover:bg-primary/[0.08]"
+                    >
+                        <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-4">
                                 <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
                                     <MessageCircle className="size-5 text-primary" />
@@ -68,17 +74,19 @@ export default function Channels({ agent }: { agent: Agent }) {
                                             variant="default"
                                             className="bg-emerald-500/10 text-[10px] text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
                                         >
-                                            Always on
+                                            Recommended
                                         </Badge>
                                     </div>
                                     <p className="text-sm text-muted-foreground">
-                                        Chat with your agent directly from the
-                                        browser. No setup needed.
+                                        Chat from the browser. No setup —
+                                        {' '}{agent.name} will say hi and walk you
+                                        through what they need.
                                     </p>
                                 </div>
                             </div>
+                            <ArrowRight className="size-4 shrink-0 text-primary opacity-60 transition-opacity group-hover:opacity-100" />
                         </div>
-                    </div>
+                    </Link>
 
                     <div className="grid gap-3">
                         {channels.map((channel) => (
