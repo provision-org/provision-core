@@ -24,10 +24,13 @@ export default function AgentProvisioning({ agent }: Props) {
     const [simulatedStep, setSimulatedStep] = useState(0);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+    // Keep polling while the agent isn't active. Transient 'error' states
+    // can flip back to 'active' once the gateway health check recovers, so
+    // we don't stop on first error — only on success.
     const { stop } = usePoll(
         3000,
         { only: ['agent'] },
-        { autoStart: !isActive && !isError },
+        { autoStart: !isActive },
     );
 
     // Simulated step progression while deploying
@@ -102,22 +105,23 @@ export default function AgentProvisioning({ agent }: Props) {
                     </div>
 
                     {isError ? (
-                        <div className="w-full rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                        <div className="w-full rounded-lg border border-amber-500/40 bg-amber-500/10 p-4 dark:border-amber-400/30 dark:bg-amber-400/10">
                             <div className="flex items-center gap-3">
-                                <AlertCircle className="size-5 shrink-0 text-destructive" />
+                                <AlertCircle className="size-5 shrink-0 text-amber-600 dark:text-amber-400" />
                                 <div>
-                                    <p className="text-sm font-medium text-destructive">
-                                        Agent deployment failed
+                                    <p className="text-sm font-medium text-amber-700 dark:text-amber-300">
+                                        Deployment is taking longer than usual
                                     </p>
                                     <p className="mt-1 text-sm text-muted-foreground">
-                                        Something went wrong while deploying
-                                        your agent.{' '}
+                                        Hit a hiccup but still trying. If it
+                                        doesn&apos;t recover in a minute,{' '}
                                         <a
                                             href={`/agents/${agent.id}`}
                                             className="underline hover:text-foreground"
                                         >
-                                            Go to agent page
+                                            check the agent page
                                         </a>
+                                        .
                                     </p>
                                 </div>
                             </div>
