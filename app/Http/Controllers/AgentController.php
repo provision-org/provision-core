@@ -429,7 +429,14 @@ class AgentController extends Controller
                 return to_route('agents.connect-chatgpt', $agent);
             }
 
-            return to_route('agents.show', $agent);
+            // Workforce agents land on their config page — they have no
+            // chat surface. Channel-mode agents go to chat with the silent
+            // kickoff so they introduce themselves on arrival.
+            if ($agent->agent_mode === AgentMode::Workforce) {
+                return to_route('agents.show', $agent);
+            }
+
+            return redirect(route('agents.chat', $agent).'?greet=1');
         }
 
         if ($agent->status === AgentStatus::Pending) {
