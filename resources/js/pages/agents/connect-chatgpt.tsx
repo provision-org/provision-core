@@ -1,4 +1,5 @@
-import { Head, Link, router } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
+import { useState } from 'react';
 import { ChatGPTAuthCard } from '@/components/agents/chatgpt-auth-card';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
@@ -12,6 +13,19 @@ export default function ConnectChatGPT({ agent }: { agent: Agent }) {
     ];
 
     const isConnected = !!agent.chatgpt_email;
+    const [switching, setSwitching] = useState(false);
+
+    const switchToPayPerUse = () => {
+        setSwitching(true);
+        router.post(
+            `/agents/${agent.id}/use-pay-per-use`,
+            {},
+            {
+                preserveScroll: true,
+                onFinish: () => setSwitching(false),
+            },
+        );
+    };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -35,12 +49,16 @@ export default function ConnectChatGPT({ agent }: { agent: Agent }) {
                     <ChatGPTAuthCard agent={agent} />
 
                     <div className="flex items-center justify-between gap-4 border-t border-border pt-6">
-                        <Link
-                            href={`/agents/${agent.id}/edit`}
-                            className="text-sm text-muted-foreground underline hover:text-foreground"
+                        <button
+                            type="button"
+                            onClick={switchToPayPerUse}
+                            disabled={switching}
+                            className="text-sm text-muted-foreground underline hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                            Switch to pay-per-use instead
-                        </Link>
+                            {switching
+                                ? 'Switching…'
+                                : 'Switch to pay-per-use instead'}
+                        </button>
 
                         <Button
                             disabled={!isConnected}

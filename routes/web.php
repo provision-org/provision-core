@@ -95,6 +95,7 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::post('agents', [AgentController::class, 'store'])->name('agents.store')->middleware(HandlePrecognitiveRequests::class);
         Route::get('agents/{agent}/setup', [AgentController::class, 'setup'])->name('agents.setup');
         Route::get('agents/{agent}/connect-chatgpt', [AgentController::class, 'connectChatgpt'])->name('agents.connect-chatgpt');
+        Route::post('agents/{agent}/use-pay-per-use', [AgentController::class, 'usePayPerUse'])->name('agents.use-pay-per-use');
         Route::get('agents/{agent}/provisioning', [AgentController::class, 'provisioning'])->name('agents.provisioning');
         Route::get('agents/{agent}', [AgentController::class, 'show'])->name('agents.show');
         Route::get('agents/{agent}/configure', [AgentController::class, 'configure'])->name('agents.configure');

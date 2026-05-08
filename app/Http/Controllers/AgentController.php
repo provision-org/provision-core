@@ -21,6 +21,7 @@ use App\Jobs\ProvisionApiKeyJob;
 use App\Jobs\RemoveAgentFromServerJob;
 use App\Jobs\RestartGatewayJob;
 use App\Jobs\UpdateAgentOnServerJob;
+use App\Jobs\UpdateEnvOnServerJob;
 use App\Jobs\VerifyAgentChannelsJob;
 use App\Mail\AgentDeletedMail;
 use App\Models\Agent;
@@ -536,6 +537,61 @@ class AgentController extends Controller
         return Inertia::render('agents/connect-chatgpt', [
             'agent' => $agent->load('server'),
         ]);
+    }
+
+    /**
+     * One-click switch from ChatGPT subscription to managed pay-per-use.
+     *
+     * Auto-provisions a per-team OpenRouter sub-key (if absent), points the
+     * agent at the Efficient tier model, pushes the new env to the server,
+     * and restarts the gateway so the agent picks up the credentials.
+     */
+    public function usePayPerUse(Request $request, Agent $agent): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+
+        if (! config('services.openrouter.provisioning_api_key')) {
+            return back()->withErrors([
+                'pay_per_use' => 'Pay-per-use is not configured on this instance. Add an OpenRouter provisioning key to your .env (OPENROUTER_PROVISIONING_API_KEY) or paste a personal key under API Keys.',
+            ]);
+        }
+
+        // Provision a managed key now (synchronous so the env push that follows
+        // sees the row). The job is idempotent.
+        if (! $team->managedApiKey()->exists()) {
+            ProvisionApiKeyJob::dispatchSync($team);
+            $team->refresh();
+        }
+
+        $tier = ModelTier::Efficient;
+
+        $agent->update([
+            'auth_provider' => $tier->authProvider(),
+            'model_primary' => $tier->primaryModel(),
+            'model_fallbacks' => $tier->fallbackModels(),
+        ]);
+
+        if ($agent->server_id) {
+            $agent->update(['is_syncing' => true]);
+
+            try {
+                broadcast(new AgentUpdatedEvent($agent));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to broadcast AgentUpdatedEvent', ['agent_id' => $agent->id, 'error' => $e->getMessage()]);
+            }
+
+            // Push shared env (managed OPENROUTER_API_KEY, etc.), refresh
+            // the per-agent runtime, then restart the gateway so the new
+            // auth provider takes effect. RestartGatewayJob coalesces.
+            UpdateEnvOnServerJob::dispatch($agent->server);
+            UpdateAgentOnServerJob::dispatch($agent);
+            RestartGatewayJob::dispatch($agent->server);
+        }
+
+        return to_route('agents.setup', $agent);
     }
 
     public function edit(Request $request, Agent $agent): Response
