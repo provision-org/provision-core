@@ -13,6 +13,7 @@ use App\Services\SlackAppCleanupService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Http\Client\RequestException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
@@ -133,8 +134,43 @@ class DestroyTeamJob implements ShouldQueue
         Log::info("Deleted DO droplet {$server->provider_server_id}");
 
         if ($server->provider_volume_id) {
-            $do->deleteVolume($server->provider_volume_id);
-            Log::info("Deleted DO volume {$server->provider_volume_id}");
+            // DO returns 204 on droplet DELETE immediately but the volume
+            // detach finishes asynchronously, so a follow-up volume DELETE
+            // can race in with 422 "still attached". Retry with backoff;
+            // treat 404 as already-gone.
+            $this->deleteDoVolumeWithRetry($do, $server->provider_volume_id);
+        }
+    }
+
+    private function deleteDoVolumeWithRetry(DigitalOceanService $do, string $volumeId): void
+    {
+        $delays = [2, 4, 8, 16]; // up to ~30s of patience for the detach
+
+        foreach ($delays as $i => $delay) {
+            try {
+                $do->deleteVolume($volumeId);
+                Log::info("Deleted DO volume {$volumeId}".($i > 0 ? " (after {$i} retries)" : ''));
+
+                return;
+            } catch (RequestException $e) {
+                $status = $e->response?->status();
+
+                if ($status === 404) {
+                    Log::info("DO volume {$volumeId} already gone (404)");
+
+                    return;
+                }
+
+                $isLast = $i === count($delays) - 1;
+                if ($status !== 422 || $isLast) {
+                    Log::warning("Failed to delete DO volume {$volumeId} (status {$status}): {$e->getMessage()}");
+
+                    return;
+                }
+
+                Log::info("DO volume {$volumeId} still detaching; retrying in {$delay}s");
+                sleep($delay);
+            }
         }
     }
 
