@@ -1,6 +1,5 @@
 import { Transition } from '@headlessui/react';
 import { Form, Head, router } from '@inertiajs/react';
-import DeleteConfirmDialog from '@/components/delete-confirm-dialog';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
@@ -24,13 +23,11 @@ export default function ShowTeam({
     members,
     invitations,
     isAdmin,
-    isOwner,
 }: {
     team: Team;
     members: TeamMember[];
     invitations: TeamInvitation[];
     isAdmin: boolean;
-    isOwner: boolean;
 }) {
     const breadcrumbs: BreadcrumbItem[] = [
         {
@@ -390,33 +387,6 @@ export default function ShowTeam({
                     </>
                 )}
 
-                {/* Danger Zone: Delete Team */}
-                {isOwner && !team.personal_team && (
-                    <>
-                        <Separator />
-
-                        <div className="space-y-6">
-                            <Heading
-                                variant="small"
-                                title="Delete team"
-                                description="Permanently delete this team."
-                            />
-
-                            <p className="text-sm text-muted-foreground">
-                                Once a team is deleted, all of its resources and
-                                data will be permanently deleted.
-                            </p>
-
-                            <DeleteConfirmDialog
-                                name={team.name}
-                                label="team"
-                                onConfirm={() =>
-                                    router.delete(`/settings/teams/${team.id}`)
-                                }
-                            />
-                        </div>
-                    </>
-                )}
             </SettingsLayout>
         </AppLayout>
     );

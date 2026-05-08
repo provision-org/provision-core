@@ -10,6 +10,7 @@ use App\Http\Controllers\Settings\TeamInvitationController;
 use App\Http\Controllers\Settings\TeamMemberController;
 use App\Http\Controllers\Settings\TwoFactorAuthenticationController;
 use App\Http\Controllers\SlackConfigurationTokenController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -41,6 +42,19 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('settings/api', [ApiTokenController::class, 'index'])->name('api-tokens.index');
     Route::post('settings/api', [ApiTokenController::class, 'store'])->name('api-tokens.store');
     Route::delete('settings/api/{token}', [ApiTokenController::class, 'destroy'])->name('api-tokens.destroy');
+
+    Route::get('settings/danger-zone', function (Request $request) {
+        $user = $request->user();
+        $team = $user->currentTeam;
+        $canDeleteTeam = $team
+            && ! $team->personal_team
+            && $team->user_id === $user->id;
+
+        return Inertia::render('settings/danger-zone', [
+            'team' => $canDeleteTeam ? $team->only(['id', 'name', 'personal_team']) : null,
+            'canDeleteTeam' => $canDeleteTeam,
+        ]);
+    })->name('danger-zone.show');
 });
 
 Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-profile-complete'])->group(function () {

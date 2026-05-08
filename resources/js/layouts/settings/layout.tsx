@@ -11,57 +11,84 @@ import { show } from '@/routes/two-factor';
 import { edit as editPassword } from '@/routes/user-password';
 import type { NavItem, SharedData } from '@/types';
 
+type SettingsNavSection = {
+    title: string;
+    /** When true, render items without the section heading text. */
+    hideHeading?: boolean;
+    tone?: 'default' | 'danger';
+    items: NavItem[];
+};
+
 export default function SettingsLayout({ children }: PropsWithChildren) {
-    const { auth } = usePage<SharedData>().props;
+    const page = usePage<SharedData>();
+    const { auth } = page.props;
+    const modules = (page.props.modules ?? {}) as Record<string, unknown>;
     const { isCurrentUrl } = useCurrentUrl();
 
     const currentTeamId = auth.user.current_team_id;
+    // Email domain is provided by the MailboxKit module — gate the link on it.
+    const emailDomainAvailable = 'emailDomain' in modules;
 
-    const sidebarNavItems: NavItem[] = [
+    const teamItems: NavItem[] = currentTeamId
+        ? [
+              {
+                  title: 'General',
+                  href: `/settings/teams/${currentTeamId}`,
+                  icon: null,
+              },
+              {
+                  title: 'Slack',
+                  href: `/settings/teams/${currentTeamId}/slack-config`,
+                  icon: null,
+              },
+              ...(emailDomainAvailable
+                  ? [
+                        {
+                            title: 'Email domain',
+                            href: `/settings/teams/${currentTeamId}/email-domain`,
+                            icon: null,
+                        } as NavItem,
+                    ]
+                  : []),
+          ]
+        : [];
+
+    const sections: SettingsNavSection[] = [
         {
-            title: 'Profile',
-            href: edit(),
-            icon: null,
+            title: 'Account',
+            items: [
+                { title: 'Profile', href: edit(), icon: null },
+                { title: 'Appearance', href: editAppearance(), icon: null },
+            ],
         },
         {
-            title: 'Password',
-            href: editPassword(),
-            icon: null,
+            title: 'Security',
+            items: [
+                { title: 'Password', href: editPassword(), icon: null },
+                { title: 'Two-Factor Auth', href: show(), icon: null },
+                { title: 'API Tokens', href: '/settings/api', icon: null },
+            ],
         },
-        {
-            title: 'Two-Factor Auth',
-            href: show(),
-            icon: null,
-        },
-        {
-            title: 'Appearance',
-            href: editAppearance(),
-            icon: null,
-        },
-        {
-            title: 'API Tokens',
-            href: '/settings/api',
-            icon: null,
-        },
-        ...(currentTeamId
+        ...(teamItems.length > 0
             ? [
                   {
-                      title: 'Teams',
-                      href: `/settings/teams/${currentTeamId}`,
-                      icon: null,
-                  } as NavItem,
-                  {
-                      title: 'Slack',
-                      href: `/settings/teams/${currentTeamId}/slack-config`,
-                      icon: null,
-                  } as NavItem,
-                  {
-                      title: 'Email domain',
-                      href: `/settings/teams/${currentTeamId}/email-domain`,
-                      icon: null,
-                  } as NavItem,
+                      title: 'Team settings',
+                      items: teamItems,
+                  } as SettingsNavSection,
               ]
             : []),
+        {
+            title: 'Danger zone',
+            hideHeading: true,
+            tone: 'danger',
+            items: [
+                {
+                    title: 'Danger zone',
+                    href: '/settings/danger-zone',
+                    icon: null,
+                },
+            ],
+        },
     ];
 
     // When server-side rendering, we only render the layout on the client...
@@ -77,28 +104,49 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
             />
 
             <div className="flex flex-col lg:flex-row lg:space-x-12">
-                <aside className="w-full max-w-xl lg:w-48">
+                <aside className="w-full max-w-xl lg:w-56">
                     <nav
-                        className="flex flex-col space-y-1 space-x-0"
+                        className="flex flex-col space-y-6"
                         aria-label="Settings"
                     >
-                        {sidebarNavItems.map((item, index) => (
-                            <Button
-                                key={`${toUrl(item.href)}-${index}`}
-                                size="sm"
-                                variant="ghost"
-                                asChild
-                                className={cn('w-full justify-start', {
-                                    'bg-muted': isCurrentUrl(item.href),
-                                })}
+                        {sections.map((section) => (
+                            <div
+                                key={section.title}
+                                className="flex flex-col space-y-1"
                             >
-                                <Link href={item.href}>
-                                    {item.icon && (
-                                        <item.icon className="h-4 w-4" />
-                                    )}
-                                    {item.title}
-                                </Link>
-                            </Button>
+                                {!section.hideHeading && (
+                                    <p
+                                        className={cn(
+                                            'px-3 pb-1 text-xs font-semibold tracking-wide uppercase',
+                                            section.tone === 'danger'
+                                                ? 'text-red-600 dark:text-red-400'
+                                                : 'text-muted-foreground',
+                                        )}
+                                    >
+                                        {section.title}
+                                    </p>
+                                )}
+                                {section.items.map((item, index) => (
+                                    <Button
+                                        key={`${toUrl(item.href)}-${index}`}
+                                        size="sm"
+                                        variant="ghost"
+                                        asChild
+                                        className={cn('w-full justify-start', {
+                                            'bg-muted': isCurrentUrl(item.href),
+                                            'text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-500/10 dark:hover:text-red-300':
+                                                section.tone === 'danger',
+                                        })}
+                                    >
+                                        <Link href={item.href}>
+                                            {item.icon && (
+                                                <item.icon className="h-4 w-4" />
+                                            )}
+                                            {item.title}
+                                        </Link>
+                                    </Button>
+                                ))}
+                            </div>
                         ))}
                     </nav>
                 </aside>
