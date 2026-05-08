@@ -106,10 +106,15 @@ enum LlmProvider: string
      */
     public function openclawModel(string $modelId): string
     {
+        // OpenRouter uses dotted version segments (e.g. claude-haiku-4.5) while
+        // our DB ids use hyphens (claude-haiku-4-5). Convert the trailing
+        // -N-M version pair to -N.M so the model id is recognized upstream.
+        $forOpenRouter = preg_replace('/-(\d+)-(\d+)$/', '-$1.$2', $modelId) ?? $modelId;
+
         return match ($this) {
             self::OpenRouter => "openrouter/{$modelId}",
-            self::Anthropic => "openrouter/anthropic/{$modelId}",
-            self::OpenAi => "openrouter/openai/{$modelId}",
+            self::Anthropic => "openrouter/anthropic/{$forOpenRouter}",
+            self::OpenAi => "openrouter/openai/{$forOpenRouter}",
             self::OpenAiCodex => "openai-codex/{$modelId}",
         };
     }

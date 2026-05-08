@@ -428,7 +428,8 @@ test('destroy does not dispatch job when agent has no server', function () {
 test('openclawModelConfig returns string when no fallbacks', function () {
     $agent = Agent::factory()->create(['model_primary' => 'claude-opus-4-6', 'model_fallbacks' => null]);
 
-    expect($agent->openclawModelConfig())->toBe('openrouter/anthropic/claude-opus-4-6');
+    // DB ids use hyphenated versions (claude-opus-4-6); OpenRouter expects dotted (4.6).
+    expect($agent->openclawModelConfig())->toBe('openrouter/anthropic/claude-opus-4.6');
 });
 
 test('openclawModelConfig returns object with fallbacks', function () {
@@ -440,14 +441,14 @@ test('openclawModelConfig returns object with fallbacks', function () {
     $config = $agent->openclawModelConfig();
 
     expect($config)->toBeArray()
-        ->and($config['primary'])->toBe('openrouter/anthropic/claude-opus-4-6')
+        ->and($config['primary'])->toBe('openrouter/anthropic/claude-opus-4.6')
         ->and($config['fallbacks'])->toBe(['openrouter/openai/gpt-5-nano', 'openrouter/z-ai/glm-4.7']);
 });
 
 test('openclawModelConfig returns string when fallbacks is empty array', function () {
     $agent = Agent::factory()->create(['model_primary' => 'claude-opus-4-6', 'model_fallbacks' => []]);
 
-    expect($agent->openclawModelConfig())->toBe('openrouter/anthropic/claude-opus-4-6');
+    expect($agent->openclawModelConfig())->toBe('openrouter/anthropic/claude-opus-4.6');
 });
 
 test('agent creation provisions mailboxkit email with correct slug format', function () {
