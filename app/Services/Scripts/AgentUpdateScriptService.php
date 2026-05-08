@@ -241,17 +241,45 @@ class AgentUpdateScriptService
             $lines[] = "mkdir -p {$agentDir}/agent";
 
             if ($usesChatGpt) {
-                $lines[] = '# Merge with existing file to preserve openai-codex OAuth profile written by `openclaw models auth login`';
+                // Merge with existing file. We strip a stale `openai-codex:default`
+                // entry only when it is an `api_key` profile (e.g. left over from
+                // a previous pay-per-use run) so we never delete the OAuth profile
+                // that `openclaw models auth login` writes under the same key.
+                $lines[] = '# Merge with existing file; strip stale openai-codex api_key entry but preserve OAuth';
                 $lines[] = "if [ -f {$agentDir}/agent/auth-profiles.json ]; then";
                 $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json.new", $authProfiles);
-                $lines[] = "  jq -s '.[0] as \$base | .[1] as \$new | \$base | .profiles = (.profiles + \$new.profiles | with_entries(select(.value != null))) | .order = (.order + \$new.order) | del(.profiles.\"openai-codex:default\") | del(.order.\"openai-codex:default\")' {$agentDir}/agent/auth-profiles.json {$agentDir}/agent/auth-profiles.json.new > {$agentDir}/agent/auth-profiles.json.merged && mv {$agentDir}/agent/auth-profiles.json.merged {$agentDir}/agent/auth-profiles.json && rm -f {$agentDir}/agent/auth-profiles.json.new";
+                $lines[] = "  jq -s '.[0] as \$base | .[1] as \$new | \$base | .profiles = ((.profiles // {}) | with_entries(select(.key != \"openai-codex:default\" or .value.type != \"api_key\")) + \$new.profiles | with_entries(select(.value != null))) | .order = ((.order // {}) + \$new.order)' {$agentDir}/agent/auth-profiles.json {$agentDir}/agent/auth-profiles.json.new > {$agentDir}/agent/auth-profiles.json.merged && mv {$agentDir}/agent/auth-profiles.json.merged {$agentDir}/agent/auth-profiles.json && rm -f {$agentDir}/agent/auth-profiles.json.new";
                 $lines[] = 'else';
                 $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
                 $lines[] = 'fi';
             } else {
                 $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
+                // The shared `main` auth-profiles.json is read by gateway
+                // contexts that are not bound to a specific agent (heartbeat,
+                // server-side tools). Only seed `openrouter:default` here —
+                // the `openai-codex:default` profile is per-agent because
+                // ChatGPT OAuth tokens are user-specific, and writing an
+                // api_key version into `main` would clobber another agent's
+                // OAuth profile (e.g. a ChatGPT-OAuth chat agent like atlas).
+                $mainProfiles = json_encode([
+                    'profiles' => [
+                        'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $key],
+                    ],
+                    'order' => [
+                        'openrouter' => ['openrouter:default'],
+                    ],
+                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
                 $lines[] = 'mkdir -p /root/.openclaw/agents/main/agent';
-                $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
+                $lines[] = '# Merge into shared main auth-profiles.json — never overwrite, never inject openai-codex (per-agent OAuth)';
+                $lines[] = 'if [ -f /root/.openclaw/agents/main/agent/auth-profiles.json ]; then';
+                $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json.new', $mainProfiles);
+                // Strip any stale openai-codex:default api_key entry from main (left over from prior bug),
+                // then merge the new openrouter entry, preserving existing OAuth-style profiles.
+                $lines[] = "  jq -s '.[0] as \$base | .[1] as \$new | \$base | .profiles = ((.profiles // {}) | with_entries(select(.key != \"openai-codex:default\" or .value.type != \"api_key\")) | . + \$new.profiles) | .order = ((.order // {}) + \$new.order)' /root/.openclaw/agents/main/agent/auth-profiles.json /root/.openclaw/agents/main/agent/auth-profiles.json.new > /root/.openclaw/agents/main/agent/auth-profiles.json.merged && mv /root/.openclaw/agents/main/agent/auth-profiles.json.merged /root/.openclaw/agents/main/agent/auth-profiles.json && rm -f /root/.openclaw/agents/main/agent/auth-profiles.json.new";
+                $lines[] = 'else';
+                $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $mainProfiles);
+                $lines[] = 'fi';
             }
 
             $lines[] = '';
