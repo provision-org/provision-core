@@ -171,15 +171,40 @@ class SetupOpenClawOnServerJob implements ShouldQueue
     {
         try {
             $output = trim($sshService->exec('openclaw --version'));
-            // Output is like "openclaw v2026.3.8" — extract the version part
-            $version = Str::after($output, 'openclaw ');
+            $version = self::parseOpenClawVersion($output);
             if ($version) {
                 $this->server->update(['openclaw_version' => $version]);
                 Log::info("OpenClaw {$version} installed on server {$this->server->id}");
+            } else {
+                Log::warning("Could not parse OpenClaw version from output on server {$this->server->id}: {$output}");
             }
         } catch (\RuntimeException $e) {
             Log::warning("Could not determine OpenClaw version on server {$this->server->id}: {$e->getMessage()}");
         }
+    }
+
+    /**
+     * Extract the version string from `openclaw --version` output.
+     *
+     * Handles every observed format across OpenClaw releases:
+     *   - "openclaw v2026.3.8"            (≤ 5.5, lowercase + "v")
+     *   - "openclaw 2026.5.19 (c97b9f7)"  (5.6+, lowercase, no v, build hash)
+     *   - "OpenClaw 2026.5.19"            (capital O, no prefix)
+     *   - "v2026.5.19" / "2026.5.19"      (bare)
+     *
+     * Returns the bare version string (e.g. "2026.5.19") with any leading
+     * "v" stripped and trailing build hash discarded. Returns null when the
+     * output doesn't contain a recognisable semver-ish token.
+     *
+     * Fixes issue #29.
+     */
+    public static function parseOpenClawVersion(string $output): ?string
+    {
+        if (preg_match('/(\d{4}\.\d+\.\d+(?:[-.][a-z0-9.]+)?)/i', $output, $matches)) {
+            return ltrim($matches[1], 'v');
+        }
+
+        return null;
     }
 
     private function logProgress(string $step): void
