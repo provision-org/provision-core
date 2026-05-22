@@ -75,6 +75,7 @@ class Agent extends Model
         'user_context',
         'config_snapshot',
         'harness_agent_id',
+        'browser_display_num',
         'api_server_port',
         'api_server_key',
         'avatar_path',
