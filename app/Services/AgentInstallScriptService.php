@@ -281,6 +281,17 @@ class AgentInstallScriptService
         // 7. Set up per-agent browser display, Chrome, VNC, and Caddy route.
         // Writes c.browser.profiles.<name> directly to openclaw.json. The
         // explicit gateway restart below picks it up.
+        // Allocate the Xvfb display number deterministically in PHP and
+        // persist it to the agent row so the update path
+        // (AgentUpdateScriptService::buildBaseOpenClawConfig) can re-emit
+        // browser.profiles with the correct CDP URL — fixes issue #27.
+        if (! $agent->browser_display_num) {
+            $next = ($agent->server?->agents()
+                ->where('id', '!=', $agent->id)
+                ->whereNotNull('browser_display_num')
+                ->max('browser_display_num') ?? 0) + 1;
+            $agent->update(['browser_display_num' => $next]);
+        }
         $profileName = self::browserProfileName($agent);
         $lines[] = '# Set up per-agent browser with isolated display and VNC';
         $lines[] = $this->buildBrowserDisplayScript($agent, $configFile);
@@ -736,9 +747,13 @@ class AgentInstallScriptService
         $isDocker = $agent->server?->isDocker();
 
         if ($isDocker) {
-            // Docker: use shared display :99 from entrypoint, just start Chrome
+            // Docker: use shared display :99 from entrypoint, just start Chrome.
+            // CDP_PORT derives from the agent's persisted display number so the
+            // gateway-config rebuild path can re-emit browser.profiles. See issue #27.
+            $dockerDisplayNum = (int) $agent->browser_display_num;
+
             return <<<BASH
-        export CDP_PORT=\$((9222 + \$(ls /root/.chrome-profiles/ 2>/dev/null | wc -l)))
+        export CDP_PORT=$((9222 + {$dockerDisplayNum}))
 
         mkdir -p /root/.chrome-profiles/{$profileName}
 
@@ -752,7 +767,9 @@ class AgentInstallScriptService
 
         sleep 2
 
-        # Register browser profile with cdpUrl in openclaw.json
+        # Register browser profile with cdpUrl in openclaw.json. Uses
+        # driver=existing-session + attachOnly so a missing Chrome surfaces
+        # as a loud error instead of silently spawning a fallback (issue #27).
         node -e '
           const fs = require("fs");
           const f = "{$configFile}";
@@ -761,19 +778,25 @@ class AgentInstallScriptService
           c.browser.profiles = c.browser.profiles || {};
           const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
           const idx = Object.keys(c.browser.profiles).length;
-          c.browser.profiles["{$profileName}"] = { cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT, color: colors[idx % colors.length] };
+          c.browser.profiles["{$profileName}"] = {
+            driver: "existing-session",
+            attachOnly: true,
+            cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
+            color: colors[idx % colors.length],
+          };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;
         }
 
-        // Cloud: per-agent display + Chrome + VNC via systemd
+        // Cloud: per-agent display + Chrome + VNC via systemd.
+        // DISPLAY_NUM is allocated in PHP (persisted on the agent row) so the
+        // gateway-config rebuild path can re-emit browser.profiles without
+        // having to scan systemd units. See issue #27.
+        $displayNum = (int) $agent->browser_display_num;
+
         return <<<BASH
-        # Find next available display number
-        DISPLAY_NUM=1
-        while [ -f /etc/systemd/system/xvfb-display-\${DISPLAY_NUM}.service ]; do
-          DISPLAY_NUM=\$((DISPLAY_NUM + 1))
-        done
+        DISPLAY_NUM={$displayNum}
         VNC_PORT=\$((5900 + DISPLAY_NUM))
         WS_PORT=\$((6080 + DISPLAY_NUM))
         export CDP_PORT=\$((9222 + DISPLAY_NUM))
@@ -855,7 +878,9 @@ class AgentInstallScriptService
         CADDY_EOF
         systemctl reload caddy
 
-        # Register browser profile with cdpUrl in openclaw.json
+        # Register browser profile with cdpUrl in openclaw.json. Uses
+        # driver=existing-session + attachOnly so a missing Chrome surfaces
+        # as a loud error instead of silently spawning a fallback (issue #27).
         node -e '
           const fs = require("fs");
           const f = "{$configFile}";
@@ -864,7 +889,12 @@ class AgentInstallScriptService
           c.browser.profiles = c.browser.profiles || {};
           const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
           const idx = Object.keys(c.browser.profiles).length;
-          c.browser.profiles["{$profileName}"] = { cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT, color: colors[idx % colors.length] };
+          c.browser.profiles["{$profileName}"] = {
+            driver: "existing-session",
+            attachOnly: true,
+            cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
+            color: colors[idx % colors.length],
+          };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;

@@ -308,3 +308,63 @@ test('hermes update script preserves BROWSER_CDP_URL from existing env', functio
     expect($script)->toContain("CDP_URL=\$(grep '^BROWSER_CDP_URL='")
         ->toContain('[ -n "$CDP_URL" ] && echo "$CDP_URL"');
 });
+
+test('openclaw update config preserves browser.profiles for every agent on the server (issue #27)', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-scout-id',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'scout',
+        'browser_display_num' => 1,
+        'status' => AgentStatus::Active,
+    ]);
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-buddy-id',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'buddy',
+        'browser_display_num' => 2,
+        'status' => AgentStatus::Active,
+    ]);
+    $agent = Agent::where('name', 'scout')->first();
+
+    $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
+
+    expect($config['browser']['profiles'])->toBeArray()->toHaveCount(2)
+        ->toHaveKey('agent-scout')
+        ->toHaveKey('agent-buddy');
+
+    expect($config['browser']['profiles']['agent-scout'])
+        ->toMatchArray([
+            'driver' => 'existing-session',
+            'attachOnly' => true,
+            'cdpUrl' => 'http://127.0.0.1:9223',
+        ]);
+
+    expect($config['browser']['profiles']['agent-buddy']['cdpUrl'])
+        ->toBe('http://127.0.0.1:9224');
+});
+
+test('openclaw update config omits browser.profiles when no openclaw agents have a display num', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-legacy',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'legacy',
+        'browser_display_num' => null,
+        'status' => AgentStatus::Active,
+    ]);
+
+    $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
+
+    expect($config['browser'])->not->toHaveKey('profiles');
+});

@@ -571,6 +571,11 @@ class AgentUpdateScriptService
             'extraArgs' => ['--ozone-override-screen-size=1440,900', '--window-size=1440,900'],
         ];
 
+        $profiles = $this->buildBrowserProfiles($server);
+        if (! empty($profiles)) {
+            $config['browser']['profiles'] = $profiles;
+        }
+
         $config['channels'] = [];
 
         $config['gateway'] = [
@@ -639,6 +644,42 @@ class AgentUpdateScriptService
         }
 
         return $config;
+    }
+
+    /**
+     * Re-emit per-agent CDP profiles so the gateway has a `browser.profiles`
+     * map after a config rebuild. Without this, the agent's `browser` tool
+     * cannot find its profile and falls back to launching its own internal
+     * Chromium (headless on Linux without DISPLAY) — issue #27.
+     *
+     * Each profile uses driver=existing-session + attachOnly=true so a missing
+     * Chrome process surfaces as a loud error instead of silently spawning a
+     * fallback.
+     *
+     * @return array<string, array<string, mixed>>
+     */
+    private function buildBrowserProfiles(Server $server): array
+    {
+        $palette = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
+        $profiles = [];
+
+        $agents = $server->agents()
+            ->where('harness_type', 'openclaw')
+            ->whereNotNull('harness_agent_id')
+            ->whereNotNull('browser_display_num')
+            ->orderBy('browser_display_num')
+            ->get();
+
+        foreach ($agents as $i => $agent) {
+            $profiles[AgentInstallScriptService::browserProfileName($agent)] = [
+                'driver' => 'existing-session',
+                'attachOnly' => true,
+                'cdpUrl' => 'http://127.0.0.1:'.(9222 + (int) $agent->browser_display_num),
+                'color' => $palette[$i % count($palette)],
+            ];
+        }
+
+        return $profiles;
     }
 
     /**
