@@ -41,9 +41,12 @@ class FixServerStatus extends Command
             $team = $server->team;
             $server->delete();
 
+            $cloudProvider = $team->cloudProvider();
+
             $newServer = $team->server()->create([
                 'name' => "provision-{$team->id}",
-                'cloud_provider' => $team->cloudProvider(),
+                'cloud_provider' => $cloudProvider,
+                'region' => $cloudProvider->defaultProviderRegion(),
             ]);
 
             ServerProvisioningDispatcher::dispatch($newServer);

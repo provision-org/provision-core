@@ -208,9 +208,15 @@ class TeamController extends Controller
             return;
         }
 
+        $cloudProvider = $team->cloudProvider();
+
         $server = $team->server()->create([
             'name' => "provision-{$team->id}",
-            'cloud_provider' => $team->cloudProvider(),
+            'cloud_provider' => $cloudProvider,
+            // Set region based on provider so the stored value reflects where
+            // the droplet will actually be created — not the Hetzner-centric
+            // 'nbg1' migration default. Fixes #30.
+            'region' => $cloudProvider->defaultProviderRegion(),
         ]);
 
         ServerProvisioningDispatcher::dispatch($server);
