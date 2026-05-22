@@ -9,6 +9,7 @@ use App\Models\Team;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
@@ -112,4 +113,44 @@ test('invalid bot token is rejected', function () {
     ]);
 
     $response->assertSessionHasErrors(['bot_token']);
+});
+
+test('store populates bot_username from Telegram getMe (issue #31)', function () {
+    Bus::fake();
+    Http::fake([
+        'api.telegram.org/*' => Http::response([
+            'ok' => true,
+            'result' => ['id' => 1234, 'is_bot' => true, 'username' => 'scout_e2e_bot', 'first_name' => 'Scout'],
+        ]),
+    ]);
+
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    $agent = Agent::factory()->create(['team_id' => $team->id]);
+
+    $this->actingAs($user)->post(route('agents.telegram.store', $agent), [
+        'bot_token' => '123456789:ABCdefGHIjklMNOpqrsTUVwxyz_12345678',
+    ]);
+
+    expect($agent->telegramConnection->bot_username)->toBe('scout_e2e_bot');
+});
+
+test('store gracefully handles Telegram getMe failure', function () {
+    Bus::fake();
+    // Simulate network failure / Telegram outage.
+    Http::fake([
+        'api.telegram.org/*' => Http::response('', 500),
+    ]);
+
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    $agent = Agent::factory()->create(['team_id' => $team->id]);
+
+    $response = $this->actingAs($user)->post(route('agents.telegram.store', $agent), [
+        'bot_token' => '123456789:ABCdefGHIjklMNOpqrsTUVwxyz_12345678',
+    ]);
+
+    $response->assertRedirect(); // connect flow still succeeds
+    expect($agent->telegramConnection)->not->toBeNull()
+        ->and($agent->telegramConnection->bot_username)->toBeNull();
 });

@@ -30,6 +30,21 @@ composer run dev
 
 This starts the Laravel server, queue worker, log tail, and Vite dev server concurrently.
 
+### Local cloud provisioning via `herd share`
+
+When testing the team-creation → DigitalOcean / Hetzner / Linode provisioning flow locally, the cloud-init script on the freshly created droplet needs to POST progress callbacks back to your local app. Use Laravel Herd's `herd share` (Expose tunnel) to give your `provision.test` site a public URL the droplet can reach:
+
+```bash
+herd share
+```
+
+`herd share` automatically updates `APP_URL` in `.env` to its public URL so generated callback URLs point at the tunnel.
+
+**Known quirk:** when you run `npm run dev` (Vite HMR) with `herd share` active, Vite is exposed via a *second*, hash-named tunnel. Two-fer of plane-wifi behavior to watch for:
+
+1. **First navigation to a fresh route can render an empty page.** Vite's tunnel sometimes drops the first dynamic-import request after a long-idle period; you'll see a `TypeError: Failed to fetch dynamically imported module` in the console. Hard-reload (`Cmd+Shift+R`) once and it'll mount.
+2. **If your network blips, both tunnels can desync** — the page HTML still references the old Vite tunnel hash but the dev server registered a new one. Symptom: pages stop rendering and the Vite tunnel URL returns 404. Fix: stop `npm run dev`, run `npm run build` once, and `rm public/hot`. Herd will then serve static built assets directly from `provision.test` with no Vite tunnel involved. (This is what the E2E test harness does — it's more resilient than HMR on unreliable wifi.)
+
 ## Running Tests
 
 ```bash

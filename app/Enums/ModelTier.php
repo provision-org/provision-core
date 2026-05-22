@@ -39,7 +39,11 @@ enum ModelTier: string
     {
         return match ($this) {
             self::Efficient => 'claude-haiku-4-5',
-            self::Powerful => 'claude-sonnet-4-6',
+            // The Powerful tier's UX copy ("Best reasoning and creativity",
+            // "~$50/mo") implies Opus, so the primary should be Opus.
+            // Previously this returned Sonnet with Opus only in the fallback
+            // chain — fix in issue #31.
+            self::Powerful => 'claude-opus-4-6',
             self::Subscription => 'gpt-5.5',
         };
     }
@@ -51,7 +55,9 @@ enum ModelTier: string
     {
         return match ($this) {
             self::Efficient => ['claude-sonnet-4-6'],
-            self::Powerful => ['claude-opus-4-6', 'claude-sonnet-4-6'],
+            // Sonnet 4.6 as a single fallback; the previous list duplicated
+            // it and pre-emptively included Opus (which is now primary).
+            self::Powerful => ['claude-sonnet-4-6'],
             self::Subscription => [],
         };
     }
