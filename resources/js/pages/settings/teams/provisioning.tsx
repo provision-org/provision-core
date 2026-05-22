@@ -203,18 +203,30 @@ export default function Provisioning({ team, server }: Props) {
     const events = server?.events ?? [];
     const activeIndex = getActiveIndex(server?.status, events);
 
+    // Belt-and-suspenders: even if the status prop hasn't flipped to 'running'
+    // yet (e.g. a poll cycle landed during the brief window before the gateway
+    // restart callback fires, or the partial reload is in flight), the
+    // setup_complete / gateway_restarted events from the server-setup script
+    // are a strong signal that the server is ready and we should hand the user
+    // off to /agents. Without this, a user can see the page stuck at ~80%
+    // even after the server has transitioned. Fixes #28.
+    const isReadyByEvents = events.some(
+        (e) => e.event === 'setup_complete' || e.event === 'gateway_restarted',
+    );
+    const shouldRedirect = isRunning || isReadyByEvents;
+
     const { stop } = usePoll(
         3000,
         { only: ['server'] },
-        { autoStart: !isRunning && !isError },
+        { autoStart: !shouldRedirect && !isError },
     );
 
     useEffect(() => {
-        if (isRunning) {
+        if (shouldRedirect) {
             stop();
             router.visit('/agents');
         }
-    }, [isRunning, stop]);
+    }, [shouldRedirect, stop]);
 
     const progressPercent = getProgressPercent(activeIndex, events);
     const currentStep = steps[activeIndex];
