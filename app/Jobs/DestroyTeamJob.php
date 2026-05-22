@@ -140,6 +140,20 @@ class DestroyTeamJob implements ShouldQueue
             // treat 404 as already-gone.
             $this->deleteDoVolumeWithRetry($do, $server->provider_volume_id);
         }
+
+        // Release the per-server firewall created during provisioning.
+        // Without this, every destroyed team leaves an orphan firewall
+        // behind in DO — see issue #37.
+        if ($server->provider_firewall_id) {
+            try {
+                $do->deleteFirewall($server->provider_firewall_id);
+                Log::info("Deleted DO firewall {$server->provider_firewall_id}");
+            } catch (RequestException $e) {
+                // Non-fatal: log and move on. Cleanup command can sweep
+                // any survivors later.
+                Log::warning("Failed to delete DO firewall {$server->provider_firewall_id}: {$e->getMessage()}");
+            }
+        }
     }
 
     private function deleteDoVolumeWithRetry(DigitalOceanService $do, string $volumeId): void

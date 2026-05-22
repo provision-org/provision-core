@@ -128,6 +128,34 @@ it('destroys cloud server and volume when destroying team', function () {
     expect(Server::find($server->id))->toBeNull();
 });
 
+it('releases the DO firewall when destroying a team that has one (issue #37)', function () {
+    $team = Team::factory()->subscribed()->create();
+    Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::DigitalOcean,
+        'provider_server_id' => '999888',
+        'provider_volume_id' => 'vol-abc',
+        'provider_firewall_id' => 'fw-leak-37',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $doService = Mockery::mock(DigitalOceanService::class);
+    $doService->shouldReceive('deleteDroplet')->with('999888')->once();
+    $doService->shouldReceive('deleteVolume')->with('vol-abc')->once();
+    $doService->shouldReceive('deleteFirewall')->with('fw-leak-37')->once();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->andReturn($doService);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+});
+
 it('continues cleanup even if external api calls fail', function () {
     if (! class_exists('Provision\Billing\Models\ManagedOpenRouterKey')) {
         $this->markTestSkipped('Requires billing module');

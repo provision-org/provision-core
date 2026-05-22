@@ -108,6 +108,23 @@ class DigitalOceanService
     }
 
     /**
+     * Delete a DigitalOcean firewall. Used by DestroyTeamJob to release the
+     * firewall created during provisioning. Treats 404 as already-gone.
+     *
+     * See issue #37.
+     */
+    public function deleteFirewall(string $firewallId): void
+    {
+        $response = $this->http->delete("/firewalls/{$firewallId}");
+
+        if ($response->status() === 404) {
+            return;
+        }
+
+        $response->throw();
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function getDroplet(string $dropletId): array

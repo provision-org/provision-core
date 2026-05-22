@@ -123,3 +123,24 @@ it('cleans up orphaned volume on failure', function () {
     $job = new ProvisionDigitalOceanServerJob($server);
     $job->failed(new RuntimeException('Test failure'));
 });
+
+it('persists the firewall ID on the server so destroy can release it (issue #37)', function () {
+    $server = Server::factory()->digitalOcean()->create();
+
+    $doService = mockDoServiceWithVolume('vol-fw');
+    $doService->shouldReceive('createDroplet')
+        ->once()
+        ->andReturn(['droplet' => [
+            'id' => 42424242,
+            'networks' => ['v4' => [['type' => 'public', 'ip_address' => '10.1.1.1']]],
+        ]]);
+    $doService->shouldReceive('extractIpAddress')->andReturn('10.1.1.1');
+    $doService->shouldReceive('createFirewall')
+        ->once()
+        ->with("provision-{$server->id}", 42424242)
+        ->andReturn(['firewall' => ['id' => 'fw-real-id-37']]);
+
+    (new ProvisionDigitalOceanServerJob($server))->handle(mockCloudFactoryForDo($doService), app(CloudInitScriptBuilder::class));
+
+    expect($server->fresh()->provider_firewall_id)->toBe('fw-real-id-37');
+});

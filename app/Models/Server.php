@@ -36,6 +36,7 @@ class Server extends Model
         'cloud_provider',
         'provider_server_id',
         'provider_volume_id',
+        'provider_firewall_id',
         'ipv4_address',
         'server_type',
         'region',
