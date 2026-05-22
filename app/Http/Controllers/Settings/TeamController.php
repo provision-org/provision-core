@@ -130,7 +130,7 @@ class TeamController extends Controller
             'server' => $server ? [
                 ...$server->only('id', 'status'),
                 'events' => $server->events()
-                    ->whereIn('event', ['cloud_init_progress', 'setup_progress', 'server_ready', 'setup_complete', 'provisioning_started'])
+                    ->whereIn('event', ['cloud_init_progress', 'setup_progress', 'server_ready', 'setup_complete', 'gateway_restarted', 'provisioning_started'])
                     ->orderBy('created_at', 'asc')
                     ->get()
                     ->map(fn (ServerEvent $e) => [

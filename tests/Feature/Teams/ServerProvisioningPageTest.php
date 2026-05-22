@@ -115,3 +115,24 @@ test('provisioning page handles missing server', function () {
         ->where('server', null)
     );
 });
+
+test('provisioning page exposes setup_complete + gateway_restarted events so the client can redirect even if status lags (issue #28)', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = Team::factory()->create(['user_id' => $user->id]);
+    $team->members()->attach($user, ['role' => TeamRole::Admin->value]);
+    // Server is still 'configuring' in the DB; the events show it's actually done.
+    // The client uses these events as a belt-and-suspenders signal to redirect.
+    $server = Server::factory()->provisioning()->create(['team_id' => $team->id]);
+    $server->events()->create(['event' => 'setup_complete', 'payload' => []]);
+    $server->events()->create(['event' => 'gateway_restarted', 'payload' => ['harnesses' => []]]);
+
+    $response = $this->actingAs($user)->get(route('teams.provisioning', $team));
+
+    $response->assertSuccessful();
+    $response->assertInertia(fn ($page) => $page
+        ->component('settings/teams/provisioning')
+        ->has('server.events', 2)
+        ->where('server.events.0.event', 'setup_complete')
+        ->where('server.events.1.event', 'gateway_restarted')
+    );
+});
