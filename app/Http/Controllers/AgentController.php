@@ -1059,9 +1059,14 @@ class AgentController extends Controller
             return;
         }
 
+        $cloudProvider = $team->cloudProvider();
+
         $server = $team->server()->create([
             'name' => "provision-{$team->id}",
-            'cloud_provider' => $team->cloudProvider(),
+            'cloud_provider' => $cloudProvider,
+            // Region reflects the actual provider, not the migration's
+            // Hetzner-centric default. See issue #30.
+            'region' => $cloudProvider->defaultProviderRegion(),
         ]);
 
         ServerProvisioningDispatcher::dispatch($server);
