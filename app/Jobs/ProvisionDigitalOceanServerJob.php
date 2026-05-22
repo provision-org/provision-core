@@ -9,11 +9,11 @@ use App\Services\CloudInitScriptBuilder;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Support\Str;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Str;
 use Throwable;
 
 class ProvisionDigitalOceanServerJob implements ShouldQueue
@@ -62,8 +62,13 @@ class ProvisionDigitalOceanServerJob implements ShouldQueue
             'ipv4_address' => $ip,
         ]);
 
-        // Create DO firewall for defense-in-depth (UFW also configured in cloud-init)
-        $doService->createFirewall("provision-{$this->server->id}", (int) $droplet['id']);
+        // Create DO firewall for defense-in-depth (UFW also configured in cloud-init).
+        // Persist the firewall ID so DestroyTeamJob can release it on team
+        // deletion (without this, every team leak'd a firewall — issue #37).
+        $firewallResponse = $doService->createFirewall("provision-{$this->server->id}", (int) $droplet['id']);
+        $this->server->update([
+            'provider_firewall_id' => $firewallResponse['firewall']['id'] ?? null,
+        ]);
 
         $this->server->events()->create([
             'event' => 'provisioning_started',
