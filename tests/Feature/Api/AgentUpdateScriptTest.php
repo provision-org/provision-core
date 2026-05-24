@@ -40,7 +40,50 @@ test('update script endpoint returns openclaw script with valid signature', func
         ->toContain('AGENTS.md')
         ->toContain('TOOLS.md')
         ->toContain('systemctl --user restart openclaw-gateway')
-        ->toContain('openclaw health');
+        ->toContain('openclaw gateway call health --timeout 5000');
+});
+
+test('openclaw update script syncs binary to pinned version before restart (issue #41)', function () {
+    config(['provision.openclaw_version' => '2026.5.99']);
+
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-pin',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'Pinned',
+        'status' => AgentStatus::Active,
+    ]);
+
+    $script = app(AgentUpdateScriptService::class)->generateOpenClawScript($agent);
+
+    // Binary-version guard runs before restart and uses the pinned version.
+    expect($script)->toContain("PINNED_OPENCLAW_VERSION='2026.5.99'")
+        ->toContain('npm install -g "openclaw@$PINNED_OPENCLAW_VERSION"');
+
+    $pinnedPos = strpos($script, 'PINNED_OPENCLAW_VERSION=');
+    $restartPos = strpos($script, 'systemctl --user restart openclaw-gateway');
+    expect($pinnedPos)->toBeLessThan($restartPos);
+});
+
+test('openclaw update script reports error (not warning) when gateway never becomes healthy (issue #41)', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-err',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'Errors',
+        'status' => AgentStatus::Active,
+    ]);
+
+    $script = app(AgentUpdateScriptService::class)->generateOpenClawScript($agent);
+
+    expect($script)->toContain('status=error&error_message=openclaw-gateway+failed+to+become+healthy+after+restart')
+        ->not->toContain('warning=health_check_failed');
 });
 
 test('update script endpoint returns hermes script for hermes agents', function () {
