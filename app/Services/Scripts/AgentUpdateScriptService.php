@@ -300,20 +300,40 @@ class AgentUpdateScriptService
         }
 
         // 7. Restart gateway
+        //
+        // Before restarting, make sure the openclaw binary on disk matches the
+        // version Provision pins. If a previous run wrote config with a newer
+        // openclaw (e.g. via `openclaw gateway install --force`) while the
+        // installed binary stayed older, `systemctl restart` will fail with
+        // EX_CONFIG (78) and the gateway will stay down — see issue #41.
+        $pinnedVersion = config('provision.openclaw_version');
         $lines[] = '# --- Step 7: Restart Gateway ---';
         $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
+        $lines[] = "PINNED_OPENCLAW_VERSION='{$pinnedVersion}'";
+        $lines[] = 'CURRENT_OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | awk \'{print $2}\' | sed \'s/-.*//\')';
+        $lines[] = 'if [ "$CURRENT_OPENCLAW_VERSION" != "$PINNED_OPENCLAW_VERSION" ]; then';
+        $lines[] = '  echo "openclaw binary is ${CURRENT_OPENCLAW_VERSION:-missing}, pinned is $PINNED_OPENCLAW_VERSION — upgrading"';
+        $lines[] = '  npm install -g "openclaw@$PINNED_OPENCLAW_VERSION"';
+        $lines[] = 'fi';
         $lines[] = 'systemctl --user restart openclaw-gateway';
         $lines[] = 'sleep 5';
         $lines[] = '';
 
         // 8. Health check + callback
+        //
+        // Hit the gateway's own health endpoint (same check ServerSetupScript
+        // uses on first install) instead of `openclaw health`, which returned
+        // success even when the gateway service was failed — see issue #41.
         $lines[] = '# --- Step 8: Health Check & Callback ---';
-        $configSnapshotJson = json_encode($openclawConfig, JSON_UNESCAPED_SLASHES);
-        // URL-encode the config snapshot for POST data
         $lines[] = 'HEALTHY=0';
-        $lines[] = 'if openclaw health 2>/dev/null || (sleep 5 && openclaw health 2>/dev/null); then';
-        $lines[] = '  HEALTHY=1';
-        $lines[] = 'fi';
+        $lines[] = 'for DELAY in 0 5 10 10; do';
+        $lines[] = '  [ "$DELAY" -gt 0 ] && sleep "$DELAY"';
+        $lines[] = '  if systemctl --user is-active --quiet openclaw-gateway \\';
+        $lines[] = '     && openclaw gateway call health --timeout 5000 >/dev/null 2>&1; then';
+        $lines[] = '    HEALTHY=1';
+        $lines[] = '    break';
+        $lines[] = '  fi';
+        $lines[] = 'done';
         $lines[] = '';
 
         // Start the managed browser service after gateway restart
@@ -323,7 +343,8 @@ class AgentUpdateScriptService
         $lines[] = 'if [ "$HEALTHY" -eq 1 ]; then';
         $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d 'status=updated' || true";
         $lines[] = 'else';
-        $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d 'status=updated&warning=health_check_failed' || true";
+        $lines[] = "  curl -sS -X POST '{$callbackUrl}' -d 'status=error&error_message=openclaw-gateway+failed+to+become+healthy+after+restart' || true";
+        $lines[] = '  exit 1';
         $lines[] = 'fi';
 
         return implode("\n", $lines)."\n";
