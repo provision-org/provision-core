@@ -31,8 +31,8 @@ type PlanInfo = {
 
 const PLAN_FEATURES: Record<string, string[]> = {
     pro: [
-        'Up to 4 AI agents',
-        '50 MB workspace per agent',
+        '$299 per agent — add as many as you need',
+        '100 MB workspace per agent',
         'Slack, Telegram & Discord',
         'Email tool for every agent',
         'Full agent customization',
