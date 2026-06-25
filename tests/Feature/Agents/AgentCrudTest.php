@@ -341,6 +341,38 @@ test('switching an agent to a managed model does not redirect to ChatGPT', funct
     expect($agent->fresh()->model_primary)->toBe('claude-haiku-4-5');
 });
 
+test('the browser-url endpoint mints a signed url for a running agent', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create(['team_id' => $team->id, 'server_id' => $server->id]);
+
+    $response = $this->actingAs($user)->getJson(route('agents.browser-url', $agent));
+
+    $response->assertOk();
+    expect($response->json('url'))->toContain('signature=');
+});
+
+test('the browser-url endpoint returns null when the agent has no server', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $agent = Agent::factory()->create(['team_id' => $user->currentTeam->id, 'server_id' => null]);
+
+    $response = $this->actingAs($user)->getJson(route('agents.browser-url', $agent));
+
+    $response->assertOk();
+    expect($response->json('url'))->toBeNull();
+});
+
+test('a user cannot get the browser url for another team agent', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $foreignTeam = Team::factory()->create();
+    $agent = Agent::factory()->create(['team_id' => $foreignTeam->id]);
+
+    $this->actingAs($user)
+        ->getJson(route('agents.browser-url', $agent))
+        ->assertNotFound();
+});
+
 test('a non-admin cannot update an agent', function () {
     $team = Team::factory()->subscribed()->create();
     $member = User::factory()->withPersonalTeam()->create();
