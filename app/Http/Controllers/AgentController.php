@@ -636,6 +636,12 @@ class AgentController extends Controller
             UpdateAgentOnServerJob::dispatch($agent);
         }
 
+        // If the agent was just switched to ChatGPT subscription auth but has no
+        // connected account yet, send the user to the connect flow.
+        if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
+            return to_route('agents.connect-chatgpt', $agent);
+        }
+
         return back();
     }
 

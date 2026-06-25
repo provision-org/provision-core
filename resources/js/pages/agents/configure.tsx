@@ -56,8 +56,15 @@ export default function ConfigureAgent({
     modelTiers?: ModelTierOption[];
 }) {
     const [configOpen, setConfigOpen] = useState(false);
-    const currentTier = detectTier(agent.model_primary, modelTiers);
-    const [showAdvancedModel, setShowAdvancedModel] = useState(!currentTier);
+    const initialTier = detectTier(agent.model_primary, modelTiers);
+    // Track the selected model in state so clicking a tier updates the UI.
+    // Previously the highlight was bound to the agent's saved model (a static
+    // value) with a no-op onChange, so tiers appeared unselectable.
+    const [selectedModel, setSelectedModel] = useState<string>(
+        agent.model_primary ?? '',
+    );
+    const currentTier = detectTier(selectedModel, modelTiers);
+    const [showAdvancedModel, setShowAdvancedModel] = useState(!initialTier);
 
     usePoll(2000, { only: ['agent'] }, { autoStart: agent.is_syncing });
 
@@ -126,35 +133,37 @@ export default function ConfigureAgent({
 
                                             {!showAdvancedModel ? (
                                                 <>
+                                                    {/* Submitted value — driven by the selected tier card. */}
+                                                    <input
+                                                        type="hidden"
+                                                        name="model_primary"
+                                                        value={selectedModel}
+                                                    />
                                                     <div className="grid grid-cols-2 gap-3">
                                                         {modelTiers.map(
                                                             (tier) => (
-                                                                <label
+                                                                <button
+                                                                    type="button"
                                                                     key={
+                                                                        tier.value
+                                                                    }
+                                                                    onClick={() =>
+                                                                        setSelectedModel(
+                                                                            tier.primaryModel,
+                                                                        )
+                                                                    }
+                                                                    aria-pressed={
+                                                                        currentTier ===
                                                                         tier.value
                                                                     }
                                                                     className={cn(
                                                                         'cursor-pointer rounded-xl border px-4 py-4 text-left transition-all',
                                                                         currentTier ===
-                                                                            tier.value &&
-                                                                            !showAdvancedModel
+                                                                            tier.value
                                                                             ? 'border-foreground bg-accent shadow-sm'
                                                                             : 'border-border hover:border-foreground/30',
                                                                     )}
                                                                 >
-                                                                    <input
-                                                                        type="radio"
-                                                                        name="model_primary"
-                                                                        value={
-                                                                            tier.primaryModel
-                                                                        }
-                                                                        defaultChecked={
-                                                                            currentTier ===
-                                                                            tier.value
-                                                                        }
-                                                                        className="sr-only"
-                                                                        onChange={() => {}}
-                                                                    />
                                                                     <div className="mb-1 text-lg">
                                                                         {tier.value ===
                                                                         'efficient'
@@ -178,7 +187,7 @@ export default function ConfigureAgent({
                                                                         in AI
                                                                         costs
                                                                     </p>
-                                                                </label>
+                                                                </button>
                                                             ),
                                                         )}
                                                     </div>
@@ -204,9 +213,11 @@ export default function ConfigureAgent({
                                                     <select
                                                         id="model_primary"
                                                         name="model_primary"
-                                                        defaultValue={
-                                                            agent.model_primary ??
-                                                            ''
+                                                        value={selectedModel}
+                                                        onChange={(e) =>
+                                                            setSelectedModel(
+                                                                e.target.value,
+                                                            )
                                                         }
                                                         className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                                                     >
