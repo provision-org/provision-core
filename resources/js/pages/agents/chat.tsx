@@ -1,11 +1,18 @@
 import { Head, usePage } from '@inertiajs/react';
 import {
     ArrowLeft,
+    CalendarClock,
+    ChevronDown,
     ExternalLink,
+    FolderOpen,
+    LayoutGrid,
     Monitor,
     PanelLeftClose,
     PanelLeftOpen,
     RefreshCw,
+    Radio,
+    Settings,
+    Sparkles,
     X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -14,6 +21,14 @@ import ChatConversationList from '@/components/agents/chat-conversation-list';
 import ChatInput from '@/components/agents/chat-input';
 import ChatMessageThread from '@/components/agents/chat-message-thread';
 import { Button } from '@/components/ui/button';
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuLabel,
+    DropdownMenuSeparator,
+    DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useEcho } from '@/hooks/use-echo';
 import AppLayout from '@/layouts/app-layout';
 import type {
@@ -615,17 +630,16 @@ export default function Chat({
                                 <PanelLeftClose className="size-4" />
                             )}
                         </Button>
-                        <AgentAvatar agent={agent} className="size-8 text-xs" />
-                        <div>
-                            <p className="text-sm font-medium">{agent.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                                {activeConversationId
+                        <AgentSectionMenu
+                            agent={agent}
+                            subtitle={
+                                activeConversationId
                                     ? conversations.find(
                                           (c) => c.id === activeConversationId,
                                       )?.title || 'Conversation'
-                                    : 'New conversation'}
-                            </p>
-                        </div>
+                                    : 'New conversation'
+                            }
+                        />
 
                         {browserAvailable && (
                             <Button
@@ -680,6 +694,103 @@ export default function Chat({
                 </div>
             </div>
         </AppLayout>
+    );
+}
+
+/**
+ * Agent header that doubles as a section switcher. Clicking the agent name
+ * opens a menu linking to every other part of the agent (Overview, Files,
+ * Knowledge, Scheduled Tasks, Channels, Settings) so the user can jump there
+ * without leaving — and finding their way back from — chat. Each link targets
+ * the agent page with a `#tab` hash, which the show page reads to open the
+ * matching tab directly.
+ */
+function AgentSectionMenu({
+    agent,
+    subtitle,
+}: {
+    agent: Agent;
+    subtitle: string;
+}) {
+    const base = `/agents/${agent.id}`;
+    const isHermes = agent.harness_type === 'hermes';
+    const isWorkforce = agent.agent_mode === 'workforce';
+
+    const sections = [
+        { label: 'Overview', href: base, icon: LayoutGrid, show: true },
+        {
+            label: 'Files',
+            href: `${base}#workspace`,
+            icon: FolderOpen,
+            show: true,
+        },
+        {
+            label: 'Knowledge',
+            href: `${base}#memory`,
+            icon: Sparkles,
+            show: true,
+        },
+        {
+            label: 'Scheduled tasks',
+            href: `${base}#schedules`,
+            icon: CalendarClock,
+            show: true,
+        },
+        {
+            label: 'Browser',
+            href: `${base}#browser`,
+            icon: Monitor,
+            show: !isHermes,
+        },
+        {
+            label: 'Channels',
+            href: `${base}#channels`,
+            icon: Radio,
+            show: !isWorkforce,
+        },
+        {
+            label: 'Settings',
+            href: `${base}#settings`,
+            icon: Settings,
+            show: true,
+        },
+    ].filter((s) => s.show);
+
+    return (
+        <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+                <button
+                    type="button"
+                    className="-ml-1 flex items-center gap-3 rounded-md px-2 py-1 text-left transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+                    title="Go to another part of this agent"
+                >
+                    <AgentAvatar agent={agent} className="size-8 text-xs" />
+                    <div className="min-w-0">
+                        <p className="flex items-center gap-1 text-sm font-medium">
+                            <span className="truncate">{agent.name}</span>
+                            <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+                        </p>
+                        <p className="truncate text-xs text-muted-foreground">
+                            {subtitle}
+                        </p>
+                    </div>
+                </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuLabel>{agent.name}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                {sections.map((s) => (
+                    <DropdownMenuItem key={s.label} asChild>
+                        {/* Full navigation (not an Inertia visit) so the #hash is
+                            present when the agent page mounts and opens that tab. */}
+                        <a href={s.href} className="cursor-pointer gap-2">
+                            <s.icon className="size-4 text-muted-foreground" />
+                            {s.label}
+                        </a>
+                    </DropdownMenuItem>
+                ))}
+            </DropdownMenuContent>
+        </DropdownMenu>
     );
 }
 
