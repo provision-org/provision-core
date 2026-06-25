@@ -105,6 +105,7 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::post('agents/{agent}/resync-channels', [AgentController::class, 'resyncChannels'])->name('agents.resync-channels');
         Route::delete('agents/{agent}', [AgentController::class, 'destroy'])->name('agents.destroy');
         Route::get('agents/{agent}/browser', [AgentController::class, 'browser'])->name('agents.browser')->middleware('signed');
+        Route::get('agents/{agent}/browser-url', [AgentController::class, 'browserUrl'])->name('agents.browser-url');
         Route::get('agents/{agent}/logs', [AgentController::class, 'logs'])->name('agents.logs');
         Route::get('agents/{agent}/usage-chart', [AgentController::class, 'usageChart'])->name('agents.usage-chart');
         Route::get('agents/{agent}/inbox', [AgentController::class, 'inbox'])->name('agents.inbox');

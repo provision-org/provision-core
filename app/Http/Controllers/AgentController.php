@@ -484,14 +484,7 @@ class AgentController extends Controller
                 'created_at' => $a->created_at->toISOString(),
             ]);
 
-        $server = $agent->server;
-        $browserUrl = null;
-        if ($server?->isDocker()) {
-            // Docker mode: shared VNC display at port 6080 (no password)
-            $browserUrl = 'http://localhost:6080/vnc.html?autoconnect=true&resize=scale';
-        } elseif ($server?->ipv4_address && $server?->vnc_password) {
-            $browserUrl = URL::signedRoute('agents.browser', ['agent' => $agent], now()->addMinutes(15));
-        }
+        $browserUrl = $this->resolveBrowserUrl($agent);
 
         return Inertia::render('agents/show', [
             'agent' => $agent->load(array_filter([
@@ -811,6 +804,37 @@ class AgentController extends Controller
      * Serve the noVNC browser view via a signed URL.
      * The VNC password never reaches the frontend — it's injected server-side.
      */
+    /**
+     * Resolve a (freshly signed) URL to the agent's live browser view, or null
+     * when no browser surface is available (server not ready / no VNC).
+     */
+    private function resolveBrowserUrl(Agent $agent): ?string
+    {
+        $server = $agent->server;
+        if ($server?->isDocker()) {
+            // Docker mode: shared VNC display at port 6080 (no password).
+            return 'http://localhost:6080/vnc.html?autoconnect=true&resize=scale';
+        }
+        if ($server?->ipv4_address && $server?->vnc_password) {
+            return URL::signedRoute('agents.browser', ['agent' => $agent], now()->addMinutes(15));
+        }
+
+        return null;
+    }
+
+    /**
+     * Mint a fresh browser URL on demand. The chat panel calls this when the
+     * user opens the browser so the signed link is never stale, even in a
+     * long-running conversation.
+     */
+    public function browserUrl(Request $request, Agent $agent): JsonResponse
+    {
+        $team = $request->user()->currentTeam;
+        abort_unless($team && $agent->team_id === $team->id, 404);
+
+        return response()->json(['url' => $this->resolveBrowserUrl($agent)]);
+    }
+
     public function browser(Request $request, Agent $agent): \Illuminate\Http\Response
     {
         $team = $request->user()->currentTeam;

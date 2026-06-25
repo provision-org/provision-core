@@ -41,9 +41,14 @@ class ChatController extends Controller
                 'created_at' => $c->created_at->toISOString(),
             ]);
 
+        $server = $agent->server;
+        $browserAvailable = (bool) ($server?->isDocker()
+            || ($server?->ipv4_address && $server?->vnc_password));
+
         return Inertia::render('agents/chat', [
             'agent' => $agent,
             'conversations' => $conversations,
+            'browserAvailable' => $browserAvailable,
         ]);
     }
 

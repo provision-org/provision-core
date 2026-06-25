@@ -1,5 +1,13 @@
 import { Head, usePage } from '@inertiajs/react';
-import { ArrowLeft, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import {
+    ArrowLeft,
+    ExternalLink,
+    Monitor,
+    PanelLeftClose,
+    PanelLeftOpen,
+    RefreshCw,
+    X,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import ChatConversationList from '@/components/agents/chat-conversation-list';
@@ -19,6 +27,7 @@ import type {
 type Props = {
     agent: Agent;
     conversations: ChatConversation[];
+    browserAvailable?: boolean;
 };
 
 function csrfToken(): string {
@@ -80,9 +89,39 @@ async function readSseStream(
 export default function Chat({
     agent,
     conversations: initialConversations,
+    browserAvailable = false,
 }: Props) {
     const { auth } = usePage<SharedData>().props;
     const teamId = auth.user.current_team_id;
+
+    // Live-browser side panel. The signed browser URL is minted fresh when the
+    // panel opens so it never goes stale during a long conversation.
+    const [browserOpen, setBrowserOpen] = useState(false);
+    const [browserUrl, setBrowserUrl] = useState<string | null>(null);
+    const [browserLoading, setBrowserLoading] = useState(false);
+
+    const loadBrowserUrl = useCallback(async () => {
+        setBrowserLoading(true);
+        try {
+            const res = await fetch(`/agents/${agent.id}/browser-url`, {
+                headers: fetchHeaders(),
+            });
+            const data = await res.json();
+            setBrowserUrl(data.url ?? null);
+        } catch {
+            setBrowserUrl(null);
+        } finally {
+            setBrowserLoading(false);
+        }
+    }, [agent.id]);
+
+    const toggleBrowser = useCallback(() => {
+        setBrowserOpen((open) => {
+            const next = !open;
+            if (next) void loadBrowserUrl();
+            return next;
+        });
+    }, [loadBrowserUrl]);
 
     const [conversations, setConversations] =
         useState<ChatConversation[]>(initialConversations);
@@ -587,6 +626,20 @@ export default function Chat({
                                     : 'New conversation'}
                             </p>
                         </div>
+
+                        {browserAvailable && (
+                            <Button
+                                variant={browserOpen ? 'secondary' : 'ghost'}
+                                size="sm"
+                                className="ml-auto hidden gap-2 lg:inline-flex"
+                                onClick={toggleBrowser}
+                                aria-pressed={browserOpen}
+                                title="Show the agent's live browser alongside chat"
+                            >
+                                <Monitor className="size-4" />
+                                Browser
+                            </Button>
+                        )}
                     </div>
 
                     {isLoading ? (
@@ -611,7 +664,107 @@ export default function Chat({
                         disabled={isThinking}
                     />
                 </div>
+
+                {/* Live browser side panel — collapsible on lg+ */}
+                <div
+                    className={`hidden shrink-0 overflow-hidden border-l transition-[width] duration-200 ease-out lg:flex lg:flex-col ${
+                        browserOpen ? 'w-[40vw] min-w-[420px]' : 'w-0 border-l-0'
+                    }`}
+                >
+                    <BrowserPanel
+                        url={browserUrl}
+                        loading={browserLoading}
+                        onRefresh={loadBrowserUrl}
+                        onClose={() => setBrowserOpen(false)}
+                    />
+                </div>
             </div>
         </AppLayout>
+    );
+}
+
+function BrowserPanel({
+    url,
+    loading,
+    onRefresh,
+    onClose,
+}: {
+    url: string | null;
+    loading: boolean;
+    onRefresh: () => void;
+    onClose: () => void;
+}) {
+    return (
+        <div className="flex h-full w-full flex-col">
+            <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+                <Monitor className="size-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Live browser</span>
+                <div className="ml-auto flex items-center gap-1">
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        onClick={onRefresh}
+                        title="Reconnect"
+                        disabled={loading}
+                    >
+                        <RefreshCw
+                            className={`size-3.5 ${loading ? 'animate-spin' : ''}`}
+                        />
+                    </Button>
+                    {url && (
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-7"
+                            asChild
+                            title="Open in new tab"
+                        >
+                            <a
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                <ExternalLink className="size-3.5" />
+                            </a>
+                        </Button>
+                    )}
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-7"
+                        onClick={onClose}
+                        title="Close browser"
+                    >
+                        <X className="size-3.5" />
+                    </Button>
+                </div>
+            </div>
+
+            <div className="relative min-h-0 flex-1 bg-muted/30">
+                {loading && (
+                    <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                        Connecting to browser…
+                    </div>
+                )}
+                {!loading && !url && (
+                    <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
+                        <Monitor className="size-8 text-muted-foreground/50" />
+                        <p className="text-sm text-muted-foreground">
+                            The browser isn&apos;t available yet. It comes online
+                            once the agent&apos;s server is fully provisioned.
+                        </p>
+                    </div>
+                )}
+                {!loading && url && (
+                    <iframe
+                        src={url}
+                        title="Agent live browser"
+                        className="absolute inset-0 size-full border-0"
+                        allow="clipboard-read; clipboard-write"
+                    />
+                )}
+            </div>
+        </div>
     );
 }
