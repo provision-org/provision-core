@@ -287,6 +287,60 @@ test('an admin can update an agent', function () {
     expect($agent->fresh()->name)->toBe('Updated Agent Name');
 });
 
+test('switching an agent to the ChatGPT tier redirects to connect ChatGPT', function () {
+    Bus::fake();
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    subscribeCrudTeam($team);
+    // Allow a ChatGPT subscription model for validation (BYOK path when billing is absent).
+    TeamApiKey::factory()->create([
+        'team_id' => $team->id,
+        'provider' => LlmProvider::OpenAiCodex,
+        'is_active' => true,
+    ]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'openrouter',
+        'chatgpt_email' => null,
+    ]);
+
+    $chatgptModel = LlmProvider::OpenAiCodex->models()[0];
+
+    $response = $this->actingAs($user)->patch(route('agents.update', $agent), [
+        'model_primary' => $chatgptModel,
+    ]);
+
+    $response->assertRedirect(route('agents.connect-chatgpt', $agent));
+    expect($agent->fresh()->auth_provider)->toBe('chatgpt');
+
+    // The redirect target renders the device-code auth flow (same as new-agent
+    // setup) rather than bouncing the user away.
+    $this->actingAs($user)
+        ->get(route('agents.connect-chatgpt', $agent->fresh()))
+        ->assertInertia(fn ($page) => $page->component('agents/connect-chatgpt'));
+});
+
+test('switching an agent to a managed model does not redirect to ChatGPT', function () {
+    Bus::fake();
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    subscribeCrudTeam($team);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'openrouter',
+        'chatgpt_email' => null,
+    ]);
+
+    $response = $this->actingAs($user)->patch(route('agents.update', $agent), [
+        'model_primary' => 'claude-haiku-4-5',
+    ]);
+
+    $response->assertRedirect();
+    $response->assertSessionHasNoErrors();
+    expect($agent->fresh()->auth_provider)->toBe('openrouter');
+    expect($agent->fresh()->model_primary)->toBe('claude-haiku-4-5');
+});
+
 test('a non-admin cannot update an agent', function () {
     $team = Team::factory()->subscribed()->create();
     $member = User::factory()->withPersonalTeam()->create();
