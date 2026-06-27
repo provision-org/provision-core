@@ -124,6 +124,27 @@ class Agent extends Model
     }
 
     /**
+     * Per-agent OpenClaw heartbeat override.
+     *
+     * ChatGPT-subscription agents run their heartbeats on their own ChatGPT
+     * model (billed via the user's OpenAI plan, using the per-agent OAuth
+     * profile) instead of the managed OpenRouter automation model — otherwise
+     * a subscription agent silently drains the team's Provision credits and
+     * gets auto-paused when the wallet runs dry. Returns null for managed /
+     * BYO agents, which keep the server-wide default heartbeat model.
+     *
+     * @return array{model: string, lightContext: bool}|null
+     */
+    public function openclawHeartbeatConfig(): ?array
+    {
+        if (! $this->usesChatGptSubscription()) {
+            return null;
+        }
+
+        return ['model' => $this->openclawModel(), 'lightContext' => true];
+    }
+
+    /**
      * @return BelongsTo<Team, $this>
      */
     public function team(): BelongsTo
