@@ -73,6 +73,9 @@ class HandleInertiaRequests extends Middleware
                 'newToken' => $request->session()->get('newToken'),
             ],
             'modules' => fn () => app(ModuleRegistry::class)->sharedProps($request),
+            'features' => [
+                'taskAgents' => (bool) config('provision.task_agents_enabled'),
+            ],
             'googleAuthEnabled' => (bool) config('services.google.client_id'),
             'posthog' => $this->posthogConfig(),
         ];

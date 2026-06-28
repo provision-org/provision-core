@@ -5,6 +5,7 @@ use App\Http\Middleware\EnsureAdmin;
 use App\Http\Middleware\EnsureHasTeam;
 use App\Http\Middleware\EnsureProfileComplete;
 use App\Http\Middleware\EnsureServerReady;
+use App\Http\Middleware\EnsureTaskAgentsEnabled;
 use App\Http\Middleware\EnsureUserActivated;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
@@ -44,6 +45,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'ensure-has-team' => EnsureHasTeam::class,
             'ensure-admin' => EnsureAdmin::class,
             'ensure-server-ready' => EnsureServerReady::class,
+            'task-agents' => EnsureTaskAgentsEnabled::class,
             'auth.agent-token' => AuthenticateAgentToken::class,
             'daemon.token' => ValidateDaemonToken::class,
         ]);

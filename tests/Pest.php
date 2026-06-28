@@ -24,6 +24,15 @@ pest()->extend(TestCase::class)
     ->in('Feature');
 
 /*
+ * The task-agent workflow (Task Board, Goals, Approvals, Audit Log) is gated
+ * behind config('provision.task_agents_enabled'), which is off by default. The
+ * Governance suite exercises those gated routes, so enable the flag for it.
+ */
+pest()->beforeEach(function (): void {
+    config(['provision.task_agents_enabled' => true]);
+})->in('Feature/Governance');
+
+/*
 |--------------------------------------------------------------------------
 | Expectations
 |--------------------------------------------------------------------------
