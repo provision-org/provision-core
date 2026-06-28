@@ -191,6 +191,11 @@ class AgentController extends Controller
 
         if (! empty($data['model_primary']) && LlmProvider::isChatGptSubscriptionModel($data['model_primary'])) {
             $data['auth_provider'] = 'chatgpt';
+            // ChatGPT subscription bills via the user's OpenAI plan and must not
+            // fall back to managed OpenRouter models. Drop any fallbacks left
+            // over from a previous OpenRouter/pay-per-use tier so the agent
+            // never silently draws Provision credits.
+            $data['model_fallbacks'] = [];
         }
 
         if (empty($data['user_context'])) {
@@ -610,9 +615,14 @@ class AgentController extends Controller
         $data = $request->validated();
 
         if (array_key_exists('model_primary', $data)) {
-            $data['auth_provider'] = LlmProvider::isChatGptSubscriptionModel($data['model_primary'] ?? '')
-                ? 'chatgpt'
-                : 'openrouter';
+            $isChatGpt = LlmProvider::isChatGptSubscriptionModel($data['model_primary'] ?? '');
+            $data['auth_provider'] = $isChatGpt ? 'chatgpt' : 'openrouter';
+            // Switching to ChatGPT subscription must drop any managed OpenRouter
+            // fallbacks left over from a previous pay-per-use tier — otherwise the
+            // agent silently falls back to OpenRouter and drains Provision credits.
+            if ($isChatGpt) {
+                $data['model_fallbacks'] = [];
+            }
         }
 
         $agent->update($data);
