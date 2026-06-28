@@ -2,6 +2,7 @@
 
 use App\Enums\AgentStatus;
 use App\Enums\HarnessType;
+use App\Enums\LlmProvider;
 use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
@@ -410,4 +411,63 @@ test('openclaw update config omits browser.profiles when no openclaw agents have
     $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
 
     expect($config['browser'])->not->toHaveKey('profiles');
+});
+
+test('chatgpt-subscription agents heartbeat on their own model, not openrouter', function () {
+    $chatgpt = Agent::factory()->make([
+        'auth_provider' => 'chatgpt',
+        'model_primary' => 'gpt-5.5',
+        'model_fallbacks' => [],
+    ]);
+    expect($chatgpt->openclawHeartbeatConfig())
+        ->toBe(['model' => 'openai-codex/gpt-5.5', 'lightContext' => true]);
+
+    $managed = Agent::factory()->make([
+        'auth_provider' => 'openrouter',
+        'model_primary' => 'z-ai/glm-4.7',
+    ]);
+    expect($managed->openclawHeartbeatConfig())->toBeNull();
+});
+
+test('openclaw config gives chatgpt agents a per-agent heartbeat override', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-gpt',
+        'harness_type' => HarnessType::OpenClaw,
+        'status' => AgentStatus::Active,
+        'auth_provider' => 'chatgpt',
+        'model_primary' => 'gpt-5.5',
+        'model_fallbacks' => [],
+    ]);
+
+    $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
+    $entry = collect($config['agents']['list'])->firstWhere('id', 'agent-gpt');
+
+    // Per-agent heartbeat uses the ChatGPT model (billed via OpenAI)…
+    expect($entry['heartbeat'])->toBe(['model' => 'openai-codex/gpt-5.5', 'lightContext' => true]);
+    // …while the server-wide default still uses the managed automation model.
+    expect($config['agents']['defaults']['heartbeat']['model'])
+        ->toBe(LlmProvider::AUTOMATION_MODEL);
+});
+
+test('managed agents keep the default heartbeat (no per-agent override)', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-mgd',
+        'harness_type' => HarnessType::OpenClaw,
+        'status' => AgentStatus::Active,
+        'auth_provider' => 'openrouter',
+        'model_primary' => 'z-ai/glm-4.7',
+    ]);
+
+    $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
+    $entry = collect($config['agents']['list'])->firstWhere('id', 'agent-mgd');
+
+    expect($entry)->not->toHaveKey('heartbeat');
 });

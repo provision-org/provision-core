@@ -127,6 +127,11 @@ class OpenClawDriver implements HarnessDriver
             'agentDir' => "{$agentDir}/agent",
             'model' => $agent->openclawModelConfig(),
         ];
+        // ChatGPT-subscription agents heartbeat on their own model (billed via
+        // ChatGPT), not the managed OpenRouter automation model.
+        if ($heartbeat = $agent->openclawHeartbeatConfig()) {
+            $agentEntry['heartbeat'] = $heartbeat;
+        }
 
         $agents = $config['agents']['list'] ?? [];
         $index = array_search($agentId, array_column($agents, 'id'));

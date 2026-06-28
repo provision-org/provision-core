@@ -320,6 +320,38 @@ test('switching an agent to the ChatGPT tier redirects to connect ChatGPT', func
         ->assertInertia(fn ($page) => $page->component('agents/connect-chatgpt'));
 });
 
+test('switching an agent to ChatGPT clears stale OpenRouter fallbacks', function () {
+    Bus::fake();
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    subscribeCrudTeam($team);
+    TeamApiKey::factory()->create([
+        'team_id' => $team->id,
+        'provider' => LlmProvider::OpenAiCodex,
+        'is_active' => true,
+    ]);
+    // Agent was previously on a pay-per-use tier with managed OpenRouter fallbacks.
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'openrouter',
+        'model_primary' => 'claude-sonnet-4-6',
+        'model_fallbacks' => ['claude-haiku-4-5'],
+        'chatgpt_email' => null,
+    ]);
+
+    $chatgptModel = LlmProvider::OpenAiCodex->models()[0];
+
+    $this->actingAs($user)->patch(route('agents.update', $agent), [
+        'model_primary' => $chatgptModel,
+    ]);
+
+    $agent->refresh();
+    expect($agent->auth_provider)->toBe('chatgpt');
+    // No managed OpenRouter fallbacks remain — heartbeats and primary stay on the
+    // user's ChatGPT plan, never silently drawing Provision credits.
+    expect($agent->model_fallbacks)->toBe([]);
+});
+
 test('switching an agent to a managed model does not redirect to ChatGPT', function () {
     Bus::fake();
     $user = User::factory()->withPersonalTeam()->create();

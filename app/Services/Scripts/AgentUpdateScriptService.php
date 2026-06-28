@@ -511,13 +511,19 @@ class AgentUpdateScriptService
         $agentList = [];
         foreach ($allAgents as $serverAgent) {
             $agentDir = "/root/.openclaw/agents/{$serverAgent->harness_agent_id}";
-            $agentList[] = [
+            $entry = [
                 'id' => $serverAgent->harness_agent_id,
                 'name' => $serverAgent->name,
                 'workspace' => $agentDir,
                 'agentDir' => "{$agentDir}/agent",
                 'model' => $serverAgent->openclawModelConfig(),
             ];
+            // ChatGPT-subscription agents heartbeat on their own model (billed
+            // via ChatGPT), not the managed OpenRouter automation model.
+            if ($heartbeat = $serverAgent->openclawHeartbeatConfig()) {
+                $entry['heartbeat'] = $heartbeat;
+            }
+            $agentList[] = $entry;
         }
 
         $config['agents']['list'] = $agentList;
