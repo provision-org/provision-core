@@ -40,6 +40,10 @@ import type { NavItem, SharedData } from '@/types';
 const platformNavItems: NavItem[] = [
     { title: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
     { title: 'My Agents', href: '/agents', icon: Bot },
+];
+
+// Task Board lives under the task-agent workflow — only shown when enabled.
+const taskAgentPlatformNavItems: NavItem[] = [
     { title: 'Task Board', href: '/company/tasks', icon: KanbanSquare },
 ];
 
@@ -49,14 +53,18 @@ const exploreNavItems: NavItem[] = [
 
 const companyNavItems: NavItem[] = [
     { title: 'Org Chart', href: '/company/org', icon: Network },
+    { title: 'Shared Workspace', href: '/company/workspace', icon: FolderOpen },
+    { title: 'Usage', href: '/company/usage', icon: BarChart3 },
+];
+
+// Goals, Approvals and Audit Log are part of the task-agent workflow.
+const taskAgentCompanyNavItems: NavItem[] = [
     { title: 'Goals', href: '/company/goals', icon: Target },
     {
         title: 'Approvals',
         href: '/company/approvals',
         icon: ShieldCheckIcon,
     },
-    { title: 'Shared Workspace', href: '/company/workspace', icon: FolderOpen },
-    { title: 'Usage', href: '/company/usage', icon: BarChart3 },
     { title: 'Audit Log', href: '/company/audit', icon: ScrollText },
 ];
 
@@ -198,6 +206,13 @@ export function AppSidebar() {
     const modules = (pageProps as Record<string, unknown>).modules as
         | Record<string, boolean>
         | undefined;
+    const taskAgentsEnabled = Boolean(pageProps.features?.taskAgents);
+    const platformItems = taskAgentsEnabled
+        ? [...platformNavItems, ...taskAgentPlatformNavItems]
+        : platformNavItems;
+    const companyItems = taskAgentsEnabled
+        ? [...companyNavItems, ...taskAgentCompanyNavItems]
+        : companyNavItems;
     const currentTeam = auth.user.current_team;
     const isMobile = useIsMobile();
 
@@ -240,10 +255,10 @@ export function AppSidebar() {
                         </Link>
                     </Button>
                 </div>
-                <NavSection label="Platform" items={platformNavItems} />
+                <NavSection label="Platform" items={platformItems} />
                 <NavSection
                     label="Company"
-                    items={companyNavItems}
+                    items={companyItems}
                     badges={{
                         '/company/approvals': pendingApprovalCount,
                     }}

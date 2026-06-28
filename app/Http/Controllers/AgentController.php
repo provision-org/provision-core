@@ -181,6 +181,12 @@ class AgentController extends Controller
         }
         $data = $request->validated();
 
+        // Task agents (workforce mode) are gated until that workflow ships —
+        // force every new agent to the Chat agent type while the flag is off.
+        if (! config('provision.task_agents_enabled')) {
+            $data['agent_mode'] = AgentMode::Channel->value;
+        }
+
         // Resolve model tier to primary model + fallbacks
         if (! empty($data['model_tier'])) {
             $tier = ModelTier::from($data['model_tier']);

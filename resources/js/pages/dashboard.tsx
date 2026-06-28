@@ -363,7 +363,8 @@ export default function Dashboard({
     tokenStats,
     currentPlan,
 }: DashboardProps) {
-    const { auth, wallet } = usePage<SharedData>().props;
+    const { auth, wallet, features } = usePage<SharedData>().props;
+    const taskAgentsEnabled = Boolean(features?.taskAgents);
     const teamId = auth.user.current_team?.id ?? '';
     const hasOpenrouterAgent = agents.some(
         (a) => (a.auth_provider ?? 'openrouter') === 'openrouter',
@@ -518,7 +519,7 @@ export default function Dashboard({
                         </div>
 
                         {/* Task stats row */}
-                        {taskCounts.total > 0 && (
+                        {taskAgentsEnabled && taskCounts.total > 0 && (
                             <div className="mt-4 grid gap-4 sm:grid-cols-3">
                                 <StatCard
                                     title="In Progress"

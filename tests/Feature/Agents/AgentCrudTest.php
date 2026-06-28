@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\Modules\BillingProvider;
+use App\Enums\AgentMode;
 use App\Enums\AgentStatus;
 use App\Enums\LlmProvider;
 use App\Enums\TeamRole;
@@ -350,6 +351,47 @@ test('switching an agent to ChatGPT clears stale OpenRouter fallbacks', function
     // No managed OpenRouter fallbacks remain — heartbeats and primary stay on the
     // user's ChatGPT plan, never silently drawing Provision credits.
     expect($agent->model_fallbacks)->toBe([]);
+});
+
+test('new agents are forced to Chat mode while task agents are disabled', function () {
+    Bus::fake();
+    if (class_exists(MailboxKitService::class)) {
+        $mock = Mockery::mock(MailboxKitService::class);
+        $mock->shouldReceive('createInbox')->andReturn([
+            'data' => ['id' => 7, 'name' => 'Worker', 'email' => 'worker@provisionagents.com', 'created_at' => now()->toISOString()],
+        ]);
+        $mock->shouldReceive('createWebhook')->andReturn(['data' => ['id' => 'wh-7', 'secret' => 'wh-secret']]);
+        registerMailboxKitModule($mock);
+    }
+
+    // Flag is off by default outside the Governance suite.
+    expect(config('provision.task_agents_enabled'))->toBeFalse();
+
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    subscribeCrudTeam($team);
+
+    // Even if a workforce mode is posted, the controller coerces it to Chat.
+    $this->actingAs($user)->post(route('agents.store'), [
+        'name' => 'Worker',
+        'role' => 'custom',
+        'model_primary' => 'claude-opus-4-6',
+        'agent_mode' => AgentMode::Workforce->value,
+    ]);
+
+    $agent = Agent::where('name', 'Worker')->first();
+    expect($agent)->not->toBeNull()
+        ->and($agent->agent_mode)->toBe(AgentMode::Channel);
+});
+
+test('governance views return 404 while task agents are disabled', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+
+    expect(config('provision.task_agents_enabled'))->toBeFalse();
+
+    foreach (['company/tasks', 'company/goals', 'company/approvals', 'company/audit'] as $path) {
+        $this->actingAs($user)->get('/'.$path)->assertNotFound();
+    }
 });
 
 test('switching an agent to a managed model does not redirect to ChatGPT', function () {

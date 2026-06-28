@@ -537,7 +537,8 @@ export default function CreateAgent({
     planPriceCents?: number;
     extraSeats?: number;
 }) {
-    const { auth } = usePage<SharedData>().props;
+    const { auth, features } = usePage<SharedData>().props;
+    const taskAgentsEnabled = Boolean(features?.taskAgents);
     const [step, setStep] = useState<Step>('name');
     const [direction, setDirection] = useState<'forward' | 'backward'>(
         'forward',
@@ -568,8 +569,15 @@ export default function CreateAgent({
 
     const allSteps = useMemo(
         () =>
-            emailDomain ? ALL_STEPS : ALL_STEPS.filter((s) => s !== 'email'),
-        [emailDomain],
+            ALL_STEPS.filter((s) => {
+                // No email step unless the team has an agent email domain.
+                if (s === 'email' && !emailDomain) return false;
+                // The agent-type (Chat vs Task) step is hidden while task agents
+                // are gated — every agent is created as a Chat agent.
+                if (s === 'mode' && !taskAgentsEnabled) return false;
+                return true;
+            }),
+        [emailDomain, taskAgentsEnabled],
     );
 
     const stepIndex = allSteps.indexOf(step);

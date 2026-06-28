@@ -12,5 +12,6 @@ export type SharedData = {
     sidebarOpen: boolean;
     wallet: CreditWallet | null;
     posthog: { key: string; host: string } | null;
+    features: { taskAgents: boolean };
     [key: string]: unknown;
 };

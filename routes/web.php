@@ -185,21 +185,29 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::delete('api-keys/env-vars/{envVar}', [ApiKeyController::class, 'destroyEnvVar'])->name('api-keys.env-vars.destroy');
 
     // Governance (team resolved from authenticated user's currentTeam)
-    Route::get('company/tasks', [GovernanceTaskController::class, 'index'])->name('company.tasks.index');
-    Route::post('company/tasks', [GovernanceTaskController::class, 'store'])->name('company.tasks.store');
-    Route::get('company/tasks/{task}', [GovernanceTaskController::class, 'show'])->name('company.tasks.show');
-    Route::patch('company/tasks/{task}', [GovernanceTaskController::class, 'update'])->name('company.tasks.update');
-    Route::delete('company/tasks/{task}', [GovernanceTaskController::class, 'destroy'])->name('company.tasks.destroy');
-    Route::post('company/tasks/{task}/notes', [TaskNoteController::class, 'store'])->name('company.tasks.notes.store');
-    Route::get('company/tasks/{task}/work-products/{taskWorkProduct}/download', [TaskWorkProductController::class, 'download'])->name('company.tasks.work-products.download');
+    // Task Board, Goals, Approvals and Audit Log are part of the task-agent
+    // workflow, gated behind the `task-agents` middleware (returns 404 while
+    // config('provision.task_agents_enabled') is off) until that workflow ships.
+    // Org chart, routines, usage and shared workspace stay on.
+    Route::middleware('task-agents')->group(function (): void {
+        Route::get('company/tasks', [GovernanceTaskController::class, 'index'])->name('company.tasks.index');
+        Route::post('company/tasks', [GovernanceTaskController::class, 'store'])->name('company.tasks.store');
+        Route::get('company/tasks/{task}', [GovernanceTaskController::class, 'show'])->name('company.tasks.show');
+        Route::patch('company/tasks/{task}', [GovernanceTaskController::class, 'update'])->name('company.tasks.update');
+        Route::delete('company/tasks/{task}', [GovernanceTaskController::class, 'destroy'])->name('company.tasks.destroy');
+        Route::post('company/tasks/{task}/notes', [TaskNoteController::class, 'store'])->name('company.tasks.notes.store');
+        Route::get('company/tasks/{task}/work-products/{taskWorkProduct}/download', [TaskWorkProductController::class, 'download'])->name('company.tasks.work-products.download');
+    });
 
     Route::get('company/org', [OrgChartController::class, 'index'])->name('company.org.index');
     Route::patch('company/agents/{agent}/reporting', [OrgChartController::class, 'updateReporting'])->name('company.org.updateReporting');
 
-    Route::get('company/goals', [GoalController::class, 'index'])->name('company.goals.index');
-    Route::post('company/goals', [GoalController::class, 'store'])->name('company.goals.store');
-    Route::patch('company/goals/{goal}', [GoalController::class, 'update'])->name('company.goals.update');
-    Route::delete('company/goals/{goal}', [GoalController::class, 'destroy'])->name('company.goals.destroy');
+    Route::middleware('task-agents')->group(function (): void {
+        Route::get('company/goals', [GoalController::class, 'index'])->name('company.goals.index');
+        Route::post('company/goals', [GoalController::class, 'store'])->name('company.goals.store');
+        Route::patch('company/goals/{goal}', [GoalController::class, 'update'])->name('company.goals.update');
+        Route::delete('company/goals/{goal}', [GoalController::class, 'destroy'])->name('company.goals.destroy');
+    });
 
     Route::get('company/routines', [RoutineController::class, 'index'])->name('company.routines.index');
     Route::post('company/routines', [RoutineController::class, 'store'])->name('company.routines.store');
@@ -207,16 +215,20 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
     Route::post('company/routines/{routine}/toggle', [RoutineController::class, 'toggle'])->name('company.routines.toggle');
     Route::delete('company/routines/{routine}', [RoutineController::class, 'destroy'])->name('company.routines.destroy');
 
-    Route::get('company/approvals', [ApprovalController::class, 'index'])->name('company.approvals.index');
-    Route::get('company/approvals/{approval}', [ApprovalController::class, 'show'])->name('company.approvals.show');
-    Route::post('company/approvals/{approval}/approve', [ApprovalController::class, 'approve'])->name('company.approvals.approve');
-    Route::post('company/approvals/{approval}/reject', [ApprovalController::class, 'reject'])->name('company.approvals.reject');
-    Route::post('company/approvals/{approval}/request-revision', [ApprovalController::class, 'requestRevision'])->name('company.approvals.requestRevision');
+    Route::middleware('task-agents')->group(function (): void {
+        Route::get('company/approvals', [ApprovalController::class, 'index'])->name('company.approvals.index');
+        Route::get('company/approvals/{approval}', [ApprovalController::class, 'show'])->name('company.approvals.show');
+        Route::post('company/approvals/{approval}/approve', [ApprovalController::class, 'approve'])->name('company.approvals.approve');
+        Route::post('company/approvals/{approval}/reject', [ApprovalController::class, 'reject'])->name('company.approvals.reject');
+        Route::post('company/approvals/{approval}/request-revision', [ApprovalController::class, 'requestRevision'])->name('company.approvals.requestRevision');
+    });
 
     Route::get('company/usage', [UsageController::class, 'index'])->name('company.usage.index');
     Route::get('company/agents/{agent}/usage', [UsageController::class, 'forAgent'])->name('company.usage.forAgent');
 
-    Route::get('company/audit', [AuditLogController::class, 'index'])->name('company.audit.index');
+    Route::middleware('task-agents')->group(function (): void {
+        Route::get('company/audit', [AuditLogController::class, 'index'])->name('company.audit.index');
+    });
 
     // Shared workspace
     Route::get('company/workspace', [SharedWorkspaceController::class, 'index'])->name('company.workspace.index');
