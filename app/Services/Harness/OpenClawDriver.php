@@ -169,10 +169,11 @@ class OpenClawDriver implements HarnessDriver
         // Remove invalid top-level keys that crash the gateway
         unset($config['config']);
 
-        // Enable provision-tasks skill (core, always deployed)
+        // Enable provision-tasks + provision-publish skills (core, always deployed)
         $config['skills'] = $config['skills'] ?? [];
         $config['skills']['entries'] = $config['skills']['entries'] ?? [];
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
+        $config['skills']['entries']['provision-publish'] = ['enabled' => true];
 
         // Write updated config
         $executor->writeFile($configPath, OpenClawConfig::toJson($config));
@@ -248,6 +249,9 @@ class OpenClawDriver implements HarnessDriver
 
         // Deploy provision-tasks skill (core, always deployed)
         $this->deployTasksSkill($agent, $executor);
+
+        // Deploy provision-publish skill (core, always deployed)
+        $this->deployPublishSkill($agent, $executor);
 
         // Ensure agent has an API token for the tasks API
         $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
@@ -562,6 +566,28 @@ BASH;
         $executor->writeFile(
             "{$skillDir}/provision_tasks_tool.js",
             file_get_contents(resource_path('skills/provision-tasks/provision_tasks_tool.js')),
+        );
+    }
+
+    private function deployPublishSkill(Agent $agent, CommandExecutor $executor): void
+    {
+        $agentDir = $this->agentDir($agent);
+        $skillDir = "{$agentDir}/skills/provision-publish";
+        $executor->exec("mkdir -p {$skillDir}");
+
+        $executor->writeFile(
+            "{$skillDir}/SKILL.md",
+            file_get_contents(resource_path('skills/provision-publish/SKILL.md')),
+        );
+
+        $executor->writeFile(
+            "{$skillDir}/provision_publish_tool.js",
+            file_get_contents(resource_path('skills/provision-publish/provision_publish_tool.js')),
+        );
+
+        $executor->writeFile(
+            "{$skillDir}/skill.json",
+            file_get_contents(resource_path('skills/provision-publish/skill.json')),
         );
     }
 
