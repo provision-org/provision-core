@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AgentInstallScriptController;
 use App\Http\Controllers\Api\AgentUpdateCallbackController;
 use App\Http\Controllers\Api\AgentUpdateScriptController;
+use App\Http\Controllers\Api\CaddyController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\HermesInstallScriptController;
 use App\Http\Controllers\Api\ServerCallbackController;
@@ -24,6 +25,13 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/webhooks/agent-update', AgentUpdateCallbackController::class)
         ->name('api.webhooks.agent-update');
 });
+
+// Caddy on-demand TLS gate — called server-to-server by agent servers' Caddy
+// before issuing a cert for an artifact subdomain. Public but only returns 200
+// for hosts that map to a live artifact.
+Route::get('/caddy/ask', [CaddyController::class, 'ask'])
+    ->middleware('throttle:120,1')
+    ->name('api.caddy.ask');
 
 // Script endpoints — HMAC-signed, rate-limited
 Route::middleware('throttle:30,1')->group(function () {

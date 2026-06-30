@@ -164,9 +164,24 @@ UNIT);
         $lines[] = '';
 
         // 5. Caddyfile
+        // The global on_demand_tls block lets Caddy issue certs on first request
+        // for agent artifact subdomains ({slug}.{artifact_domain}), gated by an
+        // "ask" callback to the core app so issuance is limited to live artifacts.
+        // Per-agent artifact site blocks are dropped into /etc/caddy/sites and
+        // imported at the top level; the sslip.io host keeps its path-based
+        // conf.d snippets (noVNC, etc.).
+        $askUrl = rtrim((string) config('app.url'), '/').'/api/caddy/ask';
         $lines[] = '# --- Step 5: Caddy Reverse Proxy ---';
-        $lines[] = 'mkdir -p /etc/caddy/conf.d';
+        $lines[] = 'mkdir -p /etc/caddy/conf.d /etc/caddy/sites';
         $lines[] = $this->buildHeredoc('/etc/caddy/Caddyfile', <<<CADDY
+{
+    on_demand_tls {
+        ask {$askUrl}
+    }
+}
+
+import /etc/caddy/sites/*.caddy
+
 {$hostname} {
     import /etc/caddy/conf.d/*.caddy
 }
