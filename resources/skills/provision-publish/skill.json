@@ -1,0 +1,49 @@
+{
+    "name": "provision-publish",
+    "description": "Publish a reusable skill to your team's Skills library",
+    "version": "1.0.0",
+    "author": "Provision AI",
+    "tools": [
+        {
+            "name": "skill_publish",
+            "description": "Publish a SKILL.md you have authored to the team's Skills library so it shows up in the dashboard and can be deployed to other agents. Use after you've written and tested a reusable workflow.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Human-readable skill name (e.g. 'LinkedIn Lead Gen'). The slug is derived from this; re-publishing the same name updates the existing skill and bumps its version."
+                    },
+                    "skill_content": {
+                        "type": "string",
+                        "description": "The full SKILL.md content (YAML frontmatter + instructions). Either this or content_file is required."
+                    },
+                    "content_file": {
+                        "type": "string",
+                        "description": "Path to a file containing the SKILL.md content, as an alternative to passing skill_content inline."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "One-line description of what the skill does"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tags for categorization (e.g. sales, research)"
+                    },
+                    "tools": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Tools the skill needs (e.g. browser, exec, email)"
+                    },
+                    "requires_env": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Environment variables/credentials the skill needs"
+                    }
+                },
+                "required": ["name"]
+            }
+        }
+    ]
+}

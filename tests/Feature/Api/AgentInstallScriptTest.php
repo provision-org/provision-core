@@ -35,7 +35,10 @@ test('install script endpoint returns script with valid signature', function () 
         ->toContain('AGENTS.md')
         ->toContain('IDENTITY.md')
         ->toContain('systemctl --user restart openclaw-gateway')
-        ->toContain('openclaw health');
+        ->toContain('openclaw health')
+        // Core skills are always deployed.
+        ->toContain('skills/provision-tasks/SKILL.md')
+        ->toContain('skills/provision-publish/provision_publish_tool.js');
 });
 
 test('install script includes per-agent browser display services', function () {

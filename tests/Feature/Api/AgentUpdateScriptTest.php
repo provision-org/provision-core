@@ -453,6 +453,42 @@ test('openclaw config gives chatgpt agents a per-agent heartbeat override', func
         ->toBe(LlmProvider::AUTOMATION_MODEL);
 });
 
+test('openclaw config enables the provision-publish skill', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-pub',
+        'harness_type' => HarnessType::OpenClaw,
+        'status' => AgentStatus::Active,
+    ]);
+
+    $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
+
+    // Both core skills are enabled so OpenClaw exposes their tools to the agent.
+    expect($config['skills']['entries']['provision-tasks'])->toBe(['enabled' => true])
+        ->and($config['skills']['entries']['provision-publish'])->toBe(['enabled' => true]);
+});
+
+test('the update script deploys the provision-publish skill files', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-pub2',
+        'harness_type' => HarnessType::OpenClaw,
+        'status' => AgentStatus::Active,
+    ]);
+
+    $script = app(AgentUpdateScriptService::class)->generateOpenClawScript($agent);
+
+    expect($script)->toContain('skills/provision-publish/SKILL.md')
+        ->toContain('skills/provision-publish/provision_publish_tool.js')
+        ->toContain('skills/provision-publish/skill.json');
+});
+
 test('managed agents keep the default heartbeat (no per-agent override)', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);
