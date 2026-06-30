@@ -39,20 +39,34 @@ class Agent extends Model
     protected static function booted(): void
     {
         static::creating(function (Agent $agent): void {
-            if ($agent->handle || ! $agent->name) {
+            if (! $agent->name) {
                 return;
             }
 
-            $base = Str::slug($agent->name);
-            $handle = $base;
-            $suffix = 2;
+            $base = Str::slug($agent->name) ?: 'agent';
 
-            while (static::where('team_id', $agent->team_id)->where('handle', $handle)->exists()) {
-                $handle = "{$base}-{$suffix}";
-                $suffix++;
+            // handle: unique per team.
+            if (! $agent->handle) {
+                $handle = $base;
+                $suffix = 2;
+                while (static::where('team_id', $agent->team_id)->where('handle', $handle)->exists()) {
+                    $handle = "{$base}-{$suffix}";
+                    $suffix++;
+                }
+                $agent->handle = $handle;
             }
 
-            $agent->handle = $handle;
+            // slug: globally unique — it becomes the agent's public subdomain
+            // ({slug}.provisionagents.com) for serving published artifacts.
+            if (! $agent->slug) {
+                $slug = $base;
+                $suffix = 2;
+                while (static::where('slug', $slug)->exists()) {
+                    $slug = "{$base}-{$suffix}";
+                    $suffix++;
+                }
+                $agent->slug = $slug;
+            }
         });
     }
 
@@ -66,6 +80,7 @@ class Agent extends Model
         'harness_type',
         'name',
         'handle',
+        'slug',
         'emoji',
         'role',
         'job_description',
@@ -263,6 +278,25 @@ class Agent extends Model
     public function activities(): HasMany
     {
         return $this->hasMany(AgentActivity::class);
+    }
+
+    /**
+     * @return HasMany<AgentArtifact, $this>
+     */
+    public function artifacts(): HasMany
+    {
+        return $this->hasMany(AgentArtifact::class);
+    }
+
+    /**
+     * The agent's public subdomain where artifacts are served, e.g.
+     * "luna.provisionagents.com". Null if no artifact domain is configured.
+     */
+    public function artifactSubdomain(): ?string
+    {
+        $domain = config('cloudflare.artifact_domain');
+
+        return $domain ? "{$this->slug}.{$domain}" : null;
     }
 
     /**

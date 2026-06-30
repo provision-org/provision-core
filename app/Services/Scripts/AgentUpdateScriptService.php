@@ -136,7 +136,7 @@ class AgentUpdateScriptService
             // Repair the public mobile endpoint on servers provisioned before app pairing.
             // Always validate and reload so an identical on-disk config is also proven active.
             $lines[] = '# --- Step 1b: Configure Mobile Gateway Proxy ---';
-            $lines[] = 'mkdir -p /etc/caddy/conf.d';
+            $lines[] = 'mkdir -p /etc/caddy/conf.d /etc/caddy/sites';
             $lines[] = "CADDY_CANDIDATE=\$(mktemp {$caddyfilePath}.provision-mobile.XXXXXX)";
             $lines[] = 'CADDY_BACKUP="$CADDY_CANDIDATE.backup"';
             $lines[] = 'CADDY_HAD_ACTIVE=0';

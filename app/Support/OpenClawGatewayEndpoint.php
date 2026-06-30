@@ -51,16 +51,32 @@ final class OpenClawGatewayEndpoint
      * The OpenClaw gateway remains bound to loopback. Caddy accepts only WebSocket
      * upgrade requests on the dedicated hostname and rejects ordinary HTTP.
      */
-    public static function caddyfile(Server $server): string
+    public static function caddyfile(Server $server, bool $includeGateway = true): string
     {
         $browserHostname = self::dashedIp($server).'.sslip.io';
-        $gatewayHostname = self::hostname($server);
+        $askUrl = rtrim((string) config('app.url'), '/').'/api/caddy/ask';
 
-        return <<<CADDY
+        $caddyfile = <<<CADDY
+{
+    on_demand_tls {
+        ask {$askUrl}
+    }
+}
+
+import /etc/caddy/sites/*.caddy
+
 {$browserHostname} {
     import /etc/caddy/conf.d/*.caddy
 }
+CADDY;
 
+        if (! $includeGateway) {
+            return $caddyfile;
+        }
+
+        $gatewayHostname = self::hostname($server);
+
+        return $caddyfile."\n\n".<<<CADDY
 {$gatewayHostname} {
     @gateway_websocket `header({'Connection':'*Upgrade*','Upgrade':'websocket'}) || header({':protocol':'websocket'})`
 
@@ -89,6 +105,7 @@ CADDY;
         // reachable. Otherwise every remote phone appears to be a local client.
         $trustedProxies = escapeshellarg(json_encode(self::trustedProxies(), JSON_THROW_ON_ERROR));
         $executor->exec("openclaw config set gateway.trustedProxies {$trustedProxies} --strict-json");
+        $executor->exec('mkdir -p /etc/caddy/conf.d /etc/caddy/sites');
 
         $desired = self::caddyfile($server);
         $caddyfile = escapeshellarg(self::CADDYFILE);

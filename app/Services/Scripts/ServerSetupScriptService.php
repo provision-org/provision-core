@@ -191,13 +191,11 @@ UNIT);
         $lines[] = '';
 
         // 5. Caddyfile
+        // OpenClawGatewayEndpoint owns the complete root config so setup,
+        // agent updates, and mobile pairing all preserve artifact sites.
         $lines[] = '# --- Step 5: Caddy Reverse Proxy ---';
-        $lines[] = 'mkdir -p /etc/caddy/conf.d';
-        $caddyfile = $isOpenClaw ? OpenClawGatewayEndpoint::caddyfile($server) : <<<CADDY
-        {$hostname} {
-            import /etc/caddy/conf.d/*.caddy
-        }
-        CADDY;
+        $lines[] = 'mkdir -p /etc/caddy/conf.d /etc/caddy/sites';
+        $caddyfile = OpenClawGatewayEndpoint::caddyfile($server, $isOpenClaw);
         $lines[] = $this->buildHeredoc(OpenClawGatewayEndpoint::CADDYFILE, $caddyfile);
         $lines[] = 'chmod 0644 '.OpenClawGatewayEndpoint::CADDYFILE;
         $lines[] = 'systemctl restart caddy';
