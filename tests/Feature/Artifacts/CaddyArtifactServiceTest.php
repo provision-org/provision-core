@@ -1,6 +1,7 @@
 <?php
 
 use App\Contracts\CommandExecutor;
+use App\Enums\ArtifactType;
 use App\Models\Agent;
 use App\Models\AgentArtifact;
 use App\Models\Server;
@@ -37,6 +38,20 @@ test('buildSiteConfig serves each static artifact from its public dir', function
         ->toContain('handle_path /report/* {')
         ->toContain('root * /root/.openclaw/agents/agent-luna/public/q3-report')
         ->toContain('file_server');
+});
+
+test('buildSiteConfig reverse-proxies app artifacts to their port', function () {
+    $agent = Agent::factory()->create(['name' => 'Luna', 'harness_agent_id' => 'agent-luna']);
+    $app = AgentArtifact::factory()->live()->create([
+        'agent_id' => $agent->id, 'team_id' => $agent->team_id,
+        'type' => ArtifactType::App, 'path_slug' => 'api', 'port' => 7002,
+    ]);
+
+    $config = app(CaddyArtifactService::class)->buildSiteConfig($agent, collect([$app]));
+
+    expect($config)
+        ->toContain('handle_path /api/* {')
+        ->toContain('reverse_proxy localhost:7002');
 });
 
 test('syncAgent writes the site file and reloads caddy', function () {

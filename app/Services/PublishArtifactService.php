@@ -17,6 +17,7 @@ class PublishArtifactService
     public function __construct(
         private CloudflareDnsService $dns,
         private CaddyArtifactService $caddy,
+        private ArtifactAppService $apps,
     ) {}
 
     /**
@@ -51,6 +52,15 @@ class PublishArtifactService
         ]);
 
         try {
+            // App artifacts run a process on an allocated port that Caddy
+            // reverse-proxies to; set that up before syncing Caddy.
+            if ($artifact->type === ArtifactType::App) {
+                if (! $artifact->port && $agent->server) {
+                    $artifact->update(['port' => $this->apps->allocatePort($agent->server)]);
+                }
+                $this->apps->deploy($agent, $artifact);
+            }
+
             if ($this->dns->isConfigured()) {
                 $this->dns->ensureAgentRecord($agent);
             }
@@ -70,6 +80,11 @@ class PublishArtifactService
     public function unpublish(AgentArtifact $artifact): void
     {
         $agent = $artifact->agent;
+
+        if ($artifact->type === ArtifactType::App) {
+            $this->apps->remove($agent, $artifact);
+        }
+
         $artifact->delete();
 
         $this->caddy->syncAgent($agent);

@@ -5,6 +5,7 @@ use App\Enums\ArtifactVisibility;
 use App\Models\Agent;
 use App\Models\AgentArtifact;
 use App\Models\Server;
+use App\Services\ArtifactAppService;
 use App\Services\CaddyArtifactService;
 use App\Services\CloudflareDnsService;
 use App\Services\PublishArtifactService;
@@ -37,6 +38,44 @@ test('publish creates a live artifact, ensures DNS, and syncs caddy', function (
         ->and($artifact->public_url)->toBe('https://luna.provisionagents.com/dashboard/')
         ->and($artifact->last_published_at)->not->toBeNull()
         ->and($artifact->type)->toBe(ArtifactType::Static);
+});
+
+test('publishing an app artifact allocates a port and deploys the systemd unit', function () {
+    $server = Server::factory()->running()->create();
+    $agent = Agent::factory()->create(['name' => 'Luna', 'server_id' => $server->id]);
+
+    $this->mock(CloudflareDnsService::class)->shouldReceive('isConfigured')->andReturnFalse();
+    $this->mock(CaddyArtifactService::class)->shouldReceive('syncAgent');
+    $this->mock(ArtifactAppService::class, function ($mock) {
+        $mock->shouldReceive('allocatePort')->once()->andReturn(7000);
+        $mock->shouldReceive('deploy')->once();
+    });
+
+    $artifact = app(PublishArtifactService::class)->publish($agent, [
+        'name' => 'API', 'path_slug' => 'api', 'type' => ArtifactType::App,
+        'start_command' => 'node server.js',
+    ]);
+
+    expect($artifact->type)->toBe(ArtifactType::App)
+        ->and($artifact->port)->toBe(7000)
+        ->and($artifact->status)->toBe('live');
+});
+
+test('unpublishing an app artifact removes its systemd unit', function () {
+    $server = Server::factory()->running()->create();
+    $agent = Agent::factory()->create(['server_id' => $server->id]);
+    $artifact = AgentArtifact::factory()->live()->create([
+        'agent_id' => $agent->id, 'team_id' => $agent->team_id,
+        'type' => ArtifactType::App, 'port' => 7001,
+    ]);
+
+    $this->mock(CloudflareDnsService::class)->shouldReceive('isConfigured')->andReturnFalse();
+    $this->mock(CaddyArtifactService::class)->shouldReceive('syncAgent');
+    $this->mock(ArtifactAppService::class)->shouldReceive('remove')->once();
+
+    app(PublishArtifactService::class)->unpublish($artifact);
+
+    expect(AgentArtifact::find($artifact->id))->toBeNull();
 });
 
 test('re-publishing the same path updates the existing artifact', function () {
