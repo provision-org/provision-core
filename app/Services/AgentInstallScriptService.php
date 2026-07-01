@@ -262,6 +262,10 @@ class AgentInstallScriptService
         array_push($lines, ...self::buildProvisionPublishSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
         $lines[] = '';
 
+        // 4d. Deploy provision-artifacts skill (core, always deployed)
+        array_push($lines, ...self::buildProvisionArtifactsSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
+        $lines[] = '';
+
         // 5. Write .env file
         $lines[] = '# Write environment variables';
         $lines[] = $this->buildEnvScript($agent);
@@ -1137,6 +1141,41 @@ class AgentInstallScriptService
         );
         $lines[] = $buildHeredoc("{$skillDir}/provision_publish_tool.js", $toolScript);
         $lines[] = $buildHeredoc("{$skillDir}/skill.json", file_get_contents(resource_path('skills/provision-publish/skill.json')));
+
+        return $lines;
+    }
+
+    /**
+     * Build bash lines to deploy the provision-artifacts skill for an agent.
+     *
+     * Lets the agent publish web artifacts (static sites or running apps) to a
+     * public {agent-slug}.provisionagents.com subdomain via the agent API.
+     * Credentials are hardcoded into the tool, mirroring provision-publish.
+     *
+     * @param  callable(string, string): string  $buildHeredoc
+     * @return list<string>
+     */
+    public static function buildProvisionArtifactsSkillLines(string $agentDir, string $plainToken, callable $buildHeredoc): array
+    {
+        $lines = [];
+        $skillDir = "{$agentDir}/skills/provision-artifacts";
+        $lines[] = '# --- Deploy provision-artifacts skill ---';
+        $lines[] = "mkdir -p {$skillDir}";
+        $lines[] = $buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/provision-artifacts/SKILL.md')));
+
+        $toolScript = file_get_contents(resource_path('skills/provision-artifacts/provision_artifacts_tool.js'));
+        $toolScript = str_replace(
+            'const apiUrl = process.env.PROVISION_API_URL;',
+            "const apiUrl = '".config('app.url')."';",
+            $toolScript,
+        );
+        $toolScript = str_replace(
+            'const token = process.env.PROVISION_AGENT_TOKEN;',
+            "const token = '{$plainToken}';",
+            $toolScript,
+        );
+        $lines[] = $buildHeredoc("{$skillDir}/provision_artifacts_tool.js", $toolScript);
+        $lines[] = $buildHeredoc("{$skillDir}/skill.json", file_get_contents(resource_path('skills/provision-artifacts/skill.json')));
 
         return $lines;
     }
