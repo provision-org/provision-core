@@ -4,6 +4,7 @@ use App\Models\Agent;
 use App\Models\AgentApiToken;
 use App\Models\AgentArtifact;
 use App\Models\Server;
+use App\Services\ArtifactAppService;
 use App\Services\CaddyArtifactService;
 use App\Services\CloudflareDnsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -41,6 +42,31 @@ test('an agent can publish a static artifact', function () {
         ->assertJsonPath('public_url', 'https://luna.provisionagents.com/customer-dashboard/');
 
     expect($agent->artifacts()->count())->toBe(1);
+});
+
+test('an agent can publish an app artifact with a start command', function () {
+    [$agent, $token] = artifactApiAgent();
+    $this->mock(ArtifactAppService::class, function ($mock) {
+        $mock->shouldReceive('allocatePort')->andReturn(7000);
+        $mock->shouldReceive('deploy');
+    });
+
+    $this->withToken($token)->postJson('/api/artifacts', [
+        'name' => 'API Tool',
+        'type' => 'app',
+        'start_command' => 'node server.js',
+    ])->assertCreated()->assertJsonPath('type', 'app');
+
+    expect($agent->artifacts()->first()->port)->toBe(7000);
+});
+
+test('an app artifact requires a start command', function () {
+    [, $token] = artifactApiAgent();
+
+    $this->withToken($token)->postJson('/api/artifacts', [
+        'name' => 'API Tool',
+        'type' => 'app',
+    ])->assertStatus(422);
 });
 
 test('publishing requires the agent to have a server', function () {
