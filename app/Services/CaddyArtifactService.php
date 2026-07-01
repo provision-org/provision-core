@@ -86,22 +86,49 @@ class CaddyArtifactService
     private function handleBlock(Agent $agent, AgentArtifact $artifact): array
     {
         $path = $artifact->path_slug;
+        $inner = $this->serveDirectives($agent, $artifact);
 
-        if ($artifact->type === ArtifactType::App) {
-            return [
-                "handle_path /{$path}/* {",
-                "    reverse_proxy localhost:{$artifact->port}",
-                '}',
-            ];
+        if ($artifact->isGated()) {
+            // Gated artifacts require ?token=<access_token>; Caddy validates it
+            // locally so revocation is a re-sync away and there's no round-trip.
+            $lines = ["handle_path /{$path}/* {"];
+            $lines[] = "    @ok query token={$artifact->access_token}";
+            $lines[] = '    handle @ok {';
+            foreach ($inner as $line) {
+                $lines[] = "        {$line}";
+            }
+            $lines[] = '    }';
+            $lines[] = '    handle {';
+            $lines[] = '        respond "Forbidden" 403';
+            $lines[] = '    }';
+            $lines[] = '}';
+
+            return $lines;
         }
 
-        $root = "{$this->agentDir($agent)}/public/{$artifact->source_dir}";
+        $lines = ["handle_path /{$path}/* {"];
+        foreach ($inner as $line) {
+            $lines[] = "    {$line}";
+        }
+        $lines[] = '}';
+
+        return $lines;
+    }
+
+    /**
+     * The directives that actually serve an artifact (file server or proxy).
+     *
+     * @return list<string>
+     */
+    private function serveDirectives(Agent $agent, AgentArtifact $artifact): array
+    {
+        if ($artifact->type === ArtifactType::App) {
+            return ["reverse_proxy localhost:{$artifact->port}"];
+        }
 
         return [
-            "handle_path /{$path}/* {",
-            "    root * {$root}",
-            '    file_server',
-            '}',
+            'root * '.$this->agentDir($agent)."/public/{$artifact->source_dir}",
+            'file_server',
         ];
     }
 
