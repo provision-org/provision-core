@@ -731,6 +731,7 @@ class AgentController extends Controller
         Agent $agent,
         SlackAppCleanupService $slackCleanup,
         ChatGPTAuthService $chatgptAuth,
+        PublishArtifactService $artifacts,
     ): RedirectResponse {
         $team = $request->user()->currentTeam;
 
@@ -740,6 +741,14 @@ class AgentController extends Controller
         $agentName = $agent->name;
 
         $slackCleanup->cleanup($agent);
+
+        if ($agent->server_id && $agent->server) {
+            try {
+                $artifacts->teardownAgent($agent);
+            } catch (\Throwable $e) {
+                \Log::warning("Artifact cleanup on destroy failed for agent {$agent->id}: {$e->getMessage()}");
+            }
+        }
 
         if ($agent->server_id && $agent->server && $agent->usesChatGptSubscription()) {
             try {

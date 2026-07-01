@@ -101,6 +101,29 @@ class PublishArtifactService
         }
     }
 
+    /**
+     * Tear down all of an agent's artifacts when the agent itself is being
+     * removed: stop app processes, drop the Caddy site file, and delete the
+     * agent's DNS record. Best-effort — safe to call even with no artifacts.
+     */
+    public function teardownAgent(Agent $agent): void
+    {
+        // Nothing was ever published → no server-side state to clean up.
+        if (! $agent->server || ! $agent->artifacts()->exists()) {
+            return;
+        }
+
+        foreach ($agent->artifacts()->where('type', ArtifactType::App)->get() as $appArtifact) {
+            $this->apps->remove($agent, $appArtifact);
+        }
+
+        $this->caddy->removeAgent($agent);
+
+        if ($this->dns->isConfigured()) {
+            $this->dns->removeAgentRecord($agent);
+        }
+    }
+
     private function publicUrl(Agent $agent, AgentArtifact $artifact): string
     {
         $url = "https://{$agent->artifactSubdomain()}/{$artifact->path_slug}/";
