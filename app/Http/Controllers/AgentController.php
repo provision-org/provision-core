@@ -26,6 +26,7 @@ use App\Jobs\VerifyAgentChannelsJob;
 use App\Mail\AgentDeletedMail;
 use App\Models\Agent;
 use App\Models\AgentActivity;
+use App\Models\AgentArtifact;
 use App\Models\AgentDailyStat;
 use App\Models\AgentTemplate;
 use App\Models\Team;
@@ -35,6 +36,7 @@ use App\Services\AgentTemplateService;
 use App\Services\ChatGPTAuthService;
 use App\Services\Harness\HermesDriver;
 use App\Services\ModuleRegistry;
+use App\Services\PublishArtifactService;
 use App\Services\ServerProvisioningDispatcher;
 use App\Services\SlackAppCleanupService;
 use App\Services\SshService;
@@ -505,7 +507,21 @@ class AgentController extends Controller
             'activities' => $activities,
             'teamId' => $team->id,
             'browserUrl' => $browserUrl,
+            'artifacts' => $agent->artifacts()->orderByDesc('created_at')->get(),
         ]);
+    }
+
+    public function destroyArtifact(Request $request, Agent $agent, AgentArtifact $artifact, PublishArtifactService $publisher): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+        abort_unless($artifact->agent_id === $agent->id, 404);
+
+        $publisher->unpublish($artifact);
+
+        return back();
     }
 
     public function configure(Request $request, Agent $agent): Response

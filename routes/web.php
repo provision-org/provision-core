@@ -101,6 +101,7 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::get('agents/{agent}/configure', [AgentController::class, 'configure'])->name('agents.configure');
         Route::get('agents/{agent}/edit', [AgentController::class, 'edit'])->name('agents.edit');
         Route::patch('agents/{agent}', [AgentController::class, 'update'])->name('agents.update');
+        Route::delete('agents/{agent}/artifacts/{artifact}', [AgentController::class, 'destroyArtifact'])->name('agents.artifacts.destroy');
         Route::post('agents/{agent}/retry', [AgentController::class, 'retry'])->name('agents.retry');
         Route::post('agents/{agent}/resync-channels', [AgentController::class, 'resyncChannels'])->name('agents.resync-channels');
         Route::delete('agents/{agent}', [AgentController::class, 'destroy'])->name('agents.destroy');
