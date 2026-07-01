@@ -6,6 +6,7 @@ use App\Enums\ArtifactType;
 use App\Enums\ArtifactVisibility;
 use App\Models\Agent;
 use App\Models\AgentArtifact;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
@@ -43,13 +44,18 @@ class PublishArtifactService
             ],
         );
 
+        // Gated artifacts need a shared-link token before we compute the URL.
+        if ($artifact->isGated() && ! $artifact->access_token) {
+            $artifact->access_token = Str::random(40);
+        }
+
         // Mark live first so the Caddy sync (which reads live artifacts) includes it.
-        $artifact->update([
+        $artifact->fill([
             'status' => 'live',
             'public_url' => $this->publicUrl($agent, $artifact),
             'last_published_at' => now(),
             'error_message' => null,
-        ]);
+        ])->save();
 
         try {
             // App artifacts run a process on an allocated port that Caddy
@@ -97,6 +103,12 @@ class PublishArtifactService
 
     private function publicUrl(Agent $agent, AgentArtifact $artifact): string
     {
-        return "https://{$agent->artifactSubdomain()}/{$artifact->path_slug}/";
+        $url = "https://{$agent->artifactSubdomain()}/{$artifact->path_slug}/";
+
+        if ($artifact->isGated() && $artifact->access_token) {
+            $url .= "?token={$artifact->access_token}";
+        }
+
+        return $url;
     }
 }

@@ -35,12 +35,16 @@ class ArtifactController extends Controller
             'type' => ['nullable', Rule::enum(ArtifactType::class)],
             'source_dir' => ['nullable', 'string', 'max:120', 'regex:/^[a-z0-9][a-z0-9._\/-]*$/'],
             'start_command' => ['nullable', 'string', 'max:500', 'required_if:type,app'],
+            'visibility' => ['nullable', Rule::enum(ArtifactVisibility::class)],
         ]);
 
         abort_if(! $agent->server_id, 422, 'Agent has no server to publish from.');
 
         $pathSlug = $data['path_slug'] ?? Str::slug($data['name']);
         $type = isset($data['type']) ? ArtifactType::from($data['type']) : ArtifactType::Static;
+        $visibility = isset($data['visibility'])
+            ? ArtifactVisibility::from($data['visibility'])
+            : ArtifactVisibility::Public;
 
         $artifact = $this->publisher->publish($agent, [
             'name' => $data['name'],
@@ -48,7 +52,7 @@ class ArtifactController extends Controller
             'type' => $type,
             'source_dir' => $data['source_dir'] ?? $pathSlug,
             'start_command' => $data['start_command'] ?? null,
-            'visibility' => ArtifactVisibility::Public,
+            'visibility' => $visibility,
         ]);
 
         return response()->json($artifact, 201);
