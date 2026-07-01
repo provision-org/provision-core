@@ -355,6 +355,10 @@ class AgentUpdateScriptService
         array_push($lines, ...AgentInstallScriptService::buildProvisionPublishSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
         $lines[] = '';
 
+        // Deploy provision-artifacts skill (core, always deployed)
+        array_push($lines, ...AgentInstallScriptService::buildProvisionArtifactsSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
+        $lines[] = '';
+
         // 6. Deploy MailboxKit skill + email check script (if email connected)
         $emailConnection = $agent->emailConnection;
         if ($emailConnection?->mailboxkit_inbox_id) {
@@ -622,11 +626,12 @@ class AgentUpdateScriptService
         unset($config['config']);
         unset($config['tools']['profile']);
 
-        // Enable provision-tasks + provision-publish skills (core, always deployed)
+        // Enable provision-tasks + provision-publish + provision-artifacts skills (core, always deployed)
         $config['skills'] = $config['skills'] ?? [];
         $config['skills']['entries'] = $config['skills']['entries'] ?? [];
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
         $config['skills']['entries']['provision-publish'] = ['enabled' => true];
+        $config['skills']['entries']['provision-artifacts'] = ['enabled' => true];
 
         // openclaw 2026.5.2+ requires a meta block; without it the gateway
         // detects "missing-meta-vs-last-good" and rolls back to the prior backup.

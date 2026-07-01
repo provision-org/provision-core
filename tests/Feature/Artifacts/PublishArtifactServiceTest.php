@@ -108,6 +108,50 @@ test('publish marks the artifact errored and rethrows when caddy sync fails', fu
     expect($agent->artifacts()->first()->status)->toBe('error');
 });
 
+test('teardownAgent stops app artifacts, removes the caddy site, and drops DNS', function () {
+    $server = Server::factory()->running()->create();
+    $agent = Agent::factory()->create(['name' => 'Luna', 'server_id' => $server->id]);
+
+    $appArtifact = AgentArtifact::factory()->live()->create([
+        'agent_id' => $agent->id, 'team_id' => $agent->team_id,
+        'type' => ArtifactType::App, 'path_slug' => 'api', 'port' => 7001,
+    ]);
+    AgentArtifact::factory()->live()->create([
+        'agent_id' => $agent->id, 'team_id' => $agent->team_id,
+        'type' => ArtifactType::Static, 'path_slug' => 'report',
+    ]);
+
+    $this->mock(ArtifactAppService::class)
+        ->shouldReceive('remove')->once()
+        ->with(Mockery::on(fn ($a) => $a->is($agent)), Mockery::on(fn ($x) => $x->is($appArtifact)));
+
+    $this->mock(CaddyArtifactService::class)
+        ->shouldReceive('removeAgent')->once()->with(Mockery::on(fn ($a) => $a->is($agent)));
+
+    $dns = $this->mock(CloudflareDnsService::class);
+    $dns->shouldReceive('isConfigured')->andReturnTrue();
+    $dns->shouldReceive('removeAgentRecord')->once()->with(Mockery::on(fn ($a) => $a->is($agent)));
+
+    app(PublishArtifactService::class)->teardownAgent($agent);
+});
+
+test('teardownAgent skips DNS removal when Cloudflare is not configured', function () {
+    $server = Server::factory()->running()->create();
+    $agent = Agent::factory()->create(['server_id' => $server->id]);
+    AgentArtifact::factory()->live()->create([
+        'agent_id' => $agent->id, 'team_id' => $agent->team_id, 'path_slug' => 'report',
+    ]);
+
+    $this->mock(ArtifactAppService::class);
+    $this->mock(CaddyArtifactService::class)->shouldReceive('removeAgent')->once();
+
+    $dns = $this->mock(CloudflareDnsService::class);
+    $dns->shouldReceive('isConfigured')->andReturnFalse();
+    $dns->shouldReceive('removeAgentRecord')->never();
+
+    app(PublishArtifactService::class)->teardownAgent($agent);
+});
+
 test('unpublish removes the artifact, re-syncs caddy, and drops DNS when none remain', function () {
     $server = Server::factory()->running()->create();
     $agent = Agent::factory()->create(['name' => 'Luna', 'server_id' => $server->id]);

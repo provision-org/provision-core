@@ -39,7 +39,30 @@ test('install script endpoint returns script with valid signature', function () 
         // Core skills are always deployed.
         ->toContain('skills/provision-tasks/SKILL.md')
         ->toContain('skills/provision-publish/provision_publish_tool.js')
+        ->toContain('skills/provision-artifacts/provision_artifacts_tool.js')
         ->not->toContain('provision-openclaw-web');
+});
+
+test('install script hardcodes credentials into the provision-artifacts tool', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->deploying()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-abc',
+        'name' => 'Atlas',
+    ]);
+
+    $expiresAt = now()->addMinutes(10)->timestamp;
+    $signature = hash_hmac('sha256', "install|{$agent->id}|{$expiresAt}", config('app.key'));
+
+    $script = $this->get("/api/agents/{$agent->id}/install-script?expires_at={$expiresAt}&signature={$signature}")
+        ->getContent();
+
+    expect($script)
+        ->toContain("const apiUrl = '".config('app.url')."';")
+        // The env-var placeholders must be replaced, not shipped verbatim.
+        ->not->toContain('const apiUrl = process.env.PROVISION_API_URL;');
 });
 
 test('install script includes per-agent browser display services', function () {

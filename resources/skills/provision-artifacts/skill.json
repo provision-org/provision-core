@@ -1,0 +1,63 @@
+{
+    "name": "provision-artifacts",
+    "description": "Publish web artifacts (static sites or running apps) to a public subdomain",
+    "version": "1.0.0",
+    "author": "Provision AI",
+    "tools": [
+        {
+            "name": "artifact_publish",
+            "description": "Publish a web artifact from this server so it's reachable on the public internet at {your-slug}.provisionagents.com/{path}. Use for a static site/report (built HTML in your public dir) or a running app (a long-lived process on a port). Re-publishing the same path updates it.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "type": "string",
+                        "description": "Human-readable artifact name (e.g. 'Q3 Dashboard')."
+                    },
+                    "path_slug": {
+                        "type": "string",
+                        "description": "URL path segment the artifact is served under (e.g. 'dashboard' → /dashboard/). Lowercase letters, digits, and hyphens. Defaults to a slug of the name."
+                    },
+                    "type": {
+                        "type": "string",
+                        "enum": ["static", "app"],
+                        "description": "'static' serves files from your public dir; 'app' reverse-proxies a running process on an allocated port. Defaults to 'static'."
+                    },
+                    "source_dir": {
+                        "type": "string",
+                        "description": "For static artifacts: the directory (relative to your public dir) whose files are served. Defaults to path_slug."
+                    },
+                    "start_command": {
+                        "type": "string",
+                        "description": "For app artifacts: the shell command that starts the process. It must listen on the PORT env var provided to it. Required when type is 'app'."
+                    },
+                    "visibility": {
+                        "type": "string",
+                        "enum": ["public", "gated"],
+                        "description": "'public' is open to anyone; 'gated' requires a secret ?token= link that's returned in public_url. Defaults to 'public'."
+                    }
+                },
+                "required": ["name"]
+            }
+        },
+        {
+            "name": "artifact_list",
+            "description": "List the web artifacts you have published, with their public URLs and status.",
+            "parameters": { "type": "object", "properties": {} }
+        },
+        {
+            "name": "artifact_unpublish",
+            "description": "Take a published artifact offline: removes its route (and stops its process if it's an app).",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "artifact_id": {
+                        "type": "string",
+                        "description": "The id of the artifact to unpublish (from artifact_list)."
+                    }
+                },
+                "required": ["artifact_id"]
+            }
+        }
+    ]
+}
