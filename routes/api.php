@@ -3,6 +3,7 @@
 use App\Http\Controllers\Api\AgentInstallScriptController;
 use App\Http\Controllers\Api\AgentUpdateCallbackController;
 use App\Http\Controllers\Api\AgentUpdateScriptController;
+use App\Http\Controllers\Api\ArtifactController;
 use App\Http\Controllers\Api\CaddyController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\HermesInstallScriptController;
@@ -69,6 +70,13 @@ Route::prefix('tasks')->middleware('auth.agent-token')->group(function () {
     Route::patch('/{task}/complete', [TaskController::class, 'complete']);
     Route::patch('/{task}/block', [TaskController::class, 'block']);
     Route::post('/{task}/notes', [TaskController::class, 'addNote']);
+});
+
+// Agent API — publish web artifacts to {agent.slug}.{artifact_domain}
+Route::prefix('artifacts')->middleware('auth.agent-token')->group(function () {
+    Route::get('/', [ArtifactController::class, 'index']);
+    Route::post('/', [ArtifactController::class, 'store']);
+    Route::delete('/{artifact}', [ArtifactController::class, 'destroy']);
 });
 
 // Web channel — authenticated per-account via HMAC (inbound) or bearer (stream/probe)
