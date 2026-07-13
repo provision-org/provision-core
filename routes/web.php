@@ -103,6 +103,7 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::patch('agents/{agent}', [AgentController::class, 'update'])->name('agents.update');
         Route::post('agents/{agent}/retry', [AgentController::class, 'retry'])->name('agents.retry');
         Route::post('agents/{agent}/resync-channels', [AgentController::class, 'resyncChannels'])->name('agents.resync-channels');
+        Route::post('agents/{agent}/email-domain', [AgentController::class, 'changeEmailDomain'])->name('agents.email-domain');
         Route::delete('agents/{agent}', [AgentController::class, 'destroy'])->name('agents.destroy');
         Route::get('agents/{agent}/browser', [AgentController::class, 'browser'])->name('agents.browser')->middleware('signed');
         Route::get('agents/{agent}/browser-url', [AgentController::class, 'browserUrl'])->name('agents.browser-url');

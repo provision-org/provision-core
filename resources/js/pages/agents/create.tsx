@@ -516,6 +516,7 @@ export default function CreateAgent({
     needsSeat = false,
     seatPriceMonthly = '49',
     emailDomain,
+    emailDomains = [],
     teamSlug = '',
     isOnTrial = false,
     trialEndsAt,
@@ -531,6 +532,11 @@ export default function CreateAgent({
     needsSeat?: boolean;
     seatPriceMonthly?: string;
     emailDomain?: string | null;
+    emailDomains?: {
+        name: string;
+        is_default: boolean;
+        is_verified: boolean;
+    }[];
     teamSlug?: string;
     isOnTrial?: boolean;
     trialEndsAt?: string;
@@ -552,6 +558,7 @@ export default function CreateAgent({
         name: '',
         agent_mode: 'channel' as 'channel' | 'workforce',
         email_prefix: '',
+        email_domain: emailDomain ?? '',
         role: 'custom',
         job_description: '',
         model_tier: defaultTier,
@@ -869,10 +876,59 @@ export default function CreateAgent({
                                                     placeholder="luna_acme"
                                                     autoFocus
                                                 />
-                                                <div className="flex h-12 items-center rounded-r-lg border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground">
-                                                    @{emailDomain}
-                                                </div>
+                                                {emailDomains.length > 1 ? (
+                                                    <select
+                                                        value={
+                                                            form.data
+                                                                .email_domain
+                                                        }
+                                                        onChange={(e) => {
+                                                            form.setData(
+                                                                'email_domain',
+                                                                e.target.value,
+                                                            );
+                                                            // Availability is per-domain.
+                                                            form.validate(
+                                                                'email_prefix',
+                                                            );
+                                                        }}
+                                                        className="h-12 rounded-r-lg border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground"
+                                                    >
+                                                        {emailDomains
+                                                            .filter(
+                                                                (d) =>
+                                                                    d.is_verified,
+                                                            )
+                                                            .map((d) => (
+                                                                <option
+                                                                    key={d.name}
+                                                                    value={
+                                                                        d.name
+                                                                    }
+                                                                >
+                                                                    @{d.name}
+                                                                </option>
+                                                            ))}
+                                                    </select>
+                                                ) : (
+                                                    <div className="flex h-12 items-center rounded-r-lg border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground">
+                                                        @{emailDomain}
+                                                    </div>
+                                                )}
                                             </div>
+
+                                            {emailDomains.length <= 1 && (
+                                                <p className="mt-2 text-xs text-muted-foreground">
+                                                    Want agents on your own
+                                                    domain?{' '}
+                                                    <a
+                                                        href={`/settings/teams/${auth.user.current_team_id}/email-domain`}
+                                                        className="underline hover:text-foreground"
+                                                    >
+                                                        Set up a custom domain
+                                                    </a>
+                                                </p>
+                                            )}
 
                                             {/* Availability indicator */}
                                             <div className="mt-2 flex items-center gap-1.5 text-sm">
@@ -1905,7 +1961,7 @@ export default function CreateAgent({
                         }
                         harness={form.data.harness_type}
                         emailPrefix={form.data.email_prefix}
-                        emailDomain={emailDomain}
+                        emailDomain={form.data.email_domain || emailDomain}
                         stepIndex={stepIndex}
                     />
                 </div>
