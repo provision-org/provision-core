@@ -208,6 +208,11 @@ class HermesDriver implements HarnessDriver
 
     public static function browserProfileName(Agent $agent): string
     {
+        return $agent->browser_profile_name ?: self::defaultBrowserProfileName($agent);
+    }
+
+    public static function defaultBrowserProfileName(Agent $agent): string
+    {
         return 'hermes-'.strtolower(preg_replace('/[^a-zA-Z0-9]/', '-', $agent->name));
     }
 

@@ -296,6 +296,10 @@ class AgentInstallScriptService
                 ->max('browser_display_num') ?? 0) + 1;
             $agent->update(['browser_display_num' => $next]);
         }
+        // Freeze the browser profile name on first install so it survives renames.
+        if (! $agent->browser_profile_name) {
+            $agent->update(['browser_profile_name' => self::defaultBrowserProfileName($agent)]);
+        }
         $profileName = self::browserProfileName($agent);
         $lines[] = '# Set up per-agent browser with isolated display and VNC';
         $lines[] = $this->buildBrowserDisplayScript($agent, $configFile);
@@ -643,9 +647,23 @@ class AgentInstallScriptService
     }
 
     /**
-     * Generate the browser profile name for an agent.
+     * The browser profile name for an agent.
+     *
+     * Prefers the value frozen at install time (agents.browser_profile_name) so
+     * a later rename can't drift the systemd units, Caddy route, and OpenClaw
+     * profile key apart. Falls back to the name-derived default for agents that
+     * predate the frozen column or never provisioned a browser.
      */
     public static function browserProfileName(Agent $agent): string
+    {
+        return $agent->browser_profile_name ?: self::defaultBrowserProfileName($agent);
+    }
+
+    /**
+     * The name-derived browser profile name. Only used to seed the frozen value
+     * at install and as a fallback; never call this directly for routing.
+     */
+    public static function defaultBrowserProfileName(Agent $agent): string
     {
         return 'agent-'.strtolower(preg_replace('/[^a-zA-Z0-9]/', '-', $agent->name));
     }
