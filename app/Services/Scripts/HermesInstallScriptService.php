@@ -63,6 +63,10 @@ class HermesInstallScriptService
         $agentId = $agent->harness_agent_id;
         $hermesHome = $this->hermesDriver->agentDir($agent);
         $callbackUrl = $this->buildCallbackUrl($agent);
+        // Freeze the browser profile name on first install so it survives renames.
+        if (! $agent->browser_profile_name) {
+            $agent->update(['browser_profile_name' => HermesDriver::defaultBrowserProfileName($agent)]);
+        }
         $profileName = HermesDriver::browserProfileName($agent);
         $isDocker = $agent->server?->isDocker();
 
