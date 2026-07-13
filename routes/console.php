@@ -4,6 +4,7 @@ use App\Enums\ServerStatus;
 use App\Jobs\CheckServerHealthJob;
 use App\Jobs\ProcessRoutinesJob;
 use App\Jobs\SyncAgentStatsJob;
+use App\Jobs\VerifyEmailDomainsJob;
 use App\Models\Server;
 use App\Models\SlackConfigurationToken;
 use App\Services\SlackApiService;
@@ -51,3 +52,7 @@ Schedule::call(function () {
 Schedule::job(new SyncAgentStatsJob)->everyTwoMinutes();
 
 Schedule::job(new ProcessRoutinesJob)->everyMinute();
+
+// Re-check unverified custom email domains so they flip to verified once DNS
+// propagates, without the admin returning to click "Verify".
+Schedule::job(new VerifyEmailDomainsJob)->hourly();

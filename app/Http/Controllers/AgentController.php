@@ -18,6 +18,7 @@ use App\Http\Requests\Settings\UpdateAgentRequest;
 use App\Jobs\CreateAgentOnServerJob;
 use App\Jobs\GenerateAgentAvatarJob;
 use App\Jobs\ProvisionApiKeyJob;
+use App\Jobs\RefreshAgentEmailJob;
 use App\Jobs\RemoveAgentFromServerJob;
 use App\Jobs\RestartGatewayJob;
 use App\Jobs\UpdateAgentOnServerJob;
@@ -46,6 +47,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 use Provision\MailboxKit\Services\EmailProvisioningService;
@@ -119,6 +121,7 @@ class AgentController extends Controller
         $extraSeats = $hasBilling ? $bt->extraAgentSeats() : 0;
         $isOnTrial = $hasBilling && $bt->isOnTrial();
         $trialEndsAt = $hasBilling ? $bt->subscription('default')?->trial_ends_at : null;
+        $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
 
         return Inertia::render('agents/create', [
             'server' => $team->server,
@@ -138,7 +141,8 @@ class AgentController extends Controller
             'agentLimit' => $hasBilling ? $bt->agentLimit() : null,
             'currentPlan' => $hasBilling ? $bt->plan?->value : null,
             'hasBilling' => $hasBilling,
-            'emailDomain' => app()->bound(AgentEmailProvider::class) ? config('mailboxkit.email_domain') : null,
+            'emailDomain' => $emailProvider ? ($team->activeEmailDomain() ?? config('mailboxkit.email_domain')) : null,
+            'emailDomains' => $emailProvider ? $emailProvider->availableDomains($team) : [],
             'teamSlug' => Str::slug($team->name, '_'),
             'isOnTrial' => $isOnTrial,
             'trialEndsAt' => $trialEndsAt?->toISOString(),
@@ -243,6 +247,9 @@ class AgentController extends Controller
         $emailPrefix = $data['email_prefix'] ?? null;
         unset($data['email_prefix']);
 
+        $emailDomain = $data['email_domain'] ?? null;
+        unset($data['email_domain']);
+
         $tools = $data['tools'] ?? [];
         unset($data['tools']);
 
@@ -269,7 +276,7 @@ class AgentController extends Controller
 
         $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
         if ($emailProvider) {
-            $email = $emailProvider->provisionEmail($agent, $team, $emailPrefix);
+            $email = $emailProvider->provisionEmail($agent, $team, $emailPrefix, $emailDomain);
             if ($email) {
                 $agent->update([
                     'identity' => $templateService->generateIdentity(
@@ -497,6 +504,8 @@ class AgentController extends Controller
 
         $browserUrl = $this->resolveBrowserUrl($agent);
 
+        $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
+
         return Inertia::render('agents/show', [
             'agent' => $agent->load(array_filter([
                 'server', 'slackConnection', 'emailConnection', 'telegramConnection', 'discordConnection', 'tools',
@@ -505,6 +514,8 @@ class AgentController extends Controller
             'activities' => $activities,
             'teamId' => $team->id,
             'browserUrl' => $browserUrl,
+            // Verified domains the agent's email can be moved to (for the Email tab).
+            'emailDomains' => $emailProvider ? $emailProvider->availableDomains($team) : [],
         ]);
     }
 
@@ -652,6 +663,51 @@ class AgentController extends Controller
         }
 
         return back();
+    }
+
+    /**
+     * Move an existing agent's email onto a different (verified) domain: swap
+     * the MailboxKit inbox, then re-sync the server files with the new address.
+     */
+    public function changeEmailDomain(Request $request, Agent $agent): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+        abort_unless(app()->bound(AgentEmailProvider::class), 404);
+
+        $provider = app(AgentEmailProvider::class);
+        $allowed = collect($provider->availableDomains($team))
+            ->where('is_verified', true)
+            ->pluck('name')
+            ->all();
+
+        $validated = $request->validate([
+            'domain' => ['required', 'string', Rule::in($allowed)],
+        ]);
+
+        abort_unless($agent->emailConnection, 422, 'This agent has no email to move.');
+
+        $newEmail = $provider->changeEmailDomain($agent, $team, $validated['domain']);
+
+        if (! $newEmail) {
+            return back()->withErrors(['domain' => 'Failed to move the email to that domain. Please try again.']);
+        }
+
+        if ($agent->server_id) {
+            $agent->update(['is_syncing' => true]);
+
+            try {
+                broadcast(new AgentUpdatedEvent($agent));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to broadcast AgentUpdatedEvent', ['agent_id' => $agent->id, 'error' => $e->getMessage()]);
+            }
+
+            RefreshAgentEmailJob::dispatch($agent);
+        }
+
+        return back()->with('status', "Email moved to {$newEmail}. The agent is re-syncing.");
     }
 
     public function retry(Request $request, Agent $agent): RedirectResponse

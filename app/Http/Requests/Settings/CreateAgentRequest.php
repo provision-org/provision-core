@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Settings;
 
+use App\Contracts\Modules\AgentEmailProvider;
 use App\Enums\AgentMode;
 use App\Enums\AgentRole;
 use App\Enums\ModelTier;
@@ -52,13 +53,19 @@ class CreateAgentRequest extends FormRequest
      */
     public function rules(): array
     {
-        $allowedModels = AgentController::allowedModelIds($this->user()->currentTeam);
-        $emailDomain = config('mailboxkit.email_domain');
+        $team = $this->user()->currentTeam;
+        $allowedModels = AgentController::allowedModelIds($team);
+        $allowedDomains = $this->allowedEmailDomains($team);
+        $emailDomain = $this->resolveChosenDomain($team, $allowedDomains);
 
         return [
             'name' => [
                 'required', 'string', 'max:255',
-                Rule::unique('agents', 'name')->where('team_id', $this->user()->currentTeam->id),
+                Rule::unique('agents', 'name')->where('team_id', $team->id),
+            ],
+            'email_domain' => [
+                'nullable', 'string',
+                Rule::in(array_column($allowedDomains, 'name')),
             ],
             'email_prefix' => [
                 'nullable', 'string', 'max:100', 'regex:/^[a-z0-9]([a-z0-9._-]*[a-z0-9])?$/i',
@@ -104,7 +111,48 @@ class CreateAgentRequest extends FormRequest
         return [
             'model_primary.in' => 'The selected model is not available. Please configure an API key for that provider.',
             'email_prefix.regex' => 'Email prefix must contain only letters, numbers, dots, hyphens, and underscores.',
+            'email_domain.in' => 'That email domain is not available for your team.',
             'tools.*.url.url' => 'One of the tool URLs looks invalid. Please use a full domain like "mixpanel.com" or "https://mixpanel.com".',
         ];
+    }
+
+    /**
+     * The email domains this team may choose from — from the email module if
+     * installed, otherwise just the platform default.
+     *
+     * @return list<array{name: string, is_default: bool, is_verified: bool}>
+     */
+    private function allowedEmailDomains(mixed $team): array
+    {
+        if (app()->bound(AgentEmailProvider::class)) {
+            return app(AgentEmailProvider::class)->availableDomains($team);
+        }
+
+        return [[
+            'name' => (string) config('mailboxkit.email_domain'),
+            'is_default' => true,
+            'is_verified' => true,
+        ]];
+    }
+
+    /**
+     * The domain the submitted prefix will land on: the chosen one when valid
+     * and verified, otherwise the team's active domain.
+     *
+     * @param  list<array{name: string, is_default: bool, is_verified: bool}>  $allowedDomains
+     */
+    private function resolveChosenDomain(mixed $team, array $allowedDomains): string
+    {
+        $requested = strtolower(trim((string) $this->input('email_domain')));
+
+        foreach ($allowedDomains as $domain) {
+            if ($domain['name'] === $requested && $domain['is_verified']) {
+                return $requested;
+            }
+        }
+
+        return method_exists($team, 'activeEmailDomain')
+            ? ($team->activeEmailDomain() ?: config('mailboxkit.email_domain'))
+            : config('mailboxkit.email_domain');
     }
 }

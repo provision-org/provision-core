@@ -135,7 +135,7 @@ test('provision email delegates to email provisioning service', function () {
     $emailServiceMock = Mockery::mock(EmailProvisioningService::class);
     $emailServiceMock->shouldReceive('provisionEmail')
         ->once()
-        ->with($agent, $team, 'custom-prefix')
+        ->with($agent, $team, 'custom-prefix', null)
         ->andReturn('custom-prefix@example.com');
 
     $module = new MailboxKitModule(

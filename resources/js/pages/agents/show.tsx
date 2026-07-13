@@ -270,8 +270,26 @@ function senderInitial(msg: {
 
 type EmailFilter = 'all' | 'received' | 'sent';
 
-function EmailTab({ agent }: { agent: Agent }) {
+type EmailDomainOption = {
+    name: string;
+    is_default: boolean;
+    is_verified: boolean;
+};
+
+function EmailTab({
+    agent,
+    emailDomains = [],
+}: {
+    agent: Agent;
+    emailDomains?: EmailDomainOption[];
+}) {
     const emailAddress = agent.email_connection?.email_address;
+    const currentDomain = emailAddress?.split('@')[1] ?? '';
+    // Verified domains this email could move to, excluding its current one.
+    const moveTargets = emailDomains.filter(
+        (d) => d.is_verified && d.name !== currentDomain,
+    );
+    const [movingTo, setMovingTo] = useState('');
     const [messages, setMessages] = useState<MessageSummary[]>([]);
     const [meta, setMeta] = useState<PageMeta | null>(null);
     const [selectedMessage, setSelectedMessage] =
@@ -390,6 +408,39 @@ function EmailTab({ agent }: { agent: Agent }) {
                             </p>
                             <CopyButton text={emailAddress} />
                         </div>
+                        {moveTargets.length > 0 && (
+                            <div className="mt-1.5 flex items-center gap-1.5">
+                                <select
+                                    value={movingTo}
+                                    onChange={(e) =>
+                                        setMovingTo(e.target.value)
+                                    }
+                                    className="rounded-md border border-input bg-background px-2 py-1 text-xs text-muted-foreground"
+                                >
+                                    <option value="">Move to domain…</option>
+                                    {moveTargets.map((d) => (
+                                        <option key={d.name} value={d.name}>
+                                            @{d.name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-7 text-xs"
+                                    disabled={!movingTo || agent.is_syncing}
+                                    onClick={() => {
+                                        router.post(
+                                            `/agents/${agent.id}/email-domain`,
+                                            { domain: movingTo },
+                                            { preserveScroll: true },
+                                        );
+                                    }}
+                                >
+                                    Move
+                                </Button>
+                            </div>
+                        )}
                     </div>
                     <Button
                         variant="ghost"
@@ -2764,11 +2815,13 @@ export default function ShowAgent({
     activities = [],
     teamId = '',
     browserUrl = null,
+    emailDomains = [],
 }: {
     agent: Agent;
     activities?: AgentActivity[];
     teamId?: string;
     browserUrl?: string | null;
+    emailDomains?: EmailDomainOption[];
 }) {
     // Real-time agent updates via Reverb (replaces polling)
     useEcho<{ agent_id: string }>(
@@ -2812,7 +2865,9 @@ export default function ShowAgent({
         { id: 'workspace', label: 'Workspace' },
         { id: 'memory', label: 'Memory' },
         { id: 'schedules', label: 'Scheduled Tasks' },
-        ...(agent.agent_mode !== 'workforce' ? [{ id: 'channels' as Tab, label: 'Channels' }] : []),
+        ...(agent.agent_mode !== 'workforce'
+            ? [{ id: 'channels' as Tab, label: 'Channels' }]
+            : []),
         { id: 'settings', label: 'Settings' },
     ];
 
@@ -2975,7 +3030,10 @@ export default function ShowAgent({
                 <div className="min-h-0 flex-1 overflow-y-auto">
                     {activeTab === 'email' ? (
                         agent.email_connection ? (
-                            <EmailTab agent={agent} />
+                            <EmailTab
+                                agent={agent}
+                                emailDomains={emailDomains}
+                            />
                         ) : (
                             <div className="flex flex-col items-center justify-center gap-3 px-4 py-20 text-center">
                                 <div className="flex size-12 items-center justify-center rounded-xl border border-foreground/10 bg-background shadow-sm">
