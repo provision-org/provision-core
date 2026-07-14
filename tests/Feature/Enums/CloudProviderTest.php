@@ -18,6 +18,21 @@ test('defaultProviderRegion returns "local" for Docker', function () {
     expect(CloudProvider::Docker->defaultProviderRegion())->toBe('local');
 });
 
+test('defaultProviderRegion returns AWS code', function () {
+    expect(CloudProvider::Aws->defaultProviderRegion())->toBe('us-east-1');
+});
+
+test('Aws label and default region group', function () {
+    expect(CloudProvider::Aws->label())->toBe('AWS (your account)')
+        ->and(CloudProvider::Aws->defaultRegion())->toBe('us-east');
+});
+
+test('defaultProviderRegion falls back to us-east-1 for Aws when config missing', function () {
+    config()->set('cloud.regions.us-east.aws', null);
+
+    expect(CloudProvider::Aws->defaultProviderRegion())->toBe('us-east-1');
+});
+
 test('defaultProviderRegion falls back to per-provider default when config missing', function () {
     config()->set('cloud.regions.us-east.digitalocean', null);
     config()->set('cloud.regions.us-east.hetzner', null);

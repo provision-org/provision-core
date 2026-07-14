@@ -8,6 +8,7 @@ enum LlmProvider: string
     case OpenAi = 'openai';
     case OpenRouter = 'open_router';
     case OpenAiCodex = 'openai_codex';
+    case Bedrock = 'bedrock';
 
     public const DEFAULT_MODEL = 'z-ai/glm-4.7';
 
@@ -21,6 +22,11 @@ enum LlmProvider: string
             self::OpenAi => 'OPENAI_API_KEY',
             self::OpenRouter => 'OPENROUTER_API_KEY',
             self::OpenAiCodex => 'OPENAI_API_KEY',
+            // Bedrock authenticates via the EC2 instance profile — there is no
+            // API key to push to the server. This placeholder is never written:
+            // Bedrock has no TeamApiKey llm row, so the env-key collection
+            // paths (which iterate llmApiKeys) never reach this arm.
+            self::Bedrock => 'AWS_BEDROCK_INSTANCE_PROFILE',
         };
     }
 
@@ -31,6 +37,7 @@ enum LlmProvider: string
             self::OpenAi => 'OpenAI',
             self::OpenRouter => 'OpenRouter',
             self::OpenAiCodex => 'ChatGPT Subscription',
+            self::Bedrock => 'AWS Bedrock',
         };
     }
 
@@ -65,6 +72,11 @@ enum LlmProvider: string
                 'gpt-5.4',
                 'gpt-5.4-pro',
                 'gpt-5.4-mini',
+            ],
+            self::Bedrock => [
+                'bedrock-claude-opus-4-6',
+                'bedrock-claude-sonnet-4-6',
+                'bedrock-claude-haiku-4-5',
             ],
         };
     }
@@ -116,6 +128,10 @@ enum LlmProvider: string
             self::Anthropic => "openrouter/anthropic/{$forOpenRouter}",
             self::OpenAi => "openrouter/openai/{$forOpenRouter}",
             self::OpenAiCodex => "openai-codex/{$modelId}",
+            // Direct Bedrock routing — never via OpenRouter. Model traffic
+            // stays inside the customer's AWS account, e.g.
+            // bedrock-claude-sonnet-4-6 → bedrock/anthropic.claude-sonnet-4.6
+            self::Bedrock => 'bedrock/anthropic.'.str_replace('bedrock-', '', $forOpenRouter),
         };
     }
 }

@@ -17,7 +17,9 @@ class StoreApiKeyRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'provider' => ['required', Rule::enum(LlmProvider::class)],
+            // Bedrock is excluded: it authenticates via the EC2 instance
+            // profile, so there is no API key a user could paste.
+            'provider' => ['required', Rule::enum(LlmProvider::class)->except([LlmProvider::Bedrock])],
             'api_key' => ['required', 'string', 'min:10'],
         ];
     }

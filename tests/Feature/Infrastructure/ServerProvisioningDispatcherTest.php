@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\CloudProvider;
+use App\Jobs\ProvisionAwsServerJob;
 use App\Jobs\ProvisionDigitalOceanServerJob;
 use App\Jobs\ProvisionHetznerServerJob;
 use App\Jobs\ProvisionLinodeServerJob;
@@ -41,6 +42,18 @@ it('dispatches linode job for linode servers', function () {
     ServerProvisioningDispatcher::dispatch($server);
 
     Bus::assertDispatched(ProvisionLinodeServerJob::class);
+    Bus::assertNotDispatched(ProvisionDigitalOceanServerJob::class);
+    Bus::assertNotDispatched(ProvisionHetznerServerJob::class);
+});
+
+it('dispatches aws job for aws servers', function () {
+    Bus::fake();
+
+    $server = Server::factory()->aws()->create();
+
+    ServerProvisioningDispatcher::dispatch($server);
+
+    Bus::assertDispatched(ProvisionAwsServerJob::class);
     Bus::assertNotDispatched(ProvisionDigitalOceanServerJob::class);
     Bus::assertNotDispatched(ProvisionHetznerServerJob::class);
 });

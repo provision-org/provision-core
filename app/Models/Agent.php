@@ -125,6 +125,15 @@ class Agent extends Model
     }
 
     /**
+     * Whether this agent runs its models in the team's own AWS account via
+     * Amazon Bedrock (EC2 instance-profile auth — no API key on the server).
+     */
+    public function usesBedrock(): bool
+    {
+        return $this->auth_provider === 'bedrock';
+    }
+
+    /**
      * Per-agent OpenClaw heartbeat override.
      *
      * ChatGPT-subscription agents run their heartbeats on their own ChatGPT

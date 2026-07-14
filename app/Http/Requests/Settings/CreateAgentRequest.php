@@ -5,6 +5,7 @@ namespace App\Http\Requests\Settings;
 use App\Contracts\Modules\AgentEmailProvider;
 use App\Enums\AgentMode;
 use App\Enums\AgentRole;
+use App\Enums\CloudProvider;
 use App\Enums\ModelTier;
 use App\Http\Controllers\AgentController;
 use App\Models\AgentEmailConnection;
@@ -81,7 +82,14 @@ class CreateAgentRequest extends FormRequest
             ],
             'role' => ['required', Rule::enum(AgentRole::class)],
             'job_description' => ['nullable', 'string', 'max:5000'],
-            'model_tier' => ['nullable', Rule::enum(ModelTier::class)],
+            'model_tier' => [
+                'nullable', Rule::enum(ModelTier::class),
+                function (string $attribute, mixed $value, \Closure $fail) use ($team): void {
+                    if ($value === ModelTier::Bedrock->value && $team->cloudProvider() !== CloudProvider::Aws) {
+                        $fail('The Bedrock tier is only available for teams running in their own AWS account.');
+                    }
+                },
+            ],
             'model_primary' => ['nullable', 'string', Rule::in($allowedModels)],
             'model_fallbacks' => ['nullable', 'array'],
             'model_fallbacks.*' => ['string', 'max:255'],

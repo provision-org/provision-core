@@ -65,6 +65,7 @@ class User extends Authenticatable
             'profile_completed_at' => 'datetime',
             'activated_at' => 'datetime',
             'is_admin' => 'boolean',
+            'byo_cloud_enabled' => 'boolean',
         ];
     }
 

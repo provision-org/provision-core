@@ -4,22 +4,16 @@ namespace App\Services;
 
 use App\Enums\CloudProvider;
 use App\Models\Team;
+use App\Services\Aws\AwsCredentials;
 
 class CloudServiceFactory
 {
-    public function make(Team $team): HetznerService|DigitalOceanService|LinodeService
+    public function make(Team $team): HetznerService|DigitalOceanService|LinodeService|AwsService
     {
-        $provider = $team->cloudProvider();
-        $apiToken = $this->resolveApiToken($team, $provider);
-
-        return match ($provider) {
-            CloudProvider::Hetzner => new HetznerService($apiToken),
-            CloudProvider::DigitalOcean => new DigitalOceanService($apiToken),
-            CloudProvider::Linode => new LinodeService($apiToken),
-        };
+        return $this->makeFor($team, $team->cloudProvider());
     }
 
-    public function makeFor(Team $team, CloudProvider $provider): HetznerService|DigitalOceanService|LinodeService
+    public function makeFor(Team $team, CloudProvider $provider): HetznerService|DigitalOceanService|LinodeService|AwsService
     {
         $apiToken = $this->resolveApiToken($team, $provider);
 
@@ -27,6 +21,7 @@ class CloudServiceFactory
             CloudProvider::Hetzner => new HetznerService($apiToken),
             CloudProvider::DigitalOcean => new DigitalOceanService($apiToken),
             CloudProvider::Linode => new LinodeService($apiToken),
+            CloudProvider::Aws => new AwsService($this->resolveAwsCredentials($apiToken)),
         };
     }
 
@@ -45,6 +40,21 @@ class CloudServiceFactory
             CloudProvider::Hetzner => config('cloud.hetzner.api_token'),
             CloudProvider::DigitalOcean => config('cloud.digitalocean.api_token'),
             CloudProvider::Linode => config('cloud.linode.api_token'),
+            CloudProvider::Aws => null,
         };
+    }
+
+    /**
+     * AWS credentials are stored as encrypted JSON on the team's cloud
+     * key (the BYO-AWS product path); the config/cloud.php aws block is
+     * the global fallback for parity/testing.
+     */
+    private function resolveAwsCredentials(?string $teamKeyJson): AwsCredentials
+    {
+        if ($teamKeyJson) {
+            return AwsCredentials::fromJson($teamKeyJson);
+        }
+
+        return AwsCredentials::fromConfig(config('cloud.aws', []));
     }
 }

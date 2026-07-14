@@ -8,6 +8,7 @@ use App\Contracts\Modules\BillingProvider;
 use App\Enums\AgentMode;
 use App\Enums\AgentRole;
 use App\Enums\AgentStatus;
+use App\Enums\CloudProvider;
 use App\Enums\HarnessType;
 use App\Enums\LlmProvider;
 use App\Enums\ModelTier;
@@ -135,6 +136,7 @@ class AgentController extends Controller
                 'primaryModel' => $tier->primaryModel(),
             ])->values()->all(),
             'defaultTier' => ModelTier::Powerful->value,
+            'bedrockAvailable' => $team->cloudProvider() === CloudProvider::Aws,
             'canCreateAgent' => $hasBilling ? $bt->canCreateAgent() : true,
             'needsSeat' => $needsSeat,
             'seatPriceMonthly' => number_format($seatPrice / 100, 0),
@@ -206,6 +208,17 @@ class AgentController extends Controller
             // over from a previous OpenRouter/pay-per-use tier so the agent
             // never silently draws Provision credits.
             $data['model_fallbacks'] = [];
+        }
+
+        if (! empty($data['model_primary']) && LlmProvider::forModel($data['model_primary']) === LlmProvider::Bedrock) {
+            $data['auth_provider'] = 'bedrock';
+            // Bedrock bills to the team's own AWS account via the EC2 instance
+            // profile. Keep fallbacks same-provider only — crossing to
+            // OpenRouter would route model traffic outside the customer's cloud.
+            $data['model_fallbacks'] = array_values(array_filter(
+                $data['model_fallbacks'] ?? [],
+                fn (string $modelId): bool => LlmProvider::forModel($modelId) === LlmProvider::Bedrock,
+            ));
         }
 
         if (empty($data['user_context'])) {
@@ -535,6 +548,7 @@ class AgentController extends Controller
                 'cost' => $tier->estimatedMonthlyCost(),
                 'primaryModel' => $tier->primaryModel(),
             ])->values()->all(),
+            'bedrockAvailable' => $team->cloudProvider() === CloudProvider::Aws,
         ]);
     }
 
@@ -1083,6 +1097,10 @@ class AgentController extends Controller
     {
         $models = [];
 
+        // Bedrock models are only reachable from servers in the team's own
+        // AWS account (EC2 instance-profile auth) — hide them everywhere else.
+        $bedrockAvailable = $team->cloudProvider() === CloudProvider::Aws;
+
         // Subscribed teams get all managed models via OpenRouter
         $bt = app()->bound(BillingProvider::class) ? $this->billingTeam($team) : $team;
         $isSubscribed = method_exists($bt, 'subscribed') && $bt->subscribed('default');
@@ -1091,6 +1109,11 @@ class AgentController extends Controller
         if ($isSubscribed || $hasManagedKey) {
             foreach (LlmProvider::allModels() as $modelId) {
                 $provider = LlmProvider::forModel($modelId);
+
+                if ($provider === LlmProvider::Bedrock && ! $bedrockAvailable) {
+                    continue;
+                }
+
                 $models[] = [
                     'value' => $modelId,
                     'label' => $modelId,
@@ -1101,13 +1124,18 @@ class AgentController extends Controller
             return $models;
         }
 
-        // BYOK-only teams see models from their active API keys
-        $activeProviders = $team->apiKeys()
+        // BYOK-only teams see models from their active LLM API keys (cloud
+        // keys carry raw string providers and have no selectable models)
+        $activeProviders = $team->llmApiKeys()
             ->where('is_active', true)
             ->pluck('provider')
             ->map(fn ($p) => $p instanceof LlmProvider ? $p : LlmProvider::from($p))
             ->unique()
             ->values();
+
+        if ($bedrockAvailable && ! $activeProviders->contains(LlmProvider::Bedrock)) {
+            $activeProviders->push(LlmProvider::Bedrock);
+        }
 
         foreach ($activeProviders as $provider) {
             foreach ($provider->models() as $modelId) {
@@ -1133,16 +1161,23 @@ class AgentController extends Controller
             ? ($billingModel::find($team->id) ?? $team)
             : $team;
 
+        // Bedrock models require servers in the team's own AWS account
+        $bedrockAvailable = $team->cloudProvider() === CloudProvider::Aws;
+
         // Subscribed teams get all models
         $isSubscribed = method_exists($bt, 'subscribed') && $bt->subscribed('default');
         $hasManagedKey = $team->managedApiKey()->exists();
 
         if ($isSubscribed || $hasManagedKey) {
-            return LlmProvider::allModels();
+            $models = LlmProvider::allModels();
+
+            return $bedrockAvailable
+                ? $models
+                : array_values(array_diff($models, LlmProvider::Bedrock->models()));
         }
 
-        // BYOK models
-        return $team->apiKeys()
+        // BYOK models — LLM keys only (cloud keys carry raw string providers)
+        $models = $team->llmApiKeys()
             ->where('is_active', true)
             ->pluck('provider')
             ->map(fn ($p) => $p instanceof LlmProvider ? $p : LlmProvider::from($p))
@@ -1150,6 +1185,12 @@ class AgentController extends Controller
             ->flatMap(fn (LlmProvider $provider) => $provider->models())
             ->values()
             ->all();
+
+        if ($bedrockAvailable) {
+            $models = array_values(array_unique([...$models, ...LlmProvider::Bedrock->models()]));
+        }
+
+        return $models;
     }
 
     /**

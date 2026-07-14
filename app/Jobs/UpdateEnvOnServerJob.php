@@ -20,7 +20,11 @@ class UpdateEnvOnServerJob implements ShouldQueue
     public function handle(HarnessManager $harnessManager, OpenClawDefaultsService $defaultsService): void
     {
         $team = $this->server->team;
-        $activeKeys = $team->apiKeys()->where('is_active', true)->get();
+        // LLM keys only — cloud keys (e.g. the BYO-AWS credential row) carry a
+        // raw string provider and must never be pushed to the agent .env.
+        // Bedrock needs no key at all (EC2 instance-profile auth), so it is
+        // naturally absent here.
+        $activeKeys = $team->llmApiKeys()->where('is_active', true)->get();
         $executor = $harnessManager->resolveExecutor($this->server);
 
         $envLines = [];

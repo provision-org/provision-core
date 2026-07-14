@@ -3,6 +3,7 @@
 use App\Enums\CloudProvider;
 use App\Models\Team;
 use App\Models\TeamApiKey;
+use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\HetznerService;
@@ -89,6 +90,59 @@ it('ignores llm api keys when resolving cloud token', function () {
     $service = app(CloudServiceFactory::class)->make($team);
 
     expect($service)->toBeInstanceOf(HetznerService::class);
+});
+
+it('returns aws service using the per-team JSON credentials key', function () {
+    $team = Team::factory()->aws()->create();
+
+    TeamApiKey::factory()->awsCloud()->create([
+        'team_id' => $team->id,
+        'api_key' => json_encode([
+            'key_id' => 'AKIATEAMSPECIFIC1234',
+            'secret' => 'team-secret',
+            'region' => 'eu-central-1',
+        ]),
+    ]);
+
+    $service = app(CloudServiceFactory::class)->make($team);
+
+    expect($service)->toBeInstanceOf(AwsService::class)
+        ->and($service->credentials()->keyId)->toBe('AKIATEAMSPECIFIC1234')
+        ->and($service->credentials()->region)->toBe('eu-central-1');
+});
+
+it('falls back to the config aws block when no team key exists', function () {
+    config()->set('cloud.aws.key_id', 'AKIAGLOBALFALLBACK00');
+    config()->set('cloud.aws.secret', 'global-secret');
+    config()->set('cloud.aws.default_region', 'us-west-2');
+
+    $team = Team::factory()->aws()->create();
+
+    $service = app(CloudServiceFactory::class)->make($team);
+
+    expect($service)->toBeInstanceOf(AwsService::class)
+        ->and($service->credentials()->keyId)->toBe('AKIAGLOBALFALLBACK00')
+        ->and($service->credentials()->region)->toBe('us-west-2');
+});
+
+it('ignores inactive aws team keys and falls back to config', function () {
+    config()->set('cloud.aws.key_id', 'AKIAGLOBALFALLBACK00');
+    config()->set('cloud.aws.secret', 'global-secret');
+
+    $team = Team::factory()->aws()->create();
+
+    TeamApiKey::factory()->awsCloud()->inactive()->create([
+        'team_id' => $team->id,
+        'api_key' => json_encode([
+            'key_id' => 'AKIAINACTIVE00000000',
+            'secret' => 'inactive-secret',
+        ]),
+    ]);
+
+    $service = app(CloudServiceFactory::class)->make($team);
+
+    expect($service)->toBeInstanceOf(AwsService::class)
+        ->and($service->credentials()->keyId)->toBe('AKIAGLOBALFALLBACK00');
 });
 
 it('can create a service for a specific provider via makeFor', function () {

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Settings;
 
 use App\Ai\CompanyExtractorAgent;
 use App\Contracts\Modules\BillingProvider;
+use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Enums\TeamRole;
 use App\Http\Controllers\Controller;
@@ -29,9 +30,10 @@ class TeamController extends Controller
     /**
      * Show the team creation page.
      */
-    public function create(): Response
+    public function create(Request $request): Response
     {
         $selectionEnabled = config('cloud.provider_selection_enabled');
+        $byoCloudEnabled = (bool) $request->user()->byo_cloud_enabled;
 
         $availableProviders = [];
         if ($selectionEnabled) {
@@ -48,6 +50,12 @@ class TeamController extends Controller
             if (config('cloud.linode.api_token')) {
                 $availableProviders[] = ['value' => 'linode', 'label' => 'Linode', 'description' => 'Deploy to Linode instances.'];
             }
+
+            // BYO AWS uses per-team credentials, so no global-token check —
+            // eligibility is the account-level byo_cloud_enabled flag.
+            if ($byoCloudEnabled) {
+                $availableProviders[] = ['value' => 'aws', 'label' => 'AWS (your account)', 'description' => 'Deploy to EC2 in your own AWS account.'];
+            }
         }
 
         return Inertia::render('settings/teams/create', [
@@ -55,6 +63,7 @@ class TeamController extends Controller
             'cloudProviderSelectionEnabled' => $selectionEnabled && count($availableProviders) > 1,
             'availableProviders' => $availableProviders,
             'defaultProvider' => config('cloud.default_provider', 'docker'),
+            'byoCloudEnabled' => $byoCloudEnabled,
         ]);
     }
 
@@ -76,6 +85,21 @@ class TeamController extends Controller
         ]);
 
         $team->members()->attach($request->user(), ['role' => TeamRole::Admin->value]);
+
+        // Store BYO-AWS credentials as an encrypted JSON cloud key before
+        // any provisioning path can run. Never logged.
+        if ($team->cloudProvider() === CloudProvider::Aws) {
+            $team->apiKeys()->create([
+                'provider_type' => 'cloud',
+                'provider' => CloudProvider::Aws->value,
+                'api_key' => json_encode([
+                    'key_id' => $request->aws_key_id,
+                    'secret' => $request->aws_secret,
+                    'region' => $request->aws_region ?? config('cloud.aws.default_region', 'us-east-1'),
+                ]),
+                'is_active' => true,
+            ]);
+        }
 
         $request->user()->switchTeam($team);
 

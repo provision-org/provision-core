@@ -1,5 +1,5 @@
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, Check, X } from 'lucide-react';
+import { ArrowLeft, Check, Cloud, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -199,6 +199,27 @@ const modelMeta: Record<string, ModelMeta> = {
         tier: 'pro',
         cost: '$$$',
         sort: 4,
+    },
+    'bedrock-claude-opus-4-6': {
+        label: 'Claude Opus 4.6 (Bedrock)',
+        description: 'Runs in your AWS account',
+        tier: 'pro',
+        cost: '$$$',
+        sort: 5,
+    },
+    'bedrock-claude-sonnet-4-6': {
+        label: 'Claude Sonnet 4.6 (Bedrock)',
+        description: 'Runs in your AWS account',
+        tier: 'standard',
+        cost: '$$',
+        sort: 16,
+    },
+    'bedrock-claude-haiku-4-5': {
+        label: 'Claude Haiku 4.5 (Bedrock)',
+        description: 'Runs in your AWS account',
+        tier: 'lite',
+        cost: '$',
+        sort: 22,
     },
     'claude-sonnet-4-6': {
         label: 'Claude Sonnet 4.6',
@@ -511,6 +532,7 @@ export default function CreateAgent({
     defaultModel,
     modelTiers = [],
     defaultTier = 'powerful',
+    bedrockAvailable = false,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     canCreateAgent = false,
     needsSeat = false,
@@ -528,6 +550,7 @@ export default function CreateAgent({
     defaultModel: string;
     modelTiers?: ModelTierOption[];
     defaultTier?: string;
+    bedrockAvailable?: boolean;
     canCreateAgent?: boolean;
     needsSeat?: boolean;
     seatPriceMonthly?: string;
@@ -1425,7 +1448,10 @@ export default function CreateAgent({
                                                         .filter(
                                                             (tier) =>
                                                                 tier.value !==
-                                                                'subscription',
+                                                                    'subscription' &&
+                                                                (tier.value !==
+                                                                    'bedrock' ||
+                                                                    bedrockAvailable),
                                                         )
                                                         .map((tier) => (
                                                             <button
@@ -1453,23 +1479,42 @@ export default function CreateAgent({
                                                                         : 'border-border hover:border-foreground/30',
                                                                 )}
                                                             >
-                                                                <div className="mb-2 text-2xl">
+                                                                {tier.value ===
+                                                                'bedrock' ? (
+                                                                    <Cloud className="mb-2 size-7 text-orange-500" />
+                                                                ) : (
+                                                                    <div className="mb-2 text-2xl">
+                                                                        {tier.value ===
+                                                                        'efficient'
+                                                                            ? '\u26A1'
+                                                                            : '\uD83E\uDDE0'}
+                                                                    </div>
+                                                                )}
+                                                                <div className="flex items-center gap-2">
+                                                                    <p className="text-base font-bold">
+                                                                        {
+                                                                            tier.label
+                                                                        }
+                                                                    </p>
                                                                     {tier.value ===
-                                                                    'efficient'
-                                                                        ? '\u26A1'
-                                                                        : '\uD83E\uDDE0'}
+                                                                        'bedrock' && (
+                                                                        <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                                                            Your
+                                                                            AWS
+                                                                            account
+                                                                        </span>
+                                                                    )}
                                                                 </div>
-                                                                <p className="text-base font-bold">
-                                                                    {tier.label}
-                                                                </p>
                                                                 <p className="mt-1 text-sm text-muted-foreground">
                                                                     {
                                                                         tier.description
                                                                     }
                                                                 </p>
                                                                 <p className="mt-3 text-xs font-medium text-muted-foreground">
-                                                                    {tier.cost}{' '}
-                                                                    in AI costs
+                                                                    {tier.value ===
+                                                                    'bedrock'
+                                                                        ? tier.cost
+                                                                        : `${tier.cost} in AI costs`}
                                                                 </p>
                                                             </button>
                                                         ))}
@@ -1959,7 +2004,11 @@ export default function CreateAgent({
                                   )?.label ?? '')
                                 : '')
                         }
-                        harness={form.data.harness_type}
+                        harness={
+                            'harness_type' in form.data
+                                ? String(form.data.harness_type)
+                                : ''
+                        }
                         emailPrefix={form.data.email_prefix}
                         emailDomain={form.data.email_domain || emailDomain}
                         stepIndex={stepIndex}

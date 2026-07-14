@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\CloudProvider;
+use App\Jobs\ProvisionAwsServerJob;
 use App\Jobs\ProvisionDigitalOceanServerJob;
 use App\Jobs\ProvisionDockerServerJob;
 use App\Jobs\ProvisionHetznerServerJob;
@@ -18,6 +19,7 @@ class ServerProvisioningDispatcher
             CloudProvider::Hetzner => ProvisionHetznerServerJob::dispatch($server),
             CloudProvider::DigitalOcean => ProvisionDigitalOceanServerJob::dispatch($server),
             CloudProvider::Linode => ProvisionLinodeServerJob::dispatch($server),
+            CloudProvider::Aws => ProvisionAwsServerJob::dispatch($server),
         };
     }
 }

@@ -5,10 +5,24 @@ import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import AuthLayout from '@/layouts/auth-layout';
 import { cn } from '@/lib/utils';
 import type { SharedData } from '@/types';
+
+const awsRegions = [
+    { value: 'us-east-1', label: 'us-east-1 (N. Virginia)' },
+    { value: 'us-west-2', label: 'us-west-2 (Oregon)' },
+    { value: 'eu-central-1', label: 'eu-central-1 (Frankfurt)' },
+    { value: 'ap-southeast-1', label: 'ap-southeast-1 (Singapore)' },
+];
 
 const harnessOptions = [
     {
@@ -32,6 +46,7 @@ export default function CreateTeam({
     cloudProviderSelectionEnabled = false,
     availableProviders = [],
     defaultProvider = 'docker',
+    byoCloudEnabled = false,
 }: {
     harnessSelectionEnabled?: boolean;
     cloudProviderSelectionEnabled?: boolean;
@@ -41,6 +56,7 @@ export default function CreateTeam({
         description: string;
     }[];
     defaultProvider?: string;
+    byoCloudEnabled?: boolean;
 }) {
     const { teams } = usePage<SharedData>().props;
     const hasExistingTeams = teams && teams.length > 0;
@@ -54,9 +70,20 @@ export default function CreateTeam({
         company_description: '',
         target_market: '',
         ...(cloudProviderSelectionEnabled
-            ? { cloud_provider: defaultProvider }
+            ? {
+                  cloud_provider: defaultProvider,
+                  aws_key_id: '',
+                  aws_secret: '',
+                  aws_region: 'us-east-1',
+              }
             : {}),
     });
+
+    const selectedProvider =
+        'cloud_provider' in form.data
+            ? form.data.cloud_provider
+            : defaultProvider;
+    const formErrors = form.errors as Record<string, string | undefined>;
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -346,34 +373,121 @@ export default function CreateTeam({
                                     }
                                     className={cn(
                                         'rounded-xl border px-4 py-4 text-left transition-all',
-                                        ('cloud_provider' in form.data
-                                            ? form.data.cloud_provider
-                                            : defaultProvider) === option.value
+                                        selectedProvider === option.value
                                             ? 'border-foreground bg-accent shadow-sm'
                                             : 'border-border hover:border-foreground/30',
                                     )}
                                 >
-                                    <p className="text-sm font-medium">
-                                        {option.label}
-                                    </p>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-sm font-medium">
+                                            {option.label}
+                                        </p>
+                                        {option.value === 'aws' && (
+                                            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground">
+                                                Your AWS account
+                                            </span>
+                                        )}
+                                    </div>
                                     <p className="mt-0.5 text-xs text-muted-foreground">
                                         {option.description}
                                     </p>
                                 </button>
                             ))}
-                            <InputError
-                                message={
-                                    'cloud_provider' in form.errors
-                                        ? (
-                                              form.errors as Record<
-                                                  string,
-                                                  string
-                                              >
-                                          ).cloud_provider
-                                        : undefined
-                                }
-                            />
+                            <InputError message={formErrors.cloud_provider} />
                         </div>
+
+                        {byoCloudEnabled && selectedProvider === 'aws' && (
+                            <div className="grid gap-4 rounded-xl border border-border p-4">
+                                <div className="grid gap-2">
+                                    <Label htmlFor="aws_key_id">
+                                        AWS access key ID
+                                    </Label>
+                                    <Input
+                                        id="aws_key_id"
+                                        value={
+                                            'aws_key_id' in form.data
+                                                ? form.data.aws_key_id
+                                                : ''
+                                        }
+                                        onChange={(e) =>
+                                            form.setData(
+                                                'aws_key_id',
+                                                e.target.value,
+                                            )
+                                        }
+                                        placeholder="AKIA..."
+                                        autoComplete="off"
+                                    />
+                                    <InputError
+                                        message={formErrors.aws_key_id}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="aws_secret">
+                                        AWS secret access key
+                                    </Label>
+                                    <Input
+                                        id="aws_secret"
+                                        type="password"
+                                        value={
+                                            'aws_secret' in form.data
+                                                ? form.data.aws_secret
+                                                : ''
+                                        }
+                                        onChange={(e) =>
+                                            form.setData(
+                                                'aws_secret',
+                                                e.target.value,
+                                            )
+                                        }
+                                        autoComplete="off"
+                                    />
+                                    <InputError
+                                        message={formErrors.aws_secret}
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="aws_region">
+                                        AWS region
+                                    </Label>
+                                    <Select
+                                        value={
+                                            'aws_region' in form.data
+                                                ? form.data.aws_region
+                                                : 'us-east-1'
+                                        }
+                                        onValueChange={(value) =>
+                                            form.setData('aws_region', value)
+                                        }
+                                    >
+                                        <SelectTrigger id="aws_region">
+                                            <SelectValue placeholder="Select a region" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {awsRegions.map((region) => (
+                                                <SelectItem
+                                                    key={region.value}
+                                                    value={region.value}
+                                                >
+                                                    {region.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <InputError
+                                        message={formErrors.aws_region}
+                                    />
+                                </div>
+
+                                <p className="text-xs text-muted-foreground">
+                                    An IAM user scoped to EC2 (and Bedrock, if
+                                    you'll use it) — see docs. Credentials are
+                                    stored encrypted, per team.
+                                </p>
+                            </div>
+                        )}
 
                         <div className="flex flex-col gap-3">
                             <Button

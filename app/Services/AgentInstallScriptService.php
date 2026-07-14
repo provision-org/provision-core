@@ -426,7 +426,8 @@ class AgentInstallScriptService
     public function collectLlmProviderEnvKeys(Agent $agent): array
     {
         $team = $agent->server->team;
-        $activeKeys = $team->apiKeys()->where('is_active', true)->get();
+        // LLM keys only — cloud keys (BYO-AWS) have string providers and no env mapping.
+        $activeKeys = $team->llmApiKeys()->where('is_active', true)->get();
         $envKeys = [];
 
         foreach ($activeKeys as $apiKey) {
@@ -1372,7 +1373,8 @@ class AgentInstallScriptService
     private function buildEnvScript(Agent $agent): string
     {
         $team = $agent->server->team;
-        $activeKeys = $team->apiKeys()->where('is_active', true)->get();
+        // LLM keys only — cloud keys (BYO-AWS) have string providers and no env mapping.
+        $activeKeys = $team->llmApiKeys()->where('is_active', true)->get();
         $envLines = [];
 
         foreach ($activeKeys as $apiKey) {

@@ -79,6 +79,16 @@ class UserFactory extends Factory
     }
 
     /**
+     * Indicate that the user is eligible for BYO cloud (sales-set flag).
+     */
+    public function byoCloud(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'byo_cloud_enabled' => true,
+        ]);
+    }
+
+    /**
      * Indicate that the user has completed their profile.
      */
     public function withCompletedProfile(): static

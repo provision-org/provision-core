@@ -722,7 +722,8 @@ class AgentUpdateScriptService
     private function collectLlmProviderEnvKeys(Server $server): array
     {
         $team = $server->team;
-        $activeKeys = $team->apiKeys()->where('is_active', true)->get();
+        // LLM keys only — cloud keys (BYO-AWS) have string providers and no env mapping.
+        $activeKeys = $team->llmApiKeys()->where('is_active', true)->get();
         $envKeys = [];
 
         foreach ($activeKeys as $apiKey) {
