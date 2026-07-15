@@ -6,7 +6,7 @@ import {
     Copy,
     LoaderCircle,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import {
@@ -90,8 +90,8 @@ function PolicyBlock({ policy }: { policy: string }) {
     };
 
     return (
-        <div className="relative">
-            <pre className="max-h-48 overflow-auto rounded border border-border bg-muted/40 p-3 pr-10 font-mono text-[11px] leading-relaxed">
+        <div className="relative w-full max-w-full min-w-0">
+            <pre className="max-h-48 w-full max-w-full overflow-x-auto overflow-y-auto rounded border border-border bg-muted/40 p-3 pr-10 font-mono text-[11px] leading-relaxed">
                 {policy}
             </pre>
             <button
@@ -122,7 +122,7 @@ function SetupStep({
     children: React.ReactNode;
 }) {
     return (
-        <Collapsible className="rounded-lg border border-border">
+        <Collapsible className="min-w-0 rounded-lg border border-border">
             <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2.5 text-left">
                 <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px]">
                     {number}
@@ -135,7 +135,9 @@ function SetupStep({
                 )}
                 <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
             </CollapsibleTrigger>
-            <CollapsibleContent className="grid gap-2 px-3 pb-3">
+            {/* Block flow (not grid) so the policy <pre> is width-constrained
+                by its parent and scrolls instead of stretching the card. */}
+            <CollapsibleContent className="max-w-full space-y-2.5 px-3 pb-3">
                 {children}
             </CollapsibleContent>
         </Collapsible>
@@ -157,7 +159,7 @@ const harnessOptions = [
     },
 ];
 
-type Step = 'name' | 'harness' | 'business' | 'provider';
+type Step = 'name' | 'harness' | 'business' | 'provider' | 'aws';
 
 export default function CreateTeam({
     harnessSelectionEnabled = false,
@@ -176,9 +178,42 @@ export default function CreateTeam({
     defaultProvider?: string;
     byoCloudEnabled?: boolean;
 }) {
-    const { teams } = usePage<SharedData>().props;
+    const { teams, errors: pageErrorsProp } = usePage<SharedData>().props;
     const hasExistingTeams = teams && teams.length > 0;
-    const [step, setStep] = useState<Step>('name');
+    const pageErrors = (pageErrorsProp ?? {}) as Record<string, string>;
+
+    // When the server redirects back with validation errors (e.g. store-time
+    // AWS verification failure), the wizard remounts on step one and the
+    // errors would never be seen. Open on the earliest step that has one.
+    function stepForServerErrors(): Step {
+        if (pageErrors.name) {
+            return 'name';
+        }
+        if (pageErrors.harness_type && harnessSelectionEnabled) {
+            return 'harness';
+        }
+        if (
+            pageErrors.company_name ||
+            pageErrors.company_url ||
+            pageErrors.company_description ||
+            pageErrors.target_market
+        ) {
+            return 'business';
+        }
+        if (pageErrors.cloud_provider && cloudProviderSelectionEnabled) {
+            return 'provider';
+        }
+        if (
+            cloudProviderSelectionEnabled &&
+            byoCloudEnabled &&
+            Object.keys(pageErrors).some((key) => key.startsWith('aws_'))
+        ) {
+            return 'aws';
+        }
+        return 'name';
+    }
+
+    const [step, setStep] = useState<Step>(stepForServerErrors);
 
     const form = useForm({
         name: '',
@@ -198,6 +233,20 @@ export default function CreateTeam({
             : {}),
     });
 
+    // Seed server-flashed errors into the form once, so InputError renders
+    // them even after a fresh mount (useForm starts with empty errors).
+    const seededServerErrors = useRef(false);
+    const setFormError = form.setError;
+    useEffect(() => {
+        if (seededServerErrors.current) {
+            return;
+        }
+        seededServerErrors.current = true;
+        if (Object.keys(pageErrors).length > 0) {
+            setFormError(pageErrors as Record<string, string>);
+        }
+    });
+
     const selectedProvider =
         'cloud_provider' in form.data
             ? form.data.cloud_provider
@@ -214,6 +263,8 @@ export default function CreateTeam({
     const [awsVerify, setAwsVerify] = useState<AwsVerifyState>({
         status: 'idle',
     });
+
+    const awsSelected = selectedProvider === 'aws' && byoCloudEnabled;
 
     // Any change to the fields that feed verification invalidates it.
     function setAwsField(
@@ -280,6 +331,10 @@ export default function CreateTeam({
             if (cloudProviderSelectionEnabled) {
                 setStep('provider');
             }
+        } else if (step === 'provider') {
+            if (awsSelected) {
+                setStep('aws');
+            }
         }
     }
 
@@ -290,6 +345,8 @@ export default function CreateTeam({
             setStep(harnessSelectionEnabled ? 'harness' : 'name');
         } else if (step === 'provider') {
             setStep('business');
+        } else if (step === 'aws') {
+            setStep('provider');
         }
     }
 
@@ -298,6 +355,7 @@ export default function CreateTeam({
         harness: 'Choose your agent framework',
         business: `About ${form.data.name}`,
         provider: 'Where should your agents run?',
+        aws: 'Connect your AWS account',
     };
 
     const stepDescriptions: Record<Step, string> = {
@@ -305,6 +363,7 @@ export default function CreateTeam({
         harness: 'This determines how your agents run tasks.',
         business: 'Help your agents understand your business better.',
         provider: 'Choose the infrastructure for your agent servers.',
+        aws: 'Your agents will run on EC2 in your account. Set up access once for this team.',
     };
 
     // Business step is the submit step when provider selection is disabled
@@ -576,8 +635,45 @@ export default function CreateTeam({
                             <InputError message={formErrors.cloud_provider} />
                         </div>
 
-                        {byoCloudEnabled && selectedProvider === 'aws' && (
-                            <div className="grid gap-3 rounded-xl border border-border p-4">
+                        <div className="flex flex-col gap-3">
+                            {awsSelected ? (
+                                <Button
+                                    type="button"
+                                    className="w-full"
+                                    onClick={nextStep}
+                                >
+                                    Continue
+                                </Button>
+                            ) : (
+                                <Button
+                                    type="submit"
+                                    className="w-full"
+                                    disabled={form.processing}
+                                >
+                                    {form.processing
+                                        ? 'Creating...'
+                                        : 'Create Team'}
+                                </Button>
+                            )}
+
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                className="w-full gap-2"
+                                onClick={backStep}
+                            >
+                                <ArrowLeft className="size-4" />
+                                Back
+                            </Button>
+                        </div>
+                    </>
+                )}
+
+                {step === 'aws' &&
+                    cloudProviderSelectionEnabled &&
+                    byoCloudEnabled && (
+                        <div className="space-y-8">
+                            <div className="space-y-3">
                                 <SetupStep
                                     number={1}
                                     title="Create an IAM user for provisioning"
@@ -604,16 +700,9 @@ export default function CreateTeam({
                                     </p>
                                     <PolicyBlock policy={bedrockPolicy} />
                                 </SetupStep>
+                            </div>
 
-                                <div className="flex items-center gap-2 pt-1">
-                                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px]">
-                                        3
-                                    </span>
-                                    <span className="text-sm font-medium">
-                                        Connect
-                                    </span>
-                                </div>
-
+                            <div className="grid gap-4 border-t border-border pt-6">
                                 <div className="grid gap-2">
                                     <Label htmlFor="aws_key_id">
                                         AWS access key ID
@@ -754,35 +843,33 @@ export default function CreateTeam({
                                     Credentials are stored encrypted, per team.
                                 </p>
                             </div>
-                        )}
 
-                        <div className="flex flex-col gap-3">
-                            <Button
-                                type="submit"
-                                className="w-full"
-                                disabled={
-                                    form.processing ||
-                                    (selectedProvider === 'aws' &&
-                                        awsVerify.status !== 'verified')
-                                }
-                            >
-                                {form.processing
-                                    ? 'Creating...'
-                                    : 'Create Team'}
-                            </Button>
+                            <div className="flex flex-col gap-3">
+                                <Button
+                                    type="submit"
+                                    className="w-full"
+                                    disabled={
+                                        form.processing ||
+                                        awsVerify.status !== 'verified'
+                                    }
+                                >
+                                    {form.processing
+                                        ? 'Creating...'
+                                        : 'Create Team'}
+                                </Button>
 
-                            <Button
-                                type="button"
-                                variant="ghost"
-                                className="w-full gap-2"
-                                onClick={backStep}
-                            >
-                                <ArrowLeft className="size-4" />
-                                Back
-                            </Button>
+                                <Button
+                                    type="button"
+                                    variant="ghost"
+                                    className="w-full gap-2"
+                                    onClick={backStep}
+                                >
+                                    <ArrowLeft className="size-4" />
+                                    Back
+                                </Button>
+                            </div>
                         </div>
-                    </>
-                )}
+                    )}
             </form>
         </AuthLayout>
     );
