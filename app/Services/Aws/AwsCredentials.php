@@ -2,6 +2,8 @@
 
 namespace App\Services\Aws;
 
+use App\Enums\CloudProvider;
+use App\Models\Team;
 use InvalidArgumentException;
 
 /**
@@ -16,6 +18,7 @@ readonly class AwsCredentials
         public string $secret,
         public string $region,
         public ?string $sshKeyName = null,
+        public ?string $instanceProfile = null,
     ) {}
 
     /**
@@ -35,6 +38,7 @@ readonly class AwsCredentials
             secret: $data['secret'],
             region: $data['region'] ?? config('cloud.aws.default_region', 'us-east-1'),
             sshKeyName: $data['ssh_key_name'] ?? null,
+            instanceProfile: $data['instance_profile'] ?? null,
         );
     }
 
@@ -54,6 +58,31 @@ readonly class AwsCredentials
             secret: $config['secret'],
             region: $config['default_region'] ?? 'us-east-1',
             sshKeyName: $config['ssh_key_name'] ?? null,
+            instanceProfile: $config['instance_profile'] ?? null,
         );
+    }
+
+    /**
+     * Resolve the AWS region for a team from its cloud TeamApiKey JSON,
+     * falling back to the global config default. Used to point the OpenClaw
+     * amazon-bedrock plugin (and AWS_REGION env) at the region the team's
+     * EC2 server actually runs in — never exposes the key/secret.
+     */
+    public static function regionForTeam(Team $team): string
+    {
+        $cloudKey = $team->cloudApiKeys()
+            ->where('provider', CloudProvider::Aws->value)
+            ->where('is_active', true)
+            ->first();
+
+        if ($cloudKey) {
+            try {
+                return self::fromJson($cloudKey->api_key)->region;
+            } catch (InvalidArgumentException) {
+                // Malformed payload — fall through to the config default.
+            }
+        }
+
+        return config('cloud.aws.default_region', 'us-east-1');
     }
 }

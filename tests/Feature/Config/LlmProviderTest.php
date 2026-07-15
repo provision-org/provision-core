@@ -45,13 +45,15 @@ test('forModel resolves bedrock model ids to the Bedrock provider', function () 
         ->and(LlmProvider::forModel('claude-sonnet-4-6'))->toBe(LlmProvider::Anthropic);
 });
 
-test('bedrock openclawModel routes directly to Bedrock with dotted versions — never via OpenRouter', function () {
+test('bedrock openclawModel maps to amazon-bedrock inference profiles — never via OpenRouter', function () {
+    // Real OpenClaw contract: "amazon-bedrock/" prefix + "us." regional
+    // inference profile; Bedrock-native ids keep hyphens and end "-v1:0".
     expect(LlmProvider::Bedrock->openclawModel('bedrock-claude-opus-4-6'))
-        ->toBe('bedrock/anthropic.claude-opus-4.6')
+        ->toBe('amazon-bedrock/us.anthropic.claude-opus-4-6-v1:0')
         ->and(LlmProvider::Bedrock->openclawModel('bedrock-claude-sonnet-4-6'))
-        ->toBe('bedrock/anthropic.claude-sonnet-4.6')
+        ->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0')
         ->and(LlmProvider::Bedrock->openclawModel('bedrock-claude-haiku-4-5'))
-        ->toBe('bedrock/anthropic.claude-haiku-4.5');
+        ->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0');
 
     foreach (LlmProvider::Bedrock->models() as $modelId) {
         expect(LlmProvider::Bedrock->openclawModel($modelId))->not->toContain('openrouter');

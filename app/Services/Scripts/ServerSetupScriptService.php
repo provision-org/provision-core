@@ -466,6 +466,10 @@ OVERRIDE
             'device-pair' => ['enabled' => false],
         ]];
 
+        // Bedrock (BYO-AWS): enable instance-profile discovery for the
+        // amazon-bedrock plugin when any agent on the server uses Bedrock.
+        $config = $this->defaultsService->applyBedrockPluginConfig($config, $server);
+
         // Session management — multi-user isolation and cleanup
         $config['session'] = [
             'dmScope' => 'per-channel-peer',

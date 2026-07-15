@@ -2,20 +2,31 @@
 
 namespace App\Services;
 
+use App\Enums\CloudProvider;
 use App\Enums\LlmProvider;
+use App\Enums\ModelTier;
 use App\Models\Server;
+use App\Services\Aws\AwsCredentials;
 
 class OpenClawDefaultsService
 {
     /**
      * Build the `agents.defaults` config block based on the team's active API keys.
      *
+     * When the server belongs to an AWS team whose agents ALL run on Bedrock,
+     * the server-wide defaults (heartbeat, subagents, memory search) route to
+     * Bedrock too so no default-model traffic leaves the customer's cloud.
+     * MIXED servers (some agents Bedrock, some not) keep the managed defaults
+     * here — Bedrock agents still heartbeat in-cloud via their per-agent
+     * override (Agent::openclawHeartbeatConfig()), but memory search stays on
+     * the managed provider. That is a documented limitation for mixed teams.
+     *
      * @return array<string, mixed>
      */
     public function buildDefaults(Server $server): array
     {
         $team = $server->team;
-        $activeProviders = $team->apiKeys()
+        $activeProviders = $team->llmApiKeys()
             ->where('is_active', true)
             ->pluck('provider')
             ->unique()
@@ -24,16 +35,21 @@ class OpenClawDefaultsService
         $hasOpenAi = in_array(LlmProvider::OpenAi, $activeProviders, true);
         $hasOpenRouter = in_array(LlmProvider::OpenRouter, $activeProviders, true);
         $hasAnthropic = in_array(LlmProvider::Anthropic, $activeProviders, true);
+        $allBedrock = $this->serverIsAllBedrock($server);
 
         $defaults = [
             'sandbox' => ['mode' => 'off'],
         ];
 
-        $defaults['memorySearch'] = $this->buildMemorySearch($hasOpenAi, $hasOpenRouter);
+        $defaults['memorySearch'] = $allBedrock
+            ? $this->buildBedrockMemorySearch()
+            : $this->buildMemorySearch($hasOpenAi, $hasOpenRouter);
         $defaults['compaction'] = $this->buildCompaction();
         $defaults['contextPruning'] = $this->buildContextPruning();
 
-        $heartbeatModel = $this->resolveHeartbeatModel($hasOpenAi, $hasOpenRouter);
+        $heartbeatModel = $allBedrock
+            ? self::bedrockAutomationModel()
+            : $this->resolveHeartbeatModel($hasOpenAi, $hasOpenRouter);
         if ($heartbeatModel) {
             $defaults['heartbeat'] = ['model' => $heartbeatModel];
             $defaults['subagents'] = [
@@ -67,6 +83,89 @@ class OpenClawDefaultsService
     }
 
     /**
+     * Merge the amazon-bedrock plugin entry into an openclaw.json config when
+     * the server's team runs on AWS and at least one agent uses Bedrock.
+     *
+     * `discovery.enabled: true` is REQUIRED for the plugin to authenticate via
+     * the EC2 instance profile (IMDS); `discovery.region` pins the Bedrock
+     * endpoint to the team's region. The merge is non-destructive: any other
+     * plugin entries or amazon-bedrock config keys already present survive.
+     *
+     * @param  array<string, mixed>  $config
+     * @return array<string, mixed>
+     */
+    public function applyBedrockPluginConfig(array $config, Server $server): array
+    {
+        if (! $this->serverHasBedrockAgent($server)) {
+            return $config;
+        }
+
+        if (! isset($config['plugins']) || ! is_array($config['plugins']) || array_is_list($config['plugins'])) {
+            $config['plugins'] = [];
+        }
+        if (! isset($config['plugins']['entries']) || ! is_array($config['plugins']['entries']) || array_is_list($config['plugins']['entries'])) {
+            $config['plugins']['entries'] = [];
+        }
+
+        $config['plugins']['entries']['amazon-bedrock'] = array_replace_recursive(
+            $config['plugins']['entries']['amazon-bedrock'] ?? [],
+            [
+                'enabled' => true,
+                'config' => [
+                    'discovery' => [
+                        'enabled' => true,
+                        'region' => AwsCredentials::regionForTeam($server->team),
+                    ],
+                ],
+            ],
+        );
+
+        return $config;
+    }
+
+    /**
+     * Whether at least one agent on this server authenticates via Bedrock
+     * (only meaningful on an AWS team — Bedrock is gated to AWS elsewhere).
+     */
+    public function serverHasBedrockAgent(Server $server): bool
+    {
+        if ($server->team?->cloudProvider() !== CloudProvider::Aws) {
+            return false;
+        }
+
+        return $server->agents()->where('auth_provider', 'bedrock')->exists();
+    }
+
+    /**
+     * Whether the server is on an AWS team and EVERY agent uses Bedrock.
+     * Servers with no agents yet resolve to false (managed defaults apply
+     * until the first agent lands and the config is rebuilt).
+     */
+    public function serverIsAllBedrock(Server $server): bool
+    {
+        if ($server->team?->cloudProvider() !== CloudProvider::Aws) {
+            return false;
+        }
+
+        if (! $server->agents()->exists()) {
+            return false;
+        }
+
+        return ! $server->agents()
+            ->where(fn ($query) => $query->where('auth_provider', '!=', 'bedrock')->orWhereNull('auth_provider'))
+            ->exists();
+    }
+
+    /**
+     * The OpenClaw model id used for Bedrock heartbeats and subagents —
+     * Bedrock Haiku through the regional inference profile.
+     */
+    public static function bedrockAutomationModel(): string
+    {
+        return LlmProvider::Bedrock->openclawModel(ModelTier::Bedrock->heartbeatModel());
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function buildMemorySearch(bool $hasOpenAi, bool $hasOpenRouter): array
@@ -80,15 +179,7 @@ class OpenClawDefaultsService
             'provider' => 'openai',
             'model' => 'text-embedding-3-small',
             'sources' => ['memory', 'sessions'],
-            'query' => [
-                'hybrid' => [
-                    'enabled' => true,
-                    'vectorWeight' => 0.7,
-                    'textWeight' => 0.3,
-                    'mmr' => ['enabled' => true, 'lambda' => 0.7],
-                    'temporalDecay' => ['enabled' => true, 'halfLifeDays' => 30],
-                ],
-            ],
+            'query' => $this->buildMemorySearchQuery(),
             'experimental' => ['sessionMemory' => true],
         ];
 
@@ -97,6 +188,40 @@ class OpenClawDefaultsService
         }
 
         return $config;
+    }
+
+    /**
+     * In-cloud memory search for all-Bedrock AWS servers. The bedrock
+     * provider embeds via the instance profile (default model
+     * amazon.titan-embed-text-v2:0) so no embedding traffic leaves AWS.
+     *
+     * @return array<string, mixed>
+     */
+    private function buildBedrockMemorySearch(): array
+    {
+        return [
+            'enabled' => true,
+            'provider' => 'bedrock',
+            'sources' => ['memory', 'sessions'],
+            'query' => $this->buildMemorySearchQuery(),
+            'experimental' => ['sessionMemory' => true],
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function buildMemorySearchQuery(): array
+    {
+        return [
+            'hybrid' => [
+                'enabled' => true,
+                'vectorWeight' => 0.7,
+                'textWeight' => 0.3,
+                'mmr' => ['enabled' => true, 'lambda' => 0.7],
+                'temporalDecay' => ['enabled' => true, 'halfLifeDays' => 30],
+            ],
+        ];
     }
 
     /**

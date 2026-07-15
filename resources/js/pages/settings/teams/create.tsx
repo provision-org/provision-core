@@ -482,9 +482,16 @@ export default function CreateTeam({
                                 </div>
 
                                 <p className="text-xs text-muted-foreground">
-                                    An IAM user scoped to EC2 (and Bedrock, if
-                                    you'll use it) — see docs. Credentials are
-                                    stored encrypted, per team.
+                                    The IAM user needs EC2 permissions. To run
+                                    Bedrock models it also needs
+                                    bedrock:InvokeModel,
+                                    bedrock:InvokeModelWithResponseStream,
+                                    bedrock:ListFoundationModels, and
+                                    bedrock:ListInferenceProfiles — attach an
+                                    EC2 instance profile with those permissions
+                                    and your agents call Bedrock without any API
+                                    key on the server. Credentials are stored
+                                    encrypted, per team.
                                 </p>
                             </div>
                         )}

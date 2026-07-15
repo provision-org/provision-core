@@ -71,11 +71,44 @@ test('bedrock agents resolve their OpenClaw model directly against Bedrock', fun
         'model_fallbacks' => ['bedrock-claude-haiku-4-5'],
     ]);
 
-    expect($agent->openclawModel())->toBe('bedrock/anthropic.claude-sonnet-4.6')
+    expect($agent->openclawModel())->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0')
         ->and($agent->openclawModelConfig())->toBe([
-            'primary' => 'bedrock/anthropic.claude-sonnet-4.6',
-            'fallbacks' => ['bedrock/anthropic.claude-haiku-4.5'],
+            'primary' => 'amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0',
+            'fallbacks' => ['amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0'],
         ]);
+});
+
+test('bedrock agents heartbeat on Bedrock Haiku with light context', function () {
+    $agent = new Agent([
+        'auth_provider' => 'bedrock',
+        'model_primary' => 'bedrock-claude-sonnet-4-6',
+    ]);
+
+    expect($agent->openclawHeartbeatConfig())->toBe([
+        'model' => 'amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0',
+        'lightContext' => true,
+    ]);
+});
+
+test('non-bedrock, non-chatgpt agents keep the server default heartbeat', function () {
+    $agent = new Agent([
+        'auth_provider' => 'openrouter',
+        'model_primary' => 'claude-sonnet-4-6',
+    ]);
+
+    expect($agent->openclawHeartbeatConfig())->toBeNull();
+});
+
+test('chatgpt-subscription agents still heartbeat on their own model', function () {
+    $agent = new Agent([
+        'auth_provider' => 'chatgpt',
+        'model_primary' => 'gpt-5.5',
+    ]);
+
+    expect($agent->openclawHeartbeatConfig())->toBe([
+        'model' => 'openai-codex/gpt-5.5',
+        'lightContext' => true,
+    ]);
 });
 
 test('the bedrock tier is rejected for teams not running on AWS', function () {

@@ -7,6 +7,7 @@ use App\Enums\AgentRole;
 use App\Enums\AgentStatus;
 use App\Enums\HarnessType;
 use App\Enums\LlmProvider;
+use App\Enums\ModelTier;
 use App\Observers\AgentObserver;
 use Database\Factories\AgentFactory;
 use Illuminate\Database\Eloquent\Attributes\ObservedBy;
@@ -140,18 +141,31 @@ class Agent extends Model
      * model (billed via the user's OpenAI plan, using the per-agent OAuth
      * profile) instead of the managed OpenRouter automation model — otherwise
      * a subscription agent silently drains the team's Provision credits and
-     * gets auto-paused when the wallet runs dry. Returns null for managed /
-     * BYO agents, which keep the server-wide default heartbeat model.
+     * gets auto-paused when the wallet runs dry.
+     *
+     * Bedrock agents heartbeat on Bedrock Haiku (billed to the team's AWS
+     * account via the instance profile) so heartbeat traffic never leaves
+     * their cloud and never touches the managed OpenRouter key.
+     *
+     * Returns null for managed / BYO agents, which keep the server-wide
+     * default heartbeat model.
      *
      * @return array{model: string, lightContext: bool}|null
      */
     public function openclawHeartbeatConfig(): ?array
     {
-        if (! $this->usesChatGptSubscription()) {
-            return null;
+        if ($this->usesChatGptSubscription()) {
+            return ['model' => $this->openclawModel(), 'lightContext' => true];
         }
 
-        return ['model' => $this->openclawModel(), 'lightContext' => true];
+        if ($this->usesBedrock()) {
+            return [
+                'model' => LlmProvider::Bedrock->openclawModel(ModelTier::Bedrock->heartbeatModel()),
+                'lightContext' => true,
+            ];
+        }
+
+        return null;
     }
 
     /**

@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\LlmProvider;
+use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\TeamApiKey;
@@ -152,4 +153,118 @@ test('defaults ignore inactive API keys', function () {
     // OpenAI key is inactive, so no native memory search
     expect($defaults['memorySearch']['enabled'])->toBeFalse()
         ->and($defaults)->not->toHaveKey('heartbeat');
+});
+
+// =========================================================================
+// Bedrock (BYO-AWS)
+// =========================================================================
+
+function makeAwsBedrockServer(array $agentAuthProviders): array
+{
+    $team = Team::factory()->aws()->create();
+    $server = Server::factory()->running()->aws()->create(['team_id' => $team->id]);
+
+    foreach ($agentAuthProviders as $authProvider) {
+        Agent::factory()->create([
+            'team_id' => $team->id,
+            'server_id' => $server->id,
+            'auth_provider' => $authProvider,
+            'model_primary' => $authProvider === 'bedrock' ? 'bedrock-claude-sonnet-4-6' : 'claude-sonnet-4-6',
+        ]);
+    }
+
+    return [$team, $server];
+}
+
+test('all-bedrock AWS servers route heartbeat, subagents, and memory search to Bedrock', function () {
+    [$team, $server] = makeAwsBedrockServer(['bedrock', 'bedrock']);
+
+    $defaults = $this->service->buildDefaults($server);
+
+    expect($defaults['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
+        ->and($defaults['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
+        ->and($defaults['subagents']['maxSpawnDepth'])->toBe(1)
+        ->and($defaults['memorySearch']['enabled'])->toBeTrue()
+        ->and($defaults['memorySearch']['provider'])->toBe('bedrock')
+        // No model override — the bedrock provider defaults to amazon.titan-embed-text-v2:0
+        ->and($defaults['memorySearch'])->not->toHaveKey('model')
+        ->and($defaults['memorySearch'])->not->toHaveKey('remote');
+});
+
+test('mixed AWS servers keep managed memory search and heartbeat defaults', function () {
+    [$team, $server] = makeAwsBedrockServer(['bedrock', 'openrouter']);
+    TeamApiKey::factory()->create(['team_id' => $team->id, 'provider' => LlmProvider::OpenRouter]);
+
+    $defaults = $this->service->buildDefaults($server);
+
+    // Documented limitation: mixed teams stay on the managed provider for
+    // memory search; the bedrock agent heartbeats via its per-agent override.
+    expect($defaults['memorySearch']['provider'])->toBe('openai')
+        ->and($defaults['heartbeat']['model'])->toBe('openrouter/z-ai/glm-4.7')
+        ->and($defaults['subagents']['model'])->toBe('openrouter/z-ai/glm-4.7');
+});
+
+test('bedrock defaults are not applied for non-AWS teams', function () {
+    $team = Team::factory()->create(['cloud_provider' => 'hetzner']);
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'auth_provider' => 'bedrock',
+        'model_primary' => 'bedrock-claude-sonnet-4-6',
+    ]);
+
+    $defaults = $this->service->buildDefaults($server);
+
+    expect($defaults['memorySearch']['enabled'])->toBeFalse()
+        ->and($defaults)->not->toHaveKey('heartbeat');
+});
+
+test('applyBedrockPluginConfig enables instance-profile discovery with the team region', function () {
+    [$team, $server] = makeAwsBedrockServer(['bedrock']);
+    TeamApiKey::factory()->awsCloud()->create([
+        'team_id' => $team->id,
+        'api_key' => json_encode([
+            'key_id' => 'AKIAEXAMPLEEXAMPLE',
+            'secret' => 'secret',
+            'region' => 'eu-central-1',
+        ]),
+    ]);
+
+    $config = $this->service->applyBedrockPluginConfig([
+        'plugins' => ['entries' => ['device-pair' => ['enabled' => false]]],
+    ], $server);
+
+    expect($config['plugins']['entries']['amazon-bedrock']['enabled'])->toBeTrue()
+        ->and($config['plugins']['entries']['amazon-bedrock']['config']['discovery'])->toBe([
+            'enabled' => true,
+            'region' => 'eu-central-1',
+        ])
+        // Non-destructive merge — existing entries survive
+        ->and($config['plugins']['entries']['device-pair'])->toBe(['enabled' => false]);
+});
+
+test('applyBedrockPluginConfig falls back to the config default region without a cloud key', function () {
+    config(['cloud.aws.default_region' => 'us-west-2']);
+    [$team, $server] = makeAwsBedrockServer(['bedrock']);
+
+    $config = $this->service->applyBedrockPluginConfig([], $server);
+
+    expect($config['plugins']['entries']['amazon-bedrock']['config']['discovery']['region'])->toBe('us-west-2');
+});
+
+test('applyBedrockPluginConfig is a no-op for servers without bedrock agents', function () {
+    $team = Team::factory()->aws()->create();
+    $server = Server::factory()->running()->aws()->create(['team_id' => $team->id]);
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'auth_provider' => 'openrouter',
+    ]);
+
+    $config = $this->service->applyBedrockPluginConfig([
+        'plugins' => ['entries' => ['device-pair' => ['enabled' => false]]],
+    ], $server);
+
+    expect($config['plugins']['entries'])->not->toHaveKey('amazon-bedrock');
 });

@@ -129,9 +129,12 @@ enum LlmProvider: string
             self::OpenAi => "openrouter/openai/{$forOpenRouter}",
             self::OpenAiCodex => "openai-codex/{$modelId}",
             // Direct Bedrock routing — never via OpenRouter. Model traffic
-            // stays inside the customer's AWS account, e.g.
-            // bedrock-claude-sonnet-4-6 → bedrock/anthropic.claude-sonnet-4.6
-            self::Bedrock => 'bedrock/anthropic.'.str_replace('bedrock-', '', $forOpenRouter),
+            // stays inside the customer's AWS account. OpenClaw's provider
+            // prefix is "amazon-bedrock" and the model reference is a US
+            // regional inference profile ("us." prefix). Bedrock-native IDs
+            // keep HYPHENS and end in "-v1:0" — no dot conversion, e.g.
+            // bedrock-claude-sonnet-4-6 → amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0
+            self::Bedrock => 'amazon-bedrock/us.anthropic.'.str_replace('bedrock-', '', $modelId).'-v1:0',
         };
     }
 }

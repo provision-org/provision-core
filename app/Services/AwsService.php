@@ -77,7 +77,8 @@ class AwsService
         }
 
         // Optional instance profile — enables keyless Bedrock access later.
-        $instanceProfile = config('cloud.aws.instance_profile');
+        // A per-team profile from the cloud key JSON wins over the global config.
+        $instanceProfile = $this->credentials->instanceProfile ?? config('cloud.aws.instance_profile');
         if ($instanceProfile) {
             $payload['IamInstanceProfile'] = ['Name' => $instanceProfile];
         }
