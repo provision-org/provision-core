@@ -678,11 +678,26 @@ export default function CreateTeam({
                                     number={1}
                                     title="Create an IAM user for provisioning"
                                 >
-                                    <p className="text-xs text-muted-foreground">
-                                        IAM &rarr; Users &rarr; Create user
-                                        &rarr; attach this inline policy &rarr;
-                                        create an access key.
-                                    </p>
+                                    <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
+                                        <li>
+                                            IAM &rarr; Policies &rarr; Create
+                                            policy &rarr; JSON tab &rarr; paste
+                                            the policy below. Name it
+                                            ProvisionServerManagement.
+                                        </li>
+                                        <li>
+                                            IAM &rarr; Users &rarr; Create user
+                                            &rarr; Attach policies directly
+                                            &rarr; select
+                                            ProvisionServerManagement.
+                                        </li>
+                                        <li>
+                                            Open the user &rarr; Security
+                                            credentials &rarr; Create access key
+                                            (use case: application running
+                                            outside AWS).
+                                        </li>
+                                    </ol>
                                     <PolicyBlock policy={provisioningPolicy} />
                                 </SetupStep>
 
@@ -691,13 +706,25 @@ export default function CreateTeam({
                                     title="Create the Bedrock role for your agents"
                                     hint="Optional"
                                 >
-                                    <p className="text-xs text-muted-foreground">
-                                        IAM &rarr; Roles &rarr; Create role
-                                        &rarr; trusted entity: EC2 &rarr; attach
-                                        this policy &rarr; note the
-                                        instance-profile name. Needed for the
-                                        Bedrock model tier.
-                                    </p>
+                                    <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
+                                        <li>
+                                            IAM &rarr; Policies &rarr; Create
+                                            policy &rarr; JSON tab &rarr; paste
+                                            the policy below. Name it
+                                            ProvisionBedrockAccess.
+                                        </li>
+                                        <li>
+                                            IAM &rarr; Roles &rarr; Create role
+                                            &rarr; trusted entity: AWS service,
+                                            use case EC2 &rarr; attach
+                                            ProvisionBedrockAccess.
+                                        </li>
+                                        <li>
+                                            The role name is your instance
+                                            profile name; enter it below. Needed
+                                            only for the Bedrock model tier.
+                                        </li>
+                                    </ol>
                                     <PolicyBlock policy={bedrockPolicy} />
                                 </SetupStep>
                             </div>
