@@ -114,6 +114,7 @@ test('a byo_cloud_enabled user can create an aws team with stored credentials', 
         'aws_key_id' => 'AKIAEXAMPLE000000000',
         'aws_secret' => 'super-secret',
         'aws_region' => 'eu-central-1',
+        'aws_instance_profile' => 'provision-bedrock',
     ]);
 
     $team = $user->fresh()->currentTeam;
@@ -129,9 +130,30 @@ test('a byo_cloud_enabled user can create an aws team with stored credentials', 
     $credentials = json_decode($key->api_key, true);
     expect($credentials['key_id'])->toBe('AKIAEXAMPLE000000000')
         ->and($credentials['secret'])->toBe('super-secret')
-        ->and($credentials['region'])->toBe('eu-central-1');
+        ->and($credentials['region'])->toBe('eu-central-1')
+        ->and($credentials['instance_profile'])->toBe('provision-bedrock');
 
     Bus::assertDispatched(ProvisionAwsServerJob::class);
+});
+
+test('an aws team without instance profile omits the key from stored credentials', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', true);
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'AWS Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'aws',
+        'aws_key_id' => 'AKIAEXAMPLE000000000',
+        'aws_secret' => 'super-secret',
+        'aws_region' => 'us-east-1',
+    ]);
+
+    $key = $user->fresh()->currentTeam->cloudApiKeys()->where('provider', 'aws')->first();
+    $credentials = json_decode($key->api_key, true);
+
+    expect($credentials)->not->toHaveKey('instance_profile');
 });
 
 test('server.region uses provider-specific code for Hetzner', function () {
@@ -148,4 +170,32 @@ test('server.region uses provider-specific code for Hetzner', function () {
     $team = $user->fresh()->currentTeam;
     expect($team->server->cloud_provider->value)->toBe('hetzner')
         ->and($team->server->region)->toBe('ash');
+});
+
+test('a byo_cloud_enabled user gets the provider step even when global selection is disabled', function () {
+    config()->set('cloud.provider_selection_enabled', false);
+    config()->set('cloud.default_provider', 'digitalocean');
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $response = $this->actingAs($user)->get(route('teams.create'));
+
+    $response->assertInertia(fn ($page) => $page
+        ->component('settings/teams/create')
+        ->where('cloudProviderSelectionEnabled', true)
+        ->where('byoCloudEnabled', true)
+        ->has('availableProviders', 2)
+        ->where('availableProviders.0.value', 'digitalocean')
+        ->where('availableProviders.1.value', 'aws'));
+});
+
+test('a user without byo_cloud_enabled sees no provider step when global selection is disabled', function () {
+    config()->set('cloud.provider_selection_enabled', false);
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $response = $this->actingAs($user)->get(route('teams.create'));
+
+    $response->assertInertia(fn ($page) => $page
+        ->component('settings/teams/create')
+        ->where('cloudProviderSelectionEnabled', false)
+        ->where('byoCloudEnabled', false));
 });

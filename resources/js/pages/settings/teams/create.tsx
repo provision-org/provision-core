@@ -1,8 +1,13 @@
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, Copy } from 'lucide-react';
 import { useState } from 'react';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
+import {
+    Collapsible,
+    CollapsibleContent,
+    CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -23,6 +28,101 @@ const awsRegions = [
     { value: 'eu-central-1', label: 'eu-central-1 (Frankfurt)' },
     { value: 'ap-southeast-1', label: 'ap-southeast-1 (Singapore)' },
 ];
+
+const provisioningPolicy = `{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ProvisionServerManagement",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:RunInstances", "ec2:TerminateInstances", "ec2:DescribeInstances",
+        "ec2:DescribeImages", "ec2:CreateTags", "ec2:CreateSecurityGroup",
+        "ec2:DeleteSecurityGroup", "ec2:AuthorizeSecurityGroupIngress",
+        "ec2:DescribeSecurityGroups", "ec2:DescribeVpcs", "ec2:ModifyInstanceAttribute",
+        "iam:PassRole"
+      ],
+      "Resource": "*"
+    }
+  ]
+}`;
+
+const bedrockPolicy = `{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ProvisionBedrockAccess",
+      "Effect": "Allow",
+      "Action": [
+        "bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
+        "bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"
+      ],
+      "Resource": "*"
+    }
+  ]
+}`;
+
+function PolicyBlock({ policy }: { policy: string }) {
+    const [copied, setCopied] = useState(false);
+
+    const onCopy = () => {
+        navigator.clipboard.writeText(policy);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 1500);
+    };
+
+    return (
+        <div className="relative">
+            <pre className="max-h-48 overflow-auto rounded border border-border bg-muted/40 p-3 pr-10 font-mono text-[11px] leading-relaxed">
+                {policy}
+            </pre>
+            <button
+                type="button"
+                onClick={onCopy}
+                className="absolute top-2 right-2 rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                title="Copy policy JSON"
+            >
+                {copied ? (
+                    <Check className="size-3.5 text-green-600" />
+                ) : (
+                    <Copy className="size-3.5" />
+                )}
+            </button>
+        </div>
+    );
+}
+
+function SetupStep({
+    number,
+    title,
+    hint,
+    children,
+}: {
+    number: number;
+    title: string;
+    hint?: string;
+    children: React.ReactNode;
+}) {
+    return (
+        <Collapsible className="rounded-lg border border-border">
+            <CollapsibleTrigger className="group flex w-full items-center gap-2 px-3 py-2.5 text-left">
+                <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px]">
+                    {number}
+                </span>
+                <span className="flex-1 text-sm font-medium">{title}</span>
+                {hint && (
+                    <span className="text-[10px] text-muted-foreground">
+                        {hint}
+                    </span>
+                )}
+                <ChevronDown className="size-4 shrink-0 text-muted-foreground transition-transform group-data-[state=open]:rotate-180" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="grid gap-2 px-3 pb-3">
+                {children}
+            </CollapsibleContent>
+        </Collapsible>
+    );
+}
 
 const harnessOptions = [
     {
@@ -75,6 +175,7 @@ export default function CreateTeam({
                   aws_key_id: '',
                   aws_secret: '',
                   aws_region: 'us-east-1',
+                  aws_instance_profile: '',
               }
             : {}),
     });
@@ -397,7 +498,43 @@ export default function CreateTeam({
                         </div>
 
                         {byoCloudEnabled && selectedProvider === 'aws' && (
-                            <div className="grid gap-4 rounded-xl border border-border p-4">
+                            <div className="grid gap-3 rounded-xl border border-border p-4">
+                                <SetupStep
+                                    number={1}
+                                    title="Create an IAM user for provisioning"
+                                >
+                                    <p className="text-xs text-muted-foreground">
+                                        IAM &rarr; Users &rarr; Create user
+                                        &rarr; attach this inline policy &rarr;
+                                        create an access key.
+                                    </p>
+                                    <PolicyBlock policy={provisioningPolicy} />
+                                </SetupStep>
+
+                                <SetupStep
+                                    number={2}
+                                    title="Create the Bedrock role for your agents"
+                                    hint="Optional"
+                                >
+                                    <p className="text-xs text-muted-foreground">
+                                        IAM &rarr; Roles &rarr; Create role
+                                        &rarr; trusted entity: EC2 &rarr; attach
+                                        this policy &rarr; note the
+                                        instance-profile name. Needed for the
+                                        Bedrock model tier.
+                                    </p>
+                                    <PolicyBlock policy={bedrockPolicy} />
+                                </SetupStep>
+
+                                <div className="flex items-center gap-2 pt-1">
+                                    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted font-mono text-[10px]">
+                                        3
+                                    </span>
+                                    <span className="text-sm font-medium">
+                                        Connect
+                                    </span>
+                                </div>
+
                                 <div className="grid gap-2">
                                     <Label htmlFor="aws_key_id">
                                         AWS access key ID
@@ -481,17 +618,40 @@ export default function CreateTeam({
                                     />
                                 </div>
 
+                                <div className="grid gap-2">
+                                    <Label htmlFor="aws_instance_profile">
+                                        Instance profile name (optional)
+                                    </Label>
+                                    <Input
+                                        id="aws_instance_profile"
+                                        value={
+                                            'aws_instance_profile' in form.data
+                                                ? form.data.aws_instance_profile
+                                                : ''
+                                        }
+                                        onChange={(e) =>
+                                            form.setData(
+                                                'aws_instance_profile',
+                                                e.target.value,
+                                            )
+                                        }
+                                        placeholder="e.g. provision-bedrock"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Enables the Bedrock model tier. Agents
+                                        authenticate with this role, no API
+                                        keys.
+                                    </p>
+                                    <InputError
+                                        message={
+                                            formErrors.aws_instance_profile
+                                        }
+                                    />
+                                </div>
+
                                 <p className="text-xs text-muted-foreground">
-                                    The IAM user needs EC2 permissions. To run
-                                    Bedrock models it also needs
-                                    bedrock:InvokeModel,
-                                    bedrock:InvokeModelWithResponseStream,
-                                    bedrock:ListFoundationModels, and
-                                    bedrock:ListInferenceProfiles — attach an
-                                    EC2 instance profile with those permissions
-                                    and your agents call Bedrock without any API
-                                    key on the server. Credentials are stored
-                                    encrypted, per team.
+                                    Credentials are stored encrypted, per team.
                                 </p>
                             </div>
                         )}

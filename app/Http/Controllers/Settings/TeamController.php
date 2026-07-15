@@ -50,17 +50,23 @@ class TeamController extends Controller
             if (config('cloud.linode.api_token')) {
                 $availableProviders[] = ['value' => 'linode', 'label' => 'Linode', 'description' => 'Deploy to Linode instances.'];
             }
+        } elseif ($byoCloudEnabled) {
+            // Global provider selection is off (hosted default), but a BYO-cloud
+            // user must still get the choice between the managed default and
+            // their own AWS account, so the provider step is forced on.
+            $default = CloudProvider::tryFrom(config('cloud.default_provider', 'docker')) ?? CloudProvider::Docker;
+            $availableProviders[] = ['value' => $default->value, 'label' => $default->label(), 'description' => 'Managed by Provision. No cloud account needed.'];
+        }
 
-            // BYO AWS uses per-team credentials, so no global-token check —
-            // eligibility is the account-level byo_cloud_enabled flag.
-            if ($byoCloudEnabled) {
-                $availableProviders[] = ['value' => 'aws', 'label' => 'AWS (your account)', 'description' => 'Deploy to EC2 in your own AWS account.'];
-            }
+        // BYO AWS uses per-team credentials, so no global-token check —
+        // eligibility is the account-level byo_cloud_enabled flag.
+        if ($byoCloudEnabled) {
+            $availableProviders[] = ['value' => 'aws', 'label' => 'AWS (your account)', 'description' => 'Deploy to EC2 in your own AWS account.'];
         }
 
         return Inertia::render('settings/teams/create', [
             'harnessSelectionEnabled' => (bool) config('provision.enable_multiple_harness', false),
-            'cloudProviderSelectionEnabled' => $selectionEnabled && count($availableProviders) > 1,
+            'cloudProviderSelectionEnabled' => ($selectionEnabled || $byoCloudEnabled) && count($availableProviders) > 1,
             'availableProviders' => $availableProviders,
             'defaultProvider' => config('cloud.default_provider', 'docker'),
             'byoCloudEnabled' => $byoCloudEnabled,
@@ -89,14 +95,22 @@ class TeamController extends Controller
         // Store BYO-AWS credentials as an encrypted JSON cloud key before
         // any provisioning path can run. Never logged.
         if ($team->cloudProvider() === CloudProvider::Aws) {
+            $credentials = [
+                'key_id' => $request->aws_key_id,
+                'secret' => $request->aws_secret,
+                'region' => $request->aws_region ?? config('cloud.aws.default_region', 'us-east-1'),
+            ];
+
+            // Optional EC2 instance profile — enables the Bedrock model tier
+            // (agents authenticate via the role, no API keys on the server).
+            if ($request->filled('aws_instance_profile')) {
+                $credentials['instance_profile'] = $request->aws_instance_profile;
+            }
+
             $team->apiKeys()->create([
                 'provider_type' => 'cloud',
                 'provider' => CloudProvider::Aws->value,
-                'api_key' => json_encode([
-                    'key_id' => $request->aws_key_id,
-                    'secret' => $request->aws_secret,
-                    'region' => $request->aws_region ?? config('cloud.aws.default_region', 'us-east-1'),
-                ]),
+                'api_key' => json_encode($credentials),
                 'is_active' => true,
             ]);
         }
@@ -241,6 +255,10 @@ class TeamController extends Controller
             // the droplet will actually be created — not the Hetzner-centric
             // 'nbg1' migration default. Fixes #30.
             'region' => $cloudProvider->defaultProviderRegion(),
+            // Same story for server_type: the provision jobs size the real
+            // machine from Team::serverType(), so the stored value must match
+            // rather than keeping the 'cx32' column default.
+            'server_type' => $team->serverType(),
         ]);
 
         ServerProvisioningDispatcher::dispatch($server);
