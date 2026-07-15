@@ -29,7 +29,11 @@ class CreateTeamRequest extends FormRequest
             'company_description' => ['nullable', 'string', 'max:2000'],
             'target_market' => ['nullable', 'string', 'max:500'],
             'cloud_provider' => [
-                'sometimes',
+                // BYO users must create every team on their own cloud, so the
+                // provider (and its credentials below) stop being optional.
+                // No 'sometimes' here: it would skip requiredIf on absent input.
+                Rule::requiredIf((bool) $this->user()?->byo_cloud_enabled),
+                'nullable',
                 'string',
                 Rule::in(array_column(CloudProvider::cases(), 'value')),
                 $this->byoCloudEligibilityRule(),
@@ -43,13 +47,21 @@ class CreateTeamRequest extends FormRequest
 
     /**
      * BYO AWS is gated behind the account-level byo_cloud_enabled flag —
-     * reject aws even if a non-flagged user posts it directly.
+     * reject aws even if a non-flagged user posts it directly, and reject
+     * everything BUT aws for flagged users (their teams must run on their
+     * own cloud, so server details are a hard prerequisite).
      */
     private function byoCloudEligibilityRule(): Closure
     {
         return function (string $attribute, mixed $value, Closure $fail): void {
-            if ($value === CloudProvider::Aws->value && ! $this->user()?->byo_cloud_enabled) {
+            $byoEnabled = (bool) $this->user()?->byo_cloud_enabled;
+
+            if ($value === CloudProvider::Aws->value && ! $byoEnabled) {
                 $fail('You are not eligible to bring your own AWS account.');
+            }
+
+            if ($byoEnabled && $value !== CloudProvider::Aws->value) {
+                $fail('Your account runs teams on your own AWS. Provide your AWS server details to continue.');
             }
         };
     }

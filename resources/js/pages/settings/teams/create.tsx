@@ -171,7 +171,9 @@ export default function CreateTeam({
         target_market: '',
         ...(cloudProviderSelectionEnabled
             ? {
-                  cloud_provider: defaultProvider,
+                  // BYO accounts have exactly one path (their own AWS), so the
+                  // provider arrives pre-selected instead of the managed default.
+                  cloud_provider: byoCloudEnabled ? 'aws' : defaultProvider,
                   aws_key_id: '',
                   aws_secret: '',
                   aws_region: 'us-east-1',

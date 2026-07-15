@@ -172,7 +172,7 @@ test('server.region uses provider-specific code for Hetzner', function () {
         ->and($team->server->region)->toBe('ash');
 });
 
-test('a byo_cloud_enabled user gets the provider step even when global selection is disabled', function () {
+test('a byo_cloud_enabled user gets the provider step with only their own AWS', function () {
     config()->set('cloud.provider_selection_enabled', false);
     config()->set('cloud.default_provider', 'digitalocean');
     $user = User::factory()->withCompletedProfile()->byoCloud()->create();
@@ -183,9 +183,35 @@ test('a byo_cloud_enabled user gets the provider step even when global selection
         ->component('settings/teams/create')
         ->where('cloudProviderSelectionEnabled', true)
         ->where('byoCloudEnabled', true)
-        ->has('availableProviders', 2)
-        ->where('availableProviders.0.value', 'digitalocean')
-        ->where('availableProviders.1.value', 'aws'));
+        ->has('availableProviders', 1)
+        ->where('availableProviders.0.value', 'aws'));
+});
+
+test('a byo_cloud_enabled user cannot create a team on the managed cloud', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', false);
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $response = $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'Managed Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'digitalocean',
+    ]);
+
+    $response->assertSessionHasErrors('cloud_provider');
+});
+
+test('a byo_cloud_enabled user cannot create a team without server details', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', false);
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $response = $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'No Creds Team',
+        'harness_type' => 'openclaw',
+    ]);
+
+    $response->assertSessionHasErrors('cloud_provider');
 });
 
 test('a user without byo_cloud_enabled sees no provider step when global selection is disabled', function () {

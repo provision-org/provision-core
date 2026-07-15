@@ -36,7 +36,13 @@ class TeamController extends Controller
         $byoCloudEnabled = (bool) $request->user()->byo_cloud_enabled;
 
         $availableProviders = [];
-        if ($selectionEnabled) {
+        if ($byoCloudEnabled) {
+            // BYO-cloud accounts run every team on their own AWS: the provider
+            // step is forced on, offers nothing else, and its server details
+            // are a hard prerequisite for creating the team (enforced again in
+            // CreateTeamRequest). Per-team credentials, so no global-token check.
+            $availableProviders[] = ['value' => 'aws', 'label' => 'AWS (your account)', 'description' => 'Deploy to EC2 in your own AWS account.'];
+        } elseif ($selectionEnabled) {
             $availableProviders[] = ['value' => 'docker', 'label' => 'Docker', 'description' => 'Run locally on this machine. No cloud account needed.'];
 
             if (config('cloud.digitalocean.api_token')) {
@@ -50,23 +56,11 @@ class TeamController extends Controller
             if (config('cloud.linode.api_token')) {
                 $availableProviders[] = ['value' => 'linode', 'label' => 'Linode', 'description' => 'Deploy to Linode instances.'];
             }
-        } elseif ($byoCloudEnabled) {
-            // Global provider selection is off (hosted default), but a BYO-cloud
-            // user must still get the choice between the managed default and
-            // their own AWS account, so the provider step is forced on.
-            $default = CloudProvider::tryFrom(config('cloud.default_provider', 'docker')) ?? CloudProvider::Docker;
-            $availableProviders[] = ['value' => $default->value, 'label' => $default->label(), 'description' => 'Managed by Provision. No cloud account needed.'];
-        }
-
-        // BYO AWS uses per-team credentials, so no global-token check —
-        // eligibility is the account-level byo_cloud_enabled flag.
-        if ($byoCloudEnabled) {
-            $availableProviders[] = ['value' => 'aws', 'label' => 'AWS (your account)', 'description' => 'Deploy to EC2 in your own AWS account.'];
         }
 
         return Inertia::render('settings/teams/create', [
             'harnessSelectionEnabled' => (bool) config('provision.enable_multiple_harness', false),
-            'cloudProviderSelectionEnabled' => ($selectionEnabled || $byoCloudEnabled) && count($availableProviders) > 1,
+            'cloudProviderSelectionEnabled' => $byoCloudEnabled || ($selectionEnabled && count($availableProviders) > 1),
             'availableProviders' => $availableProviders,
             'defaultProvider' => config('cloud.default_provider', 'docker'),
             'byoCloudEnabled' => $byoCloudEnabled,
