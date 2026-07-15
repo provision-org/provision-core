@@ -25,6 +25,16 @@ class CloudServiceFactory
         };
     }
 
+    /**
+     * Build an AwsService for ad-hoc credentials that are not (yet) stored
+     * on a team — used to verify BYO-AWS keys before the team exists.
+     * Kept on the factory so callers can mock it in tests.
+     */
+    public function makeAwsForCredentials(AwsCredentials $credentials): AwsService
+    {
+        return new AwsService($credentials);
+    }
+
     private function resolveApiToken(Team $team, CloudProvider $provider): ?string
     {
         $teamKey = $team->cloudApiKeys()

@@ -1,5 +1,11 @@
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
-import { ArrowLeft, Check, ChevronDown, Copy } from 'lucide-react';
+import {
+    ArrowLeft,
+    Check,
+    ChevronDown,
+    Copy,
+    LoaderCircle,
+} from 'lucide-react';
 import { useState } from 'react';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -21,6 +27,18 @@ import { Textarea } from '@/components/ui/textarea';
 import AuthLayout from '@/layouts/auth-layout';
 import { cn } from '@/lib/utils';
 import type { SharedData } from '@/types';
+
+type AwsVerifyState =
+    | { status: 'idle' }
+    | { status: 'verifying' }
+    | { status: 'verified'; accountId: string }
+    | { status: 'error'; message: string };
+
+function csrfToken(): string {
+    return decodeURIComponent(
+        document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '',
+    );
+}
 
 const awsRegions = [
     { value: 'us-east-1', label: 'us-east-1 (N. Virginia)' },
@@ -171,9 +189,7 @@ export default function CreateTeam({
         target_market: '',
         ...(cloudProviderSelectionEnabled
             ? {
-                  // BYO accounts have exactly one path (their own AWS), so the
-                  // provider arrives pre-selected instead of the managed default.
-                  cloud_provider: byoCloudEnabled ? 'aws' : defaultProvider,
+                  cloud_provider: defaultProvider,
                   aws_key_id: '',
                   aws_secret: '',
                   aws_region: 'us-east-1',
@@ -187,6 +203,67 @@ export default function CreateTeam({
             ? form.data.cloud_provider
             : defaultProvider;
     const formErrors = form.errors as Record<string, string | undefined>;
+
+    const awsKeyId =
+        ('aws_key_id' in form.data ? form.data.aws_key_id : '') ?? '';
+    const awsSecret =
+        ('aws_secret' in form.data ? form.data.aws_secret : '') ?? '';
+    const awsRegion =
+        ('aws_region' in form.data ? form.data.aws_region : '') || 'us-east-1';
+
+    const [awsVerify, setAwsVerify] = useState<AwsVerifyState>({
+        status: 'idle',
+    });
+
+    // Any change to the fields that feed verification invalidates it.
+    function setAwsField(
+        field: 'aws_key_id' | 'aws_secret' | 'aws_region',
+        value: string,
+    ) {
+        form.setData(field, value);
+        setAwsVerify({ status: 'idle' });
+    }
+
+    async function verifyAwsConnection() {
+        setAwsVerify({ status: 'verifying' });
+
+        try {
+            const response = await fetch('/settings/teams/verify-aws', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json',
+                    'X-XSRF-TOKEN': csrfToken(),
+                },
+                body: JSON.stringify({
+                    aws_key_id: awsKeyId,
+                    aws_secret: awsSecret,
+                    aws_region: awsRegion,
+                }),
+            });
+            const data = await response.json();
+
+            if (response.ok && data.verified) {
+                setAwsVerify({
+                    status: 'verified',
+                    accountId: data.account_id,
+                });
+            } else {
+                setAwsVerify({
+                    status: 'error',
+                    message:
+                        data.message ??
+                        'Verification failed. Check your credentials and try again.',
+                });
+            }
+        } catch {
+            setAwsVerify({
+                status: 'error',
+                message:
+                    'Verification failed. Check your connection and try again.',
+            });
+        }
+    }
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
@@ -543,13 +620,9 @@ export default function CreateTeam({
                                     </Label>
                                     <Input
                                         id="aws_key_id"
-                                        value={
-                                            'aws_key_id' in form.data
-                                                ? form.data.aws_key_id
-                                                : ''
-                                        }
+                                        value={awsKeyId}
                                         onChange={(e) =>
-                                            form.setData(
+                                            setAwsField(
                                                 'aws_key_id',
                                                 e.target.value,
                                             )
@@ -569,13 +642,9 @@ export default function CreateTeam({
                                     <Input
                                         id="aws_secret"
                                         type="password"
-                                        value={
-                                            'aws_secret' in form.data
-                                                ? form.data.aws_secret
-                                                : ''
-                                        }
+                                        value={awsSecret}
                                         onChange={(e) =>
-                                            form.setData(
+                                            setAwsField(
                                                 'aws_secret',
                                                 e.target.value,
                                             )
@@ -592,13 +661,9 @@ export default function CreateTeam({
                                         AWS region
                                     </Label>
                                     <Select
-                                        value={
-                                            'aws_region' in form.data
-                                                ? form.data.aws_region
-                                                : 'us-east-1'
-                                        }
+                                        value={awsRegion}
                                         onValueChange={(value) =>
-                                            form.setData('aws_region', value)
+                                            setAwsField('aws_region', value)
                                         }
                                     >
                                         <SelectTrigger id="aws_region">
@@ -652,6 +717,39 @@ export default function CreateTeam({
                                     />
                                 </div>
 
+                                <div className="flex flex-wrap items-center gap-3 pt-1">
+                                    <Button
+                                        type="button"
+                                        variant="secondary"
+                                        size="sm"
+                                        onClick={verifyAwsConnection}
+                                        disabled={
+                                            awsVerify.status === 'verifying' ||
+                                            !awsKeyId.trim() ||
+                                            !awsSecret.trim()
+                                        }
+                                    >
+                                        {awsVerify.status === 'verifying' && (
+                                            <LoaderCircle className="size-4 animate-spin" />
+                                        )}
+                                        {awsVerify.status === 'verifying'
+                                            ? 'Verifying...'
+                                            : 'Verify connection'}
+                                    </Button>
+                                    {awsVerify.status === 'verified' && (
+                                        <span className="flex items-center gap-1.5 text-xs text-green-600">
+                                            <Check className="size-3.5" />
+                                            Verified &middot; account{' '}
+                                            {awsVerify.accountId}
+                                        </span>
+                                    )}
+                                    {awsVerify.status === 'error' && (
+                                        <span className="text-xs text-red-600">
+                                            {awsVerify.message}
+                                        </span>
+                                    )}
+                                </div>
+
                                 <p className="text-xs text-muted-foreground">
                                     Credentials are stored encrypted, per team.
                                 </p>
@@ -662,7 +760,11 @@ export default function CreateTeam({
                             <Button
                                 type="submit"
                                 className="w-full"
-                                disabled={form.processing}
+                                disabled={
+                                    form.processing ||
+                                    (selectedProvider === 'aws' &&
+                                        awsVerify.status !== 'verified')
+                                }
                             >
                                 {form.processing
                                     ? 'Creating...'

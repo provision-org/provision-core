@@ -14,6 +14,8 @@ use App\Jobs\DestroyTeamJob;
 use App\Mail\TeamCreatedMail;
 use App\Models\ServerEvent;
 use App\Models\Team;
+use App\Services\Aws\AwsCredentials;
+use App\Services\CloudServiceFactory;
 use App\Services\FirecrawlService;
 use App\Services\ServerProvisioningDispatcher;
 use App\Support\Provision;
@@ -24,6 +26,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Inertia\Inertia;
 use Inertia\Response;
+use RuntimeException;
 
 class TeamController extends Controller
 {
@@ -36,13 +39,7 @@ class TeamController extends Controller
         $byoCloudEnabled = (bool) $request->user()->byo_cloud_enabled;
 
         $availableProviders = [];
-        if ($byoCloudEnabled) {
-            // BYO-cloud accounts run every team on their own AWS: the provider
-            // step is forced on, offers nothing else, and its server details
-            // are a hard prerequisite for creating the team (enforced again in
-            // CreateTeamRequest). Per-team credentials, so no global-token check.
-            $availableProviders[] = ['value' => 'aws', 'label' => 'AWS (your account)', 'description' => 'Deploy to EC2 in your own AWS account.'];
-        } elseif ($selectionEnabled) {
+        if ($selectionEnabled) {
             $availableProviders[] = ['value' => 'docker', 'label' => 'Docker', 'description' => 'Run locally on this machine. No cloud account needed.'];
 
             if (config('cloud.digitalocean.api_token')) {
@@ -56,6 +53,18 @@ class TeamController extends Controller
             if (config('cloud.linode.api_token')) {
                 $availableProviders[] = ['value' => 'linode', 'label' => 'Linode', 'description' => 'Deploy to Linode instances.'];
             }
+        } elseif ($byoCloudEnabled) {
+            // Global provider selection is off (hosted default), but a BYO-cloud
+            // user still chooses per team between the managed default and their
+            // own AWS account, so the provider step is forced on.
+            $default = CloudProvider::tryFrom(config('cloud.default_provider', 'docker')) ?? CloudProvider::Docker;
+            $availableProviders[] = ['value' => $default->value, 'label' => $default->label(), 'description' => 'Managed by Provision. No cloud account needed.'];
+        }
+
+        // BYO AWS uses per-team credentials, so no global-token check —
+        // eligibility is the account-level byo_cloud_enabled flag.
+        if ($byoCloudEnabled) {
+            $availableProviders[] = ['value' => 'aws', 'label' => 'AWS (your account)', 'description' => 'Deploy to EC2 in your own AWS account.'];
         }
 
         return Inertia::render('settings/teams/create', [
@@ -72,6 +81,23 @@ class TeamController extends Controller
      */
     public function store(CreateTeamRequest $request): RedirectResponse
     {
+        $isAwsTeam = $request->cloud_provider === CloudProvider::Aws->value;
+
+        // The server is the source of truth on BYO-AWS credentials: verify
+        // them against AWS before any team/server/api-key row exists, even
+        // though the wizard already ran the same check client-side.
+        if ($isAwsTeam) {
+            try {
+                app(CloudServiceFactory::class)
+                    ->makeAwsForCredentials($this->awsCredentialsFromRequest($request))
+                    ->verifyCredentials();
+            } catch (RuntimeException $e) {
+                return back()->withErrors([
+                    'aws_key_id' => "We could not verify these AWS credentials: {$e->getMessage()}",
+                ]);
+            }
+        }
+
         $team = $request->user()->ownedTeams()->create([
             'name' => $request->name,
             'personal_team' => false,
@@ -133,6 +159,50 @@ class TeamController extends Controller
         $this->provisionServer($team);
 
         return to_route('teams.provisioning', $team);
+    }
+
+    /**
+     * Verify BYO-AWS credentials against AWS (STS GetCallerIdentity) for the
+     * team wizard's "Verify connection" step. Never echoes the secret back.
+     */
+    public function verifyAws(Request $request, CloudServiceFactory $factory): JsonResponse
+    {
+        abort_unless((bool) $request->user()->byo_cloud_enabled, 403);
+
+        $request->validate([
+            'aws_key_id' => ['required', 'string', 'max:128'],
+            'aws_secret' => ['required', 'string', 'max:128'],
+            'aws_region' => ['required', 'string', 'max:32'],
+        ]);
+
+        try {
+            $identity = $factory
+                ->makeAwsForCredentials($this->awsCredentialsFromRequest($request))
+                ->verifyCredentials();
+        } catch (RuntimeException $e) {
+            return response()->json([
+                'verified' => false,
+                'message' => $e->getMessage(),
+            ], 422);
+        }
+
+        return response()->json([
+            'verified' => true,
+            'account_id' => $identity['account_id'],
+        ]);
+    }
+
+    /**
+     * Build an AwsCredentials value object from the wizard's request input.
+     */
+    private function awsCredentialsFromRequest(Request $request): AwsCredentials
+    {
+        return new AwsCredentials(
+            keyId: (string) $request->input('aws_key_id'),
+            secret: (string) $request->input('aws_secret'),
+            region: (string) ($request->input('aws_region') ?: config('cloud.aws.default_region', 'us-east-1')),
+            instanceProfile: $request->filled('aws_instance_profile') ? $request->input('aws_instance_profile') : null,
+        );
     }
 
     /**

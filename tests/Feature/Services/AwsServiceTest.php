@@ -2,7 +2,10 @@
 
 use App\Services\Aws\AwsCredentials;
 use App\Services\AwsService;
+use Aws\Command;
 use Aws\Ec2\Ec2Client;
+use Aws\Exception\AwsException;
+use Aws\Sts\StsClient;
 
 beforeEach(function () {
     config([
@@ -67,4 +70,42 @@ it('omits the instance profile entirely when neither team nor config define one'
     $service = new AwsService($credentials, mockEc2ClientExpectingInstanceProfile(null));
 
     $service->createInstance(null, '#!/bin/bash');
+});
+
+it('verifies credentials via STS GetCallerIdentity', function () {
+    $sts = Mockery::mock(StsClient::class);
+    $sts->shouldReceive('getCallerIdentity')
+        ->once()
+        ->andReturn([
+            'UserId' => 'AIDAEXAMPLE',
+            'Account' => '123456789012',
+            'Arn' => 'arn:aws:iam::123456789012:user/provision',
+        ]);
+
+    $credentials = new AwsCredentials('AKIATEAM000000000000', 'team-secret', 'us-east-1');
+    $service = new AwsService($credentials, null, $sts);
+
+    $identity = $service->verifyCredentials();
+
+    expect($identity)->toBe([
+        'account_id' => '123456789012',
+        'arn' => 'arn:aws:iam::123456789012:user/provision',
+    ]);
+});
+
+it('surfaces an STS auth failure as a readable RuntimeException', function () {
+    $sts = Mockery::mock(StsClient::class);
+    $sts->shouldReceive('getCallerIdentity')
+        ->once()
+        ->andThrow(new AwsException(
+            'Error executing GetCallerIdentity',
+            new Command('GetCallerIdentity'),
+            ['message' => 'The security token included in the request is invalid.', 'code' => 'InvalidClientTokenId'],
+        ));
+
+    $credentials = new AwsCredentials('AKIABOGUS00000000000', 'wrong-secret', 'us-east-1');
+    $service = new AwsService($credentials, null, $sts);
+
+    expect(fn () => $service->verifyCredentials())
+        ->toThrow(RuntimeException::class, 'AWS GetCallerIdentity failed: The security token included in the request is invalid.');
 });

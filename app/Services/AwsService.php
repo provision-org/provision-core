@@ -6,6 +6,7 @@ use App\Models\Team;
 use App\Services\Aws\AwsCredentials;
 use Aws\Ec2\Ec2Client;
 use Aws\Exception\AwsException;
+use Aws\Sts\StsClient;
 use RuntimeException;
 
 class AwsService
@@ -14,21 +15,43 @@ class AwsService
 
     private Ec2Client $client;
 
-    public function __construct(private readonly AwsCredentials $credentials, ?Ec2Client $client = null)
+    private StsClient $stsClient;
+
+    public function __construct(private readonly AwsCredentials $credentials, ?Ec2Client $client = null, ?StsClient $stsClient = null)
     {
-        $this->client = $client ?? new Ec2Client([
+        $clientConfig = [
             'version' => 'latest',
             'region' => $credentials->region,
             'credentials' => [
                 'key' => $credentials->keyId,
                 'secret' => $credentials->secret,
             ],
-        ]);
+        ];
+
+        $this->client = $client ?? new Ec2Client($clientConfig);
+        $this->stsClient = $stsClient ?? new StsClient($clientConfig);
     }
 
     public function credentials(): AwsCredentials
     {
         return $this->credentials;
+    }
+
+    /**
+     * Verify the credentials against AWS via STS GetCallerIdentity — the
+     * canonical "are these keys real" call (no permissions required beyond
+     * the keys themselves being valid).
+     *
+     * @return array{account_id: string, arn: string}
+     */
+    public function verifyCredentials(): array
+    {
+        $result = $this->execute('GetCallerIdentity', fn (): mixed => $this->stsClient->getCallerIdentity());
+
+        return [
+            'account_id' => $result['Account'] ?? '',
+            'arn' => $result['Arn'] ?? '',
+        ];
     }
 
     /**
