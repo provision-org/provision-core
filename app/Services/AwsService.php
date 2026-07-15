@@ -65,6 +65,12 @@ class AwsService
     {
         $name = $hostname ?? 'provision-'.($team?->id ?? 'server').'-'.now()->timestamp;
 
+        // Unlike DO/Hetzner/Linode, AWS injects no SSH key unless an EC2 key
+        // pair is named — and BYO accounts won't have ours registered. Grant
+        // the control plane root SSH by prepending our public key to the
+        // boot script, so SetupOpenClawOnServerJob can connect afterwards.
+        $cloudInitScript = $this->prependControlPlaneSshKey($cloudInitScript);
+
         $tags = [
             ['Key' => 'Name', 'Value' => $name],
         ];
@@ -212,6 +218,51 @@ class AwsService
                 }
             }
         }
+    }
+
+    /**
+     * Prepend an authorized_keys grant for the control plane's public key to
+     * the boot script, directly after the shebang/set lines so it runs before
+     * anything that could fail. No-op when no public key file exists.
+     */
+    private function prependControlPlaneSshKey(string $cloudInitScript): string
+    {
+        $publicKeyPath = config('cloud.ssh_private_key_path').'.pub';
+
+        if (! is_readable($publicKeyPath)) {
+            return $cloudInitScript;
+        }
+
+        $publicKey = trim((string) file_get_contents($publicKeyPath));
+
+        if ($publicKey === '') {
+            return $cloudInitScript;
+        }
+
+        $grant = <<<BASH
+        mkdir -p /root/.ssh
+        chmod 700 /root/.ssh
+        printf '%s\\n' '{$publicKey}' >> /root/.ssh/authorized_keys
+        chmod 600 /root/.ssh/authorized_keys
+        BASH;
+
+        // Insert after the script preamble (shebang + set -e + HOME export)
+        // rather than before the shebang, which must stay on line one.
+        $lines = explode("\n", $cloudInitScript);
+        $insertAt = 0;
+        foreach ($lines as $i => $line) {
+            $trimmed = trim($line);
+            if ($trimmed === '' || str_starts_with($trimmed, '#!') || str_starts_with($trimmed, 'set ') || str_starts_with($trimmed, 'export ')) {
+                $insertAt = $i + 1;
+
+                continue;
+            }
+            break;
+        }
+
+        array_splice($lines, $insertAt, 0, ['', '# Control-plane SSH access (Provision)', $grant]);
+
+        return implode("\n", $lines);
     }
 
     /**
