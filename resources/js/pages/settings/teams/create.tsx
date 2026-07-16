@@ -823,59 +823,85 @@ export default function CreateTeam({
                     cloudProviderSelectionEnabled &&
                     byoCloudEnabled && (
                         <div className="space-y-8">
+                            <p className="text-xs text-muted-foreground">
+                                Most teams that run on AWS also run their agents
+                                on Amazon Bedrock &mdash; so model traffic and
+                                your data never leave your own cloud. The steps
+                                below set up both: provisioning and Bedrock.
+                            </p>
                             <div className="space-y-3">
                                 <SetupStep
                                     number={1}
-                                    title="Create an IAM user for provisioning"
+                                    title="Create the two IAM policies"
                                 >
                                     <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
                                         <li>
                                             IAM &rarr; Policies &rarr; Create
                                             policy &rarr; JSON tab &rarr; paste
-                                            the policy below. Name it
+                                            the first policy below. Name it
                                             ProvisionServerManagement.
                                         </li>
                                         <li>
+                                            Create a second policy the same way
+                                            with the Bedrock policy below. Name
+                                            it ProvisionBedrockAccess &mdash;
+                                            this lets us show and test the
+                                            models your account can actually
+                                            run.
+                                        </li>
+                                    </ol>
+                                    <PolicyBlock policy={provisioningPolicy} />
+                                    <PolicyBlock policy={bedrockPolicy} />
+                                </SetupStep>
+
+                                <SetupStep
+                                    number={2}
+                                    title="Create an IAM user and attach both policies"
+                                >
+                                    <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
+                                        <li>
                                             IAM &rarr; Users &rarr; Create user
                                             &rarr; Attach policies directly
-                                            &rarr; select
-                                            ProvisionServerManagement.
+                                            &rarr; select{' '}
+                                            <span className="font-medium">
+                                                both
+                                            </span>{' '}
+                                            ProvisionServerManagement and
+                                            ProvisionBedrockAccess.
                                         </li>
                                         <li>
                                             Open the user &rarr; Security
                                             credentials &rarr; Create access key
                                             (use case: application running
-                                            outside AWS).
+                                            outside AWS). Enter the keys below.
                                         </li>
                                     </ol>
-                                    <PolicyBlock policy={provisioningPolicy} />
                                 </SetupStep>
 
                                 <SetupStep
-                                    number={2}
-                                    title="Create the Bedrock role for your agents"
-                                    hint="Optional"
+                                    number={3}
+                                    title="Create the Bedrock role for your servers"
+                                    hint="Recommended"
                                 >
+                                    <p className="text-xs text-muted-foreground">
+                                        Agents call Bedrock from the server
+                                        using this role (via the EC2 instance
+                                        profile), so no keys are ever stored on
+                                        the machine. Recommended for every AWS
+                                        team.
+                                    </p>
                                     <ol className="list-decimal space-y-1 pl-4 text-xs text-muted-foreground">
-                                        <li>
-                                            IAM &rarr; Policies &rarr; Create
-                                            policy &rarr; JSON tab &rarr; paste
-                                            the policy below. Name it
-                                            ProvisionBedrockAccess.
-                                        </li>
                                         <li>
                                             IAM &rarr; Roles &rarr; Create role
                                             &rarr; trusted entity: AWS service,
-                                            use case EC2 &rarr; attach
-                                            ProvisionBedrockAccess.
+                                            use case EC2 &rarr; attach the same
+                                            ProvisionBedrockAccess policy.
                                         </li>
                                         <li>
                                             The role name is your instance
-                                            profile name; enter it below. Needed
-                                            only for the Bedrock model tier.
+                                            profile name; enter it below.
                                         </li>
                                     </ol>
-                                    <PolicyBlock policy={bedrockPolicy} />
                                 </SetupStep>
                             </div>
 
@@ -953,7 +979,7 @@ export default function CreateTeam({
 
                                 <div className="grid gap-2">
                                     <Label htmlFor="aws_instance_profile">
-                                        Instance profile name (optional)
+                                        Instance profile name (recommended)
                                     </Label>
                                     <Input
                                         id="aws_instance_profile"
@@ -972,9 +998,11 @@ export default function CreateTeam({
                                         autoComplete="off"
                                     />
                                     <p className="text-xs text-muted-foreground">
-                                        Enables the Bedrock model tier. Agents
-                                        authenticate with this role, no API
-                                        keys.
+                                        The role name from step 3. Agents run
+                                        their Bedrock models with this role
+                                        &mdash; no keys on the server. Leave
+                                        blank only if this team won&rsquo;t use
+                                        Bedrock.
                                     </p>
                                     <InputError
                                         message={
