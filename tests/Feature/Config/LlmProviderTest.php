@@ -47,13 +47,15 @@ test('forModel resolves bedrock model ids to the Bedrock provider', function () 
 
 test('bedrock openclawModel maps to amazon-bedrock inference profiles — never via OpenRouter', function () {
     // Real OpenClaw contract: "amazon-bedrock/" prefix + "us." regional
-    // inference profile; Bedrock-native ids keep hyphens and end "-v1:0".
+    // inference profile. AWS uses no uniform suffix scheme — verified against
+    // bedrock:ListInferenceProfiles: sonnet 4.6 has none, opus 4.6 ends "-v1",
+    // haiku 4.5 carries a dated "-20251001-v1:0". Ids are mapped, not derived.
     expect(LlmProvider::Bedrock->openclawModel('bedrock-claude-opus-4-6'))
-        ->toBe('amazon-bedrock/us.anthropic.claude-opus-4-6-v1:0')
+        ->toBe('amazon-bedrock/us.anthropic.claude-opus-4-6-v1')
         ->and(LlmProvider::Bedrock->openclawModel('bedrock-claude-sonnet-4-6'))
-        ->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0')
+        ->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6')
         ->and(LlmProvider::Bedrock->openclawModel('bedrock-claude-haiku-4-5'))
-        ->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0');
+        ->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0');
 
     foreach (LlmProvider::Bedrock->models() as $modelId) {
         expect(LlmProvider::Bedrock->openclawModel($modelId))->not->toContain('openrouter');

@@ -71,10 +71,10 @@ test('bedrock agents resolve their OpenClaw model directly against Bedrock', fun
         'model_fallbacks' => ['bedrock-claude-haiku-4-5'],
     ]);
 
-    expect($agent->openclawModel())->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0')
+    expect($agent->openclawModel())->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6')
         ->and($agent->openclawModelConfig())->toBe([
-            'primary' => 'amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0',
-            'fallbacks' => ['amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0'],
+            'primary' => 'amazon-bedrock/us.anthropic.claude-sonnet-4-6',
+            'fallbacks' => ['amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0'],
         ]);
 });
 
@@ -85,7 +85,7 @@ test('bedrock agents heartbeat on Bedrock Haiku with light context', function ()
     ]);
 
     expect($agent->openclawHeartbeatConfig())->toBe([
-        'model' => 'amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0',
+        'model' => 'amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0',
         'lightContext' => true,
     ]);
 });

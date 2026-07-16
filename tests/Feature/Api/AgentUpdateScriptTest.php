@@ -125,16 +125,16 @@ test('openclaw config snapshot wires bedrock discovery, models, and heartbeat fo
     // Agent entry: inference-profile model refs + in-cloud heartbeat override
     $entry = collect($config['agents']['list'])->firstWhere('id', 'agent-bdrk');
     expect($entry['model'])->toBe([
-        'primary' => 'amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0',
-        'fallbacks' => ['amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0'],
+        'primary' => 'amazon-bedrock/us.anthropic.claude-sonnet-4-6',
+        'fallbacks' => ['amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0'],
     ])->and($entry['heartbeat'])->toBe([
-        'model' => 'amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0',
+        'model' => 'amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0',
         'lightContext' => true,
     ]);
 
     // All-bedrock server: defaults route heartbeat + subagents + memory search in-cloud
-    expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
-        ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
+    expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+        ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($config['agents']['defaults']['memorySearch']['provider'])->toBe('bedrock');
 
     // The IAM key/secret never appear anywhere in the config

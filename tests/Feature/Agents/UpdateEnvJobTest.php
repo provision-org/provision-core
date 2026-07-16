@@ -171,7 +171,7 @@ test('it pushes AWS_REGION but never the AWS key or secret for BYO-AWS teams', f
         ->and(json_encode($config))->not->toContain('leak-canary-secret');
 
     // All-bedrock server: defaults route heartbeat + subagents in-cloud too
-    expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
-        ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
+    expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+        ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($config['agents']['defaults']['memorySearch']['provider'])->toBe('bedrock');
 });

@@ -181,8 +181,8 @@ test('all-bedrock AWS servers route heartbeat, subagents, and memory search to B
 
     $defaults = $this->service->buildDefaults($server);
 
-    expect($defaults['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
-        ->and($defaults['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-v1:0')
+    expect($defaults['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+        ->and($defaults['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($defaults['subagents']['maxSpawnDepth'])->toBe(1)
         ->and($defaults['memorySearch']['enabled'])->toBeTrue()
         ->and($defaults['memorySearch']['provider'])->toBe('bedrock')

@@ -131,10 +131,32 @@ enum LlmProvider: string
             // Direct Bedrock routing — never via OpenRouter. Model traffic
             // stays inside the customer's AWS account. OpenClaw's provider
             // prefix is "amazon-bedrock" and the model reference is a US
-            // regional inference profile ("us." prefix). Bedrock-native IDs
-            // keep HYPHENS and end in "-v1:0" — no dot conversion, e.g.
-            // bedrock-claude-sonnet-4-6 → amazon-bedrock/us.anthropic.claude-sonnet-4-6-v1:0
-            self::Bedrock => 'amazon-bedrock/us.anthropic.'.str_replace('bedrock-', '', $modelId).'-v1:0',
+            // regional inference profile ("us." prefix). AWS does NOT use a
+            // uniform id scheme across model generations — some carry a dated
+            // "-YYYYMMDD-v1:0" suffix, others none — so these are mapped to the
+            // exact inference-profile ids returned by Bedrock ListInferenceProfiles
+            // rather than derived by a formula.
+            self::Bedrock => self::bedrockInferenceProfile($modelId),
         };
+    }
+
+    /**
+     * Map an internal Bedrock model id to its exact OpenClaw provider-qualified
+     * US regional inference-profile id. Verified against the account's
+     * `bedrock:ListInferenceProfiles` output — the suffix differs per model.
+     */
+    private static function bedrockInferenceProfile(string $modelId): string
+    {
+        $profile = match ($modelId) {
+            'bedrock-claude-opus-4-6' => 'us.anthropic.claude-opus-4-6-v1',
+            'bedrock-claude-sonnet-4-6' => 'us.anthropic.claude-sonnet-4-6',
+            'bedrock-claude-haiku-4-5' => 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+            // Fallback for any unmapped id: strip the "bedrock-" prefix and hope
+            // discovery recognizes the bare regional profile. Logged upstream as
+            // "Unknown model" if AWS doesn't publish it.
+            default => 'us.anthropic.'.str_replace('bedrock-', '', $modelId),
+        };
+
+        return "amazon-bedrock/{$profile}";
     }
 }

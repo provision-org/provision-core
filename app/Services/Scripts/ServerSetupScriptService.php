@@ -2,6 +2,7 @@
 
 namespace App\Services\Scripts;
 
+use App\Enums\CloudProvider;
 use App\Enums\HarnessType;
 use App\Models\Server;
 use App\Services\OpenClawDefaultsService;
@@ -128,6 +129,19 @@ class ServerSetupScriptService
             $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
             $lines[] = 'openclaw plugins install @byterover/byterover 2>&1 || true';
             $lines[] = '';
+
+            // 3b. Install the Amazon Bedrock provider plugin (AWS teams only).
+            // OpenClaw does NOT bundle it, and BYO-AWS agents run their models
+            // through Bedrock via the EC2 instance profile — without the plugin,
+            // every Bedrock model resolves to "Unknown model". Installed at server
+            // setup (not agent install) because agents don't exist yet, and every
+            // agent on an AWS team is Bedrock-backed. Non-fatal: a failure here is
+            // surfaced later as a config warning rather than aborting setup.
+            if ($server->team?->cloudProvider() === CloudProvider::Aws) {
+                $lines[] = '# --- Step 3b: Install Amazon Bedrock provider (AWS teams) ---';
+                $lines[] = 'openclaw plugins install @openclaw/amazon-bedrock-provider 2>&1 || true';
+                $lines[] = '';
+            }
         } else {
             // Hermes: just ensure the data directories exist
             $lines[] = '# --- Hermes: Setup Data Directories ---';

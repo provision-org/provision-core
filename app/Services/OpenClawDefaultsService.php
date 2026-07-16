@@ -107,6 +107,8 @@ class OpenClawDefaultsService
             $config['plugins']['entries'] = [];
         }
 
+        $region = AwsCredentials::regionForTeam($server->team);
+
         $config['plugins']['entries']['amazon-bedrock'] = array_replace_recursive(
             $config['plugins']['entries']['amazon-bedrock'] ?? [],
             [
@@ -114,9 +116,44 @@ class OpenClawDefaultsService
                 'config' => [
                     'discovery' => [
                         'enabled' => true,
-                        'region' => AwsCredentials::regionForTeam($server->team),
+                        'region' => $region,
                     ],
                 ],
+            ],
+        );
+
+        // Declare the Bedrock provider + concrete models explicitly. Discovery
+        // (above) populates the provider catalog lazily, but the model resolver
+        // only treats a Bedrock model id as "known" when the provider is also
+        // present in `models.providers` — without this, agent turns fail with
+        // "Unknown model: amazon-bedrock/...". The model ids come straight from
+        // LlmProvider so they match the exact regional inference-profile ids.
+        if (! isset($config['models']) || ! is_array($config['models'])) {
+            $config['models'] = [];
+        }
+        if (! isset($config['models']['providers']) || ! is_array($config['models']['providers'])) {
+            $config['models']['providers'] = [];
+        }
+
+        $models = [];
+        foreach (LlmProvider::Bedrock->models() as $modelId) {
+            // Strip the "amazon-bedrock/" provider prefix — the id here is the
+            // bare inference-profile id under the provider entry.
+            $profileId = str_replace('amazon-bedrock/', '', LlmProvider::Bedrock->openclawModel($modelId));
+            $models[] = [
+                'id' => $profileId,
+                'contextWindow' => 200000,
+                'maxTokens' => 8192,
+            ];
+        }
+
+        $config['models']['providers']['amazon-bedrock'] = array_replace_recursive(
+            $config['models']['providers']['amazon-bedrock'] ?? [],
+            [
+                'baseUrl' => "https://bedrock-runtime.{$region}.amazonaws.com",
+                'api' => 'bedrock-converse-stream',
+                'auth' => 'aws-sdk',
+                'models' => $models,
             ],
         );
 

@@ -1311,17 +1311,31 @@ class AgentInstallScriptService
         return <<<BASH
         # Install provision-openclaw-web. Failing this aborts the install —
         # without the plugin, the agent's web chat is dead in the water.
-        openclaw plugins install --force {$spec} 2>&1
-        # Verify the plugin actually landed on disk before we move on.
+        PROVWEB_OUT=\$(openclaw plugins install --force {$spec} 2>&1)
+        echo "\$PROVWEB_OUT"
+        # Verify the plugin actually landed on disk before we move on. The
+        # install path changed across OpenClaw versions: <=2026.6 dropped the
+        # package at ~/.openclaw/npm/node_modules/<pkg>/dist, while 2026.7+
+        # installs it under ~/.openclaw/npm/projects/<pkg>__*/. Accept either,
+        # or an explicit "Installed plugin" confirmation from the installer.
+        provweb_present() {
+          [ -d /root/.openclaw/npm/node_modules/provision-openclaw-web/dist ] && return 0
+          ls -d /root/.openclaw/npm/projects/provision-openclaw-web__*/ >/dev/null 2>&1 && return 0
+          return 1
+        }
         for _ in \$(seq 1 20); do
-          if [ -d /root/.openclaw/npm/node_modules/provision-openclaw-web/dist ]; then
+          if provweb_present; then
             break
           fi
           sleep 1
         done
-        if [ ! -d /root/.openclaw/npm/node_modules/provision-openclaw-web/dist ]; then
-          echo "ERROR: provision-openclaw-web plugin directory missing after install"
-          exit 1
+        if ! provweb_present; then
+          if echo "\$PROVWEB_OUT" | grep -qi "Installed plugin"; then
+            echo "provision-openclaw-web install confirmed via installer output"
+          else
+            echo "ERROR: provision-openclaw-web plugin directory missing after install"
+            exit 1
+          fi
         fi
         BASH;
     }
