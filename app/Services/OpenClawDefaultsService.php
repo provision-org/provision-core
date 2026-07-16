@@ -136,10 +136,7 @@ class OpenClawDefaultsService
         }
 
         $models = [];
-        foreach (LlmProvider::Bedrock->models() as $modelId) {
-            // Strip the "amazon-bedrock/" provider prefix — the id here is the
-            // bare inference-profile id under the provider entry.
-            $profileId = str_replace('amazon-bedrock/', '', LlmProvider::Bedrock->openclawModel($modelId));
+        foreach ($this->serverBedrockModelIds($server) as $profileId) {
             $models[] = [
                 'id' => $profileId,
                 'contextWindow' => 200000,
@@ -158,6 +155,48 @@ class OpenClawDefaultsService
         );
 
         return $config;
+    }
+
+    /**
+     * Collect the raw Bedrock model ids (no "amazon-bedrock/" prefix) that must
+     * be declared under `models.providers.amazon-bedrock.models` so the resolver
+     * treats them as known: every model any Bedrock agent on the server actually
+     * references, plus the team default, plus the tier defaults as a safety net.
+     *
+     * @return list<string>
+     */
+    private function serverBedrockModelIds(Server $server): array
+    {
+        $ids = [];
+
+        $toRaw = function (?string $internalId) use (&$ids): void {
+            if ($internalId === null || $internalId === '') {
+                return;
+            }
+            if (LlmProvider::forModel($internalId) !== LlmProvider::Bedrock) {
+                return;
+            }
+            $ids[] = str_replace('amazon-bedrock/', '', LlmProvider::Bedrock->openclawModel($internalId));
+        };
+
+        // Team-wide default the customer picked.
+        $toRaw(AwsCredentials::defaultBedrockModelForTeam($server->team));
+
+        // Every Bedrock agent's primary + fallbacks.
+        $server->agents()->where('auth_provider', 'bedrock')->get()
+            ->each(function ($agent) use ($toRaw): void {
+                $toRaw($agent->model_primary);
+                foreach ($agent->model_fallbacks ?? [] as $fallback) {
+                    $toRaw($fallback);
+                }
+            });
+
+        // Tier defaults — guarantees a usable entry even before any agent lands.
+        foreach (LlmProvider::Bedrock->models() as $modelId) {
+            $toRaw($modelId);
+        }
+
+        return array_values(array_unique($ids));
     }
 
     /**

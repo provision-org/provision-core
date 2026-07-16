@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\CloudProvider;
 use App\Models\Team;
 use App\Services\Aws\AwsCredentials;
+use App\Services\Aws\BedrockCatalogService;
 
 class CloudServiceFactory
 {
@@ -33,6 +34,16 @@ class CloudServiceFactory
     public function makeAwsForCredentials(AwsCredentials $credentials): AwsService
     {
         return new AwsService($credentials);
+    }
+
+    /**
+     * Build a BedrockCatalogService for the given credentials — used by the
+     * wizard to list/verify the account's invocable models. Kept on the factory
+     * so callers can mock it in tests (same seam as makeAwsForCredentials).
+     */
+    public function makeBedrockCatalogForCredentials(AwsCredentials $credentials): BedrockCatalogService
+    {
+        return new BedrockCatalogService($credentials);
     }
 
     private function resolveApiToken(Team $team, CloudProvider $provider): ?string

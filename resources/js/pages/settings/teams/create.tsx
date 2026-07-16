@@ -19,7 +19,9 @@ import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
+    SelectGroup,
     SelectItem,
+    SelectLabel,
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
@@ -34,10 +36,38 @@ type AwsVerifyState =
     | { status: 'verified'; accountId: string }
     | { status: 'error'; message: string };
 
+type BedrockModel = {
+    id: string;
+    label: string;
+    provider: string;
+    requiresUseCaseForm: boolean;
+};
+
+type BedrockCatalogState =
+    | { status: 'idle' }
+    | { status: 'loading' }
+    | { status: 'loaded'; models: BedrockModel[] }
+    | { status: 'error'; message: string };
+
+type ModelVerifyState =
+    | { status: 'idle' }
+    | { status: 'verifying' }
+    | { status: 'ok' }
+    | { status: 'error'; message: string; useCaseForm: boolean };
+
 function csrfToken(): string {
     return decodeURIComponent(
         document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '',
     );
+}
+
+function groupByProvider(
+    models: BedrockModel[],
+): Record<string, BedrockModel[]> {
+    return models.reduce<Record<string, BedrockModel[]>>((groups, model) => {
+        (groups[model.provider] ??= []).push(model);
+        return groups;
+    }, {});
 }
 
 const awsRegions = [
@@ -229,6 +259,7 @@ export default function CreateTeam({
                   aws_secret: '',
                   aws_region: 'us-east-1',
                   aws_instance_profile: '',
+                  aws_bedrock_model: '',
               }
             : {}),
     });
@@ -314,6 +345,125 @@ export default function CreateTeam({
                     'Verification failed. Check your connection and try again.',
             });
         }
+    }
+
+    const [bedrockCatalog, setBedrockCatalog] = useState<BedrockCatalogState>({
+        status: 'idle',
+    });
+    const [modelVerify, setModelVerify] = useState<ModelVerifyState>({
+        status: 'idle',
+    });
+    const selectedModel =
+        'aws_bedrock_model' in form.data ? form.data.aws_bedrock_model : '';
+
+    // Once the AWS account is verified, load the models it can actually invoke
+    // and auto-select the best available default.
+    useEffect(() => {
+        if (awsVerify.status !== 'verified') {
+            setBedrockCatalog({ status: 'idle' });
+            return;
+        }
+
+        let cancelled = false;
+        setBedrockCatalog({ status: 'loading' });
+
+        (async () => {
+            try {
+                const response = await fetch('/settings/teams/bedrock-models', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-XSRF-TOKEN': csrfToken(),
+                    },
+                    body: JSON.stringify({
+                        aws_key_id: awsKeyId,
+                        aws_secret: awsSecret,
+                        aws_region: awsRegion,
+                    }),
+                });
+                const data = await response.json();
+                if (cancelled) return;
+
+                if (response.ok) {
+                    setBedrockCatalog({
+                        status: 'loaded',
+                        models: data.models ?? [],
+                    });
+                    if (data.default && !selectedModel) {
+                        form.setData('aws_bedrock_model', data.default);
+                        void verifyBedrockModel(data.default);
+                    }
+                } else {
+                    setBedrockCatalog({
+                        status: 'error',
+                        message:
+                            data.message ??
+                            'Could not list Bedrock models for this account.',
+                    });
+                }
+            } catch {
+                if (!cancelled) {
+                    setBedrockCatalog({
+                        status: 'error',
+                        message: 'Could not reach AWS to list Bedrock models.',
+                    });
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+        // Re-run only when verification flips; awsKeyId/etc. are captured above.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [awsVerify.status]);
+
+    async function verifyBedrockModel(modelId: string) {
+        if (!modelId) return;
+        setModelVerify({ status: 'verifying' });
+        try {
+            const response = await fetch(
+                '/settings/teams/verify-bedrock-model',
+                {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-XSRF-TOKEN': csrfToken(),
+                    },
+                    body: JSON.stringify({
+                        aws_key_id: awsKeyId,
+                        aws_secret: awsSecret,
+                        aws_region: awsRegion,
+                        model_id: modelId,
+                    }),
+                },
+            );
+            const data = await response.json();
+            if (response.ok && data.ok) {
+                setModelVerify({ status: 'ok' });
+            } else {
+                setModelVerify({
+                    status: 'error',
+                    message:
+                        data.error ??
+                        'This model could not be invoked in your account.',
+                    useCaseForm: Boolean(data.useCaseForm),
+                });
+            }
+        } catch {
+            setModelVerify({
+                status: 'error',
+                message: 'Could not reach AWS to check this model.',
+                useCaseForm: false,
+            });
+        }
+    }
+
+    function onSelectModel(modelId: string) {
+        form.setData('aws_bedrock_model', modelId);
+        void verifyBedrockModel(modelId);
     }
 
     function handleSubmit(e: React.FormEvent) {
@@ -865,6 +1015,120 @@ export default function CreateTeam({
                                         </span>
                                     )}
                                 </div>
+
+                                {awsVerify.status === 'verified' && (
+                                    <div className="grid gap-2 rounded-lg border border-border/60 p-3">
+                                        <Label htmlFor="aws_bedrock_model">
+                                            Default model
+                                        </Label>
+                                        <p className="text-xs text-muted-foreground">
+                                            The model your team&rsquo;s agents
+                                            run on Bedrock. We pre-select the
+                                            best one your account can invoke —
+                                            change it anytime, per agent too.
+                                        </p>
+
+                                        {bedrockCatalog.status ===
+                                            'loading' && (
+                                            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                <LoaderCircle className="size-3.5 animate-spin" />
+                                                Detecting available models…
+                                            </span>
+                                        )}
+
+                                        {bedrockCatalog.status === 'error' && (
+                                            <span className="text-xs text-red-600">
+                                                {bedrockCatalog.message}
+                                            </span>
+                                        )}
+
+                                        {bedrockCatalog.status === 'loaded' && (
+                                            <>
+                                                <Select
+                                                    value={selectedModel ?? ''}
+                                                    onValueChange={
+                                                        onSelectModel
+                                                    }
+                                                >
+                                                    <SelectTrigger id="aws_bedrock_model">
+                                                        <SelectValue placeholder="Select a model" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {Object.entries(
+                                                            groupByProvider(
+                                                                bedrockCatalog.models,
+                                                            ),
+                                                        ).map(
+                                                            ([
+                                                                provider,
+                                                                models,
+                                                            ]) => (
+                                                                <SelectGroup
+                                                                    key={
+                                                                        provider
+                                                                    }
+                                                                >
+                                                                    <SelectLabel>
+                                                                        {
+                                                                            provider
+                                                                        }
+                                                                    </SelectLabel>
+                                                                    {models.map(
+                                                                        (m) => (
+                                                                            <SelectItem
+                                                                                key={
+                                                                                    m.id
+                                                                                }
+                                                                                value={`bedrock:${m.id}`}
+                                                                            >
+                                                                                {
+                                                                                    m.label
+                                                                                }
+                                                                                {m.requiresUseCaseForm
+                                                                                    ? ' (may need use-case form)'
+                                                                                    : ''}
+                                                                            </SelectItem>
+                                                                        ),
+                                                                    )}
+                                                                </SelectGroup>
+                                                            ),
+                                                        )}
+                                                    </SelectContent>
+                                                </Select>
+
+                                                {modelVerify.status ===
+                                                    'verifying' && (
+                                                    <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                                                        <LoaderCircle className="size-3.5 animate-spin" />
+                                                        Checking this model…
+                                                    </span>
+                                                )}
+                                                {modelVerify.status ===
+                                                    'ok' && (
+                                                    <span className="flex items-center gap-1.5 text-xs text-green-600">
+                                                        <Check className="size-3.5" />
+                                                        This model works in your
+                                                        account.
+                                                    </span>
+                                                )}
+                                                {modelVerify.status ===
+                                                    'error' && (
+                                                    <span className="text-xs text-red-600">
+                                                        {modelVerify.message}
+                                                        {modelVerify.useCaseForm
+                                                            ? ' — submit the Anthropic use-case form in the Bedrock console (or pick another model).'
+                                                            : ''}
+                                                    </span>
+                                                )}
+                                            </>
+                                        )}
+                                        <InputError
+                                            message={
+                                                formErrors.aws_bedrock_model
+                                            }
+                                        />
+                                    </div>
+                                )}
 
                                 <p className="text-xs text-muted-foreground">
                                     Credentials are stored encrypted, per team.

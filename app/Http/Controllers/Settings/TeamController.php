@@ -127,6 +127,13 @@ class TeamController extends Controller
                 $credentials['instance_profile'] = $request->aws_instance_profile;
             }
 
+            // Team-wide default Bedrock model the customer picked in the wizard.
+            // Stored in internal "bedrock:<raw>" form; seeds each new agent.
+            if ($request->filled('aws_bedrock_model')) {
+                $raw = preg_replace('/^bedrock:/', '', (string) $request->aws_bedrock_model);
+                $credentials['default_bedrock_model'] = 'bedrock:'.$raw;
+            }
+
             $team->apiKeys()->create([
                 'provider_type' => 'cloud',
                 'provider' => CloudProvider::Aws->value,
@@ -190,6 +197,83 @@ class TeamController extends Controller
             'verified' => true,
             'account_id' => $identity['account_id'],
         ]);
+    }
+
+    /**
+     * List the Bedrock models the account can actually invoke, plus an
+     * auto-detected "best available" default. Dual-mode: the team-creation
+     * wizard posts fresh AWS keys; the agent wizard (existing team) posts none
+     * and we read the team's stored cloud creds. Never echoes the secret back.
+     */
+    public function bedrockModels(Request $request, CloudServiceFactory $factory): JsonResponse
+    {
+        abort_unless((bool) $request->user()->byo_cloud_enabled, 403);
+
+        try {
+            $catalog = $factory->makeBedrockCatalogForCredentials($this->resolveBedrockCredentials($request));
+            $models = $catalog->listModels();
+            $default = $catalog->resolveBestDefaultModel($models);
+        } catch (RuntimeException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        }
+
+        return response()->json([
+            'models' => $models,
+            // Return the default in the internal "bedrock:<raw>" form the rest
+            // of the app stores; null when nothing usable was detected.
+            'default' => $default ? 'bedrock:'.$default : null,
+        ]);
+    }
+
+    /**
+     * Invoke-check a single chosen Bedrock model (ConverseStream) so the wizard
+     * can confirm the selection works — or surface the Anthropic use-case-form
+     * gate — before the team/agent is saved.
+     */
+    public function verifyBedrockModel(Request $request, CloudServiceFactory $factory): JsonResponse
+    {
+        abort_unless((bool) $request->user()->byo_cloud_enabled, 403);
+
+        $request->validate([
+            'model_id' => ['required', 'string', 'max:255'],
+        ]);
+
+        // Accept either the internal "bedrock:<raw>" form or a bare raw id.
+        $rawId = (string) preg_replace('/^bedrock:/', '', (string) $request->input('model_id'));
+
+        try {
+            $result = $factory
+                ->makeBedrockCatalogForCredentials($this->resolveBedrockCredentials($request))
+                ->verifyModel($rawId);
+        } catch (RuntimeException $e) {
+            return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
+        }
+
+        return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+    }
+
+    /**
+     * Resolve AWS credentials for a Bedrock catalog call: from the request when
+     * the wizard posts fresh keys (team creation), otherwise from the current
+     * team's stored cloud key (agent wizard on an existing team).
+     */
+    private function resolveBedrockCredentials(Request $request): AwsCredentials
+    {
+        if ($request->filled('aws_key_id')) {
+            return $this->awsCredentialsFromRequest($request);
+        }
+
+        $team = $request->user()->currentTeam;
+        $cloudKey = $team?->cloudApiKeys()
+            ->where('provider', CloudProvider::Aws->value)
+            ->where('is_active', true)
+            ->first();
+
+        if (! $cloudKey) {
+            throw new RuntimeException('This team has no connected AWS account.');
+        }
+
+        return AwsCredentials::fromJson($cloudKey->api_key);
     }
 
     /**

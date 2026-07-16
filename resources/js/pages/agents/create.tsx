@@ -3,6 +3,15 @@ import { ArrowLeft, Check, Cloud, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+    Select,
+    SelectContent,
+    SelectGroup,
+    SelectItem,
+    SelectLabel,
+    SelectTrigger,
+    SelectValue,
+} from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import type { Server, SharedData } from '@/types';
 
@@ -19,6 +28,28 @@ type ModelTierOption = {
     cost: string;
     primaryModel: string;
 };
+
+type BedrockModel = {
+    id: string;
+    label: string;
+    provider: string;
+    requiresUseCaseForm: boolean;
+};
+
+function agentCsrfToken(): string {
+    return decodeURIComponent(
+        document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? '',
+    );
+}
+
+function groupBedrockByProvider(
+    models: BedrockModel[],
+): Record<string, BedrockModel[]> {
+    return models.reduce<Record<string, BedrockModel[]>>((groups, model) => {
+        (groups[model.provider] ??= []).push(model);
+        return groups;
+    }, {});
+}
 
 type Step =
     | 'name'
@@ -577,6 +608,10 @@ export default function CreateAgent({
     const [toolName, setToolName] = useState('');
     const [toolUrl, setToolUrl] = useState('');
 
+    const [bedrockModels, setBedrockModels] = useState<BedrockModel[]>([]);
+    const [bedrockDefault, setBedrockDefault] = useState<string | null>(null);
+    const [bedrockLoading, setBedrockLoading] = useState(false);
+
     const form = useForm({
         name: '',
         agent_mode: 'channel' as 'channel' | 'workforce',
@@ -596,6 +631,50 @@ export default function CreateAgent({
     }).withPrecognition('post', '/agents');
 
     form.setValidationTimeout(500);
+
+    // Load the team's invocable Bedrock models the first time the Bedrock tier
+    // is active, so the agent can override the team default. Uses the team's
+    // stored AWS creds server-side (no keys in this request).
+    const bedrockTierActive = form.data.model_tier === 'bedrock';
+    useEffect(() => {
+        if (
+            !bedrockAvailable ||
+            !bedrockTierActive ||
+            bedrockModels.length > 0 ||
+            bedrockLoading
+        ) {
+            return;
+        }
+
+        let cancelled = false;
+        setBedrockLoading(true);
+        (async () => {
+            try {
+                const response = await fetch('/settings/teams/bedrock-models', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json',
+                        'X-XSRF-TOKEN': agentCsrfToken(),
+                    },
+                    body: JSON.stringify({}),
+                });
+                const data = await response.json();
+                if (cancelled || !response.ok) return;
+                setBedrockModels(data.models ?? []);
+                setBedrockDefault(data.default ?? null);
+            } catch {
+                // Non-fatal: the tier still works on the team default.
+            } finally {
+                if (!cancelled) setBedrockLoading(false);
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [bedrockAvailable, bedrockTierActive]);
 
     const allSteps = useMemo(
         () =>
@@ -1472,9 +1551,13 @@ export default function CreateAgent({
                                                                     form.data
                                                                         .model_tier ===
                                                                         tier.value &&
-                                                                        !form
-                                                                            .data
-                                                                            .model_primary
+                                                                        // Bedrock stays selected even with a per-agent
+                                                                        // model override (model_primary = "bedrock:…").
+                                                                        (tier.value ===
+                                                                            'bedrock' ||
+                                                                            !form
+                                                                                .data
+                                                                                .model_primary)
                                                                         ? 'border-foreground bg-accent shadow-sm'
                                                                         : 'border-border hover:border-foreground/30',
                                                                 )}
@@ -1519,6 +1602,93 @@ export default function CreateAgent({
                                                             </button>
                                                         ))}
                                                 </div>
+
+                                                {bedrockTierActive &&
+                                                    bedrockModels.length >
+                                                        0 && (
+                                                        <div className="grid gap-2 rounded-xl border border-border/60 p-4">
+                                                            <p className="text-sm font-medium">
+                                                                Bedrock model
+                                                            </p>
+                                                            <p className="text-xs text-muted-foreground">
+                                                                Defaults to your
+                                                                team&rsquo;s
+                                                                model. Override
+                                                                it for this
+                                                                agent if you
+                                                                like.
+                                                            </p>
+                                                            <Select
+                                                                value={
+                                                                    form.data
+                                                                        .model_primary ||
+                                                                    '__default__'
+                                                                }
+                                                                onValueChange={(
+                                                                    value,
+                                                                ) =>
+                                                                    form.setData(
+                                                                        'model_primary',
+                                                                        value ===
+                                                                            '__default__'
+                                                                            ? ''
+                                                                            : value,
+                                                                    )
+                                                                }
+                                                            >
+                                                                <SelectTrigger>
+                                                                    <SelectValue placeholder="Team default" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    <SelectItem value="__default__">
+                                                                        Team
+                                                                        default
+                                                                        {bedrockDefault
+                                                                            ? ` (${bedrockDefault.replace('bedrock:', '')})`
+                                                                            : ''}
+                                                                    </SelectItem>
+                                                                    {Object.entries(
+                                                                        groupBedrockByProvider(
+                                                                            bedrockModels,
+                                                                        ),
+                                                                    ).map(
+                                                                        ([
+                                                                            provider,
+                                                                            models,
+                                                                        ]) => (
+                                                                            <SelectGroup
+                                                                                key={
+                                                                                    provider
+                                                                                }
+                                                                            >
+                                                                                <SelectLabel>
+                                                                                    {
+                                                                                        provider
+                                                                                    }
+                                                                                </SelectLabel>
+                                                                                {models.map(
+                                                                                    (
+                                                                                        m,
+                                                                                    ) => (
+                                                                                        <SelectItem
+                                                                                            key={
+                                                                                                m.id
+                                                                                            }
+                                                                                            value={`bedrock:${m.id}`}
+                                                                                        >
+                                                                                            {
+                                                                                                m.label
+                                                                                            }
+                                                                                        </SelectItem>
+                                                                                    ),
+                                                                                )}
+                                                                            </SelectGroup>
+                                                                        ),
+                                                                    )}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+                                                    )}
 
                                                 {modelTiers.find(
                                                     (t) =>

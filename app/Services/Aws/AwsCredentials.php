@@ -19,6 +19,9 @@ readonly class AwsCredentials
         public string $region,
         public ?string $sshKeyName = null,
         public ?string $instanceProfile = null,
+        // Team-wide default Bedrock model in internal "bedrock:<raw-aws-id>"
+        // form; seeds each new Bedrock agent's model unless the agent overrides.
+        public ?string $defaultBedrockModel = null,
     ) {}
 
     /**
@@ -39,6 +42,7 @@ readonly class AwsCredentials
             region: $data['region'] ?? config('cloud.aws.default_region', 'us-east-1'),
             sshKeyName: $data['ssh_key_name'] ?? null,
             instanceProfile: $data['instance_profile'] ?? null,
+            defaultBedrockModel: $data['default_bedrock_model'] ?? null,
         );
     }
 
@@ -59,6 +63,7 @@ readonly class AwsCredentials
             region: $config['default_region'] ?? 'us-east-1',
             sshKeyName: $config['ssh_key_name'] ?? null,
             instanceProfile: $config['instance_profile'] ?? null,
+            defaultBedrockModel: $config['default_bedrock_model'] ?? null,
         );
     }
 
@@ -84,5 +89,28 @@ readonly class AwsCredentials
         }
 
         return config('cloud.aws.default_region', 'us-east-1');
+    }
+
+    /**
+     * Resolve a team's chosen default Bedrock model (internal "bedrock:<raw>"
+     * form) from its cloud TeamApiKey JSON. Returns null when the team hasn't
+     * picked one, so callers can fall back to the ModelTier::Bedrock default.
+     */
+    public static function defaultBedrockModelForTeam(Team $team): ?string
+    {
+        $cloudKey = $team->cloudApiKeys()
+            ->where('provider', CloudProvider::Aws->value)
+            ->where('is_active', true)
+            ->first();
+
+        if ($cloudKey) {
+            try {
+                return self::fromJson($cloudKey->api_key)->defaultBedrockModel;
+            } catch (InvalidArgumentException) {
+                // Malformed payload — fall through to the null default.
+            }
+        }
+
+        return null;
     }
 }

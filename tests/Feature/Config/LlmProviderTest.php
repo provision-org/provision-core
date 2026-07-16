@@ -61,3 +61,17 @@ test('bedrock openclawModel maps to amazon-bedrock inference profiles — never 
         expect(LlmProvider::Bedrock->openclawModel($modelId))->not->toContain('openrouter');
     }
 });
+
+test('customer-selected bedrock: ids pass straight through to the amazon-bedrock provider', function () {
+    // Any raw AWS model id the account exposes is stored as "bedrock:<raw>" and
+    // resolves to "amazon-bedrock/<raw>" with no remapping — no fixed enum entry.
+    expect(LlmProvider::forModel('bedrock:openai.gpt-oss-120b-1:0'))
+        ->toBe(LlmProvider::Bedrock)
+        ->and(LlmProvider::Bedrock->openclawModel('bedrock:openai.gpt-oss-120b-1:0'))
+        ->toBe('amazon-bedrock/openai.gpt-oss-120b-1:0')
+        ->and(LlmProvider::Bedrock->openclawModel('bedrock:deepseek.v3.2'))
+        ->toBe('amazon-bedrock/deepseek.v3.2')
+        // The prefixed Claude form resolves to the same profile as the legacy enum.
+        ->and(LlmProvider::Bedrock->openclawModel('bedrock:us.anthropic.claude-sonnet-4-6'))
+        ->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6');
+});

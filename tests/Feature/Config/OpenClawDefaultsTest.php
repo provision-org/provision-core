@@ -253,6 +253,32 @@ test('applyBedrockPluginConfig falls back to the config default region without a
     expect($config['plugins']['entries']['amazon-bedrock']['config']['discovery']['region'])->toBe('us-west-2');
 });
 
+test('applyBedrockPluginConfig declares the provider with the agent model and team default', function () {
+    [$team, $server] = makeAwsBedrockServer(['bedrock']);
+    TeamApiKey::factory()->awsCloud()->create([
+        'team_id' => $team->id,
+        'api_key' => json_encode([
+            'key_id' => 'AKIAEXAMPLEEXAMPLE',
+            'secret' => 'secret',
+            'region' => 'us-east-1',
+            'default_bedrock_model' => 'bedrock:openai.gpt-oss-120b-1:0',
+        ]),
+    ]);
+
+    $config = $this->service->applyBedrockPluginConfig([], $server);
+    $provider = $config['models']['providers']['amazon-bedrock'];
+    $declaredIds = array_column($provider['models'], 'id');
+
+    expect($provider['api'])->toBe('bedrock-converse-stream')
+        ->and($provider['auth'])->toBe('aws-sdk')
+        // The team default the customer picked…
+        ->and($declaredIds)->toContain('openai.gpt-oss-120b-1:0')
+        // …the agent's own model (legacy enum resolves to its profile)…
+        ->and($declaredIds)->toContain('us.anthropic.claude-sonnet-4-6')
+        // …and the tier defaults as a safety net.
+        ->and($declaredIds)->toContain('us.anthropic.claude-haiku-4-5-20251001-v1:0');
+});
+
 test('applyBedrockPluginConfig is a no-op for servers without bedrock agents', function () {
     $team = Team::factory()->aws()->create();
     $server = Server::factory()->running()->aws()->create(['team_id' => $team->id]);

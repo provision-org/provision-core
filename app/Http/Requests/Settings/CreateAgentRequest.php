@@ -90,7 +90,26 @@ class CreateAgentRequest extends FormRequest
                     }
                 },
             ],
-            'model_primary' => ['nullable', 'string', Rule::in($allowedModels)],
+            'model_primary' => [
+                'nullable', 'string',
+                function (string $attribute, mixed $value, \Closure $fail) use ($team, $allowedModels): void {
+                    // Customer-selected Bedrock models ("bedrock:<raw-aws-id>")
+                    // can't be enumerated without an AWS call per request, so we
+                    // trust the wizard's verified selection here — the raw id is
+                    // re-checked at save (verify endpoint) and again at deploy.
+                    if (is_string($value) && str_starts_with($value, 'bedrock:')) {
+                        if ($team->cloudProvider() !== CloudProvider::Aws) {
+                            $fail('Bedrock models are only available for teams running in their own AWS account.');
+                        }
+
+                        return;
+                    }
+
+                    if ($value !== null && ! in_array($value, $allowedModels, true)) {
+                        $fail('The selected model is not available. Please configure an API key for that provider.');
+                    }
+                },
+            ],
             'model_fallbacks' => ['nullable', 'array'],
             'model_fallbacks.*' => ['string', 'max:255'],
             'system_prompt' => ['nullable', 'string', 'max:10000'],

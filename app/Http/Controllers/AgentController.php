@@ -34,6 +34,7 @@ use App\Models\Team;
 use App\Models\TeamPack;
 use App\Services\AgentInstallScriptService;
 use App\Services\AgentTemplateService;
+use App\Services\Aws\AwsCredentials;
 use App\Services\ChatGPTAuthService;
 use App\Services\Harness\HermesDriver;
 use App\Services\ModuleRegistry;
@@ -196,8 +197,20 @@ class AgentController extends Controller
         // Resolve model tier to primary model + fallbacks
         if (! empty($data['model_tier'])) {
             $tier = ModelTier::from($data['model_tier']);
-            $data['model_primary'] = $tier->primaryModel();
-            $data['model_fallbacks'] = $tier->fallbackModels();
+
+            if ($tier === ModelTier::Bedrock) {
+                // Bedrock model precedence: an explicit per-agent selection from
+                // the wizard ("bedrock:<raw>") wins; otherwise the team-wide
+                // default the customer picked; otherwise the tier's built-in
+                // default. Fallbacks keep the tier defaults unless overridden.
+                $explicit = ! empty($data['model_primary']) ? $data['model_primary'] : null;
+                $teamDefault = AwsCredentials::defaultBedrockModelForTeam($team);
+                $data['model_primary'] = $explicit ?? $teamDefault ?? $tier->primaryModel();
+                $data['model_fallbacks'] ??= $tier->fallbackModels();
+            } else {
+                $data['model_primary'] = $tier->primaryModel();
+                $data['model_fallbacks'] = $tier->fallbackModels();
+            }
         }
         unset($data['model_tier']);
 

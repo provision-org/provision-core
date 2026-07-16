@@ -98,6 +98,13 @@ enum LlmProvider: string
 
     public static function forModel(string $modelId): ?self
     {
+        // Customer-selected Bedrock models are stored as "bedrock:<raw-aws-id>"
+        // (e.g. "bedrock:openai.gpt-oss-120b-1:0") so any model their account
+        // exposes flows through without a fixed enum entry.
+        if (str_starts_with($modelId, 'bedrock:')) {
+            return self::Bedrock;
+        }
+
         foreach (self::cases() as $provider) {
             if (in_array($modelId, $provider->models(), true)) {
                 return $provider;
@@ -147,6 +154,13 @@ enum LlmProvider: string
      */
     private static function bedrockInferenceProfile(string $modelId): string
     {
+        // Customer-selected models arrive as "bedrock:<raw-aws-id>" — the raw id
+        // is exactly what their account/discovery published, so pass it straight
+        // through to the provider with no remapping.
+        if (str_starts_with($modelId, 'bedrock:')) {
+            return 'amazon-bedrock/'.substr($modelId, strlen('bedrock:'));
+        }
+
         $profile = match ($modelId) {
             'bedrock-claude-opus-4-6' => 'us.anthropic.claude-opus-4-6-v1',
             'bedrock-claude-sonnet-4-6' => 'us.anthropic.claude-sonnet-4-6',
