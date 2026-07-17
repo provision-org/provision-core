@@ -26,7 +26,10 @@ class DestroyTeamJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public int $timeout = 120;
+    // Teardown waits for the cloud instance to fully terminate before releasing
+    // its firewall/security group (the network interface only detaches at
+    // "terminated"), so allow generous headroom for a slow provider.
+    public int $timeout = 600;
 
     public function __construct(public Team $team) {}
 
@@ -199,11 +202,14 @@ class DestroyTeamJob implements ShouldQueue
         Log::info("Terminated AWS instance {$server->provider_server_id}");
 
         // Release the per-server security group created during provisioning.
-        // deleteSecurityGroup already retries DependencyViolation (the group
-        // can't be deleted while the instance is still terminating) and
-        // treats a missing group as already-gone.
+        // The group can't be deleted while its instance still holds a network
+        // interface, so wait for the instance to reach "terminated" first —
+        // otherwise DeleteSecurityGroup exhausts its DependencyViolation retries
+        // on a slow teardown and leaves an orphan group behind. deleteSecurityGroup
+        // still retries as a backstop and treats a missing group as already-gone.
         if ($server->provider_firewall_id) {
             try {
+                $aws->waitForInstanceTerminated($server->provider_server_id);
                 $aws->deleteSecurityGroup($server->provider_firewall_id);
                 Log::info("Deleted AWS security group {$server->provider_firewall_id}");
             } catch (\Throwable $e) {
@@ -226,6 +232,18 @@ class DestroyTeamJob implements ShouldQueue
             $linode->detachVolume($server->provider_volume_id);
             $linode->deleteVolume($server->provider_volume_id);
             Log::info("Deleted Linode volume {$server->provider_volume_id}");
+        }
+
+        // Release the per-server Cloud Firewall created during provisioning.
+        // Without this, every destroyed Linode team leaves an orphan firewall.
+        if ($server->provider_firewall_id) {
+            try {
+                $linode->deleteFirewall((int) $server->provider_firewall_id);
+                Log::info("Deleted Linode firewall {$server->provider_firewall_id}");
+            } catch (\Throwable $e) {
+                // Non-fatal: log and move on.
+                Log::warning("Failed to delete Linode firewall {$server->provider_firewall_id}: {$e->getMessage()}");
+            }
         }
     }
 }

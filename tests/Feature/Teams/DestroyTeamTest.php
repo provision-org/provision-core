@@ -8,8 +8,10 @@ use App\Models\AgentEmailConnection;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
+use App\Services\LinodeService;
 use App\Services\SlackAppCleanupService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Queue;
@@ -151,6 +153,64 @@ it('releases the DO firewall when destroying a team that has one (issue #37)', f
 
     $cloudFactory = Mockery::mock(CloudServiceFactory::class);
     $cloudFactory->shouldReceive('makeFor')->andReturn($doService);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+});
+
+it('waits for AWS instance termination before releasing its security group', function () {
+    $team = Team::factory()->subscribed()->create();
+    Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::Aws,
+        'provider_server_id' => 'i-0abc123',
+        'provider_firewall_id' => 'sg-0abc123',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    // The security group can only be deleted once the instance is fully
+    // terminated, so the wait MUST happen before deleteSecurityGroup.
+    $aws = Mockery::mock(AwsService::class);
+    $aws->shouldReceive('terminateInstance')->with('i-0abc123')->once()->ordered();
+    $aws->shouldReceive('waitForInstanceTerminated')->with('i-0abc123')->once()->ordered();
+    $aws->shouldReceive('deleteSecurityGroup')->with('sg-0abc123')->once()->ordered();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->andReturn($aws);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+});
+
+it('releases the Linode Cloud Firewall when destroying a team that has one', function () {
+    $team = Team::factory()->subscribed()->create();
+    Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::Linode,
+        'provider_server_id' => '55501',
+        'provider_volume_id' => '9001',
+        'provider_firewall_id' => '4242',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $linode = Mockery::mock(LinodeService::class);
+    $linode->shouldReceive('deleteInstance')->with('55501')->once();
+    $linode->shouldReceive('detachVolume')->with('9001')->once();
+    $linode->shouldReceive('deleteVolume')->with('9001')->once();
+    $linode->shouldReceive('deleteFirewall')->with(4242)->once();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->andReturn($linode);
     app()->instance(CloudServiceFactory::class, $cloudFactory);
 
     DestroyTeamJob::dispatchSync($team);

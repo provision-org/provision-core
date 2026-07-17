@@ -199,6 +199,32 @@ class AwsService
     }
 
     /**
+     * Block until the instance has fully terminated (or is already gone).
+     *
+     * TerminateInstances returns the moment the instance enters "shutting-down",
+     * but its network interface is only detached once it reaches "terminated" —
+     * and the per-server security group can't be deleted until then. Waiting here
+     * lets the follow-up DeleteSecurityGroup succeed on the first try instead of
+     * exhausting its DependencyViolation retries on a slow teardown. A
+     * NotFound (instance already reaped) counts as terminated.
+     */
+    public function waitForInstanceTerminated(string $instanceId): void
+    {
+        try {
+            $this->execute('InstanceTerminated', fn (): mixed => $this->client->waitUntil('InstanceTerminated', [
+                'InstanceIds' => [$instanceId],
+                '@waiter' => ['delay' => 5, 'maxAttempts' => 40],
+            ]));
+        } catch (RuntimeException $e) {
+            if (str_contains($e->getMessage(), 'InvalidInstanceID.NotFound')) {
+                return;
+            }
+
+            throw $e;
+        }
+    }
+
+    /**
      * Delete a security group. The group can't be deleted while still
      * attached to a (terminating) instance, so retry briefly on
      * DependencyViolation. Treats a missing group as already-gone.
