@@ -105,6 +105,22 @@ class LinodeService
     }
 
     /**
+     * Delete a Cloud Firewall. Its device associations are removed with it, so
+     * this is safe to call after the instance is gone. A 404 means it was
+     * already deleted.
+     */
+    public function deleteFirewall(int $firewallId): void
+    {
+        $response = $this->http->delete("/networking/firewalls/{$firewallId}");
+
+        if ($response->status() === 404) {
+            return;
+        }
+
+        $response->throw();
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function getInstance(string $linodeId): array

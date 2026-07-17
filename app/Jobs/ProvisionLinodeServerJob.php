@@ -9,11 +9,11 @@ use App\Services\CloudInitScriptBuilder;
 use App\Services\CloudServiceFactory;
 use App\Services\LinodeService;
 use Illuminate\Bus\Queueable;
-use Illuminate\Support\Str;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Str;
 use Throwable;
 
 class ProvisionLinodeServerJob implements ShouldQueue
@@ -69,7 +69,12 @@ class ProvisionLinodeServerJob implements ShouldQueue
         $linodeService->attachVolume((int) $volumeId, (int) $instance['id']);
 
         // Create firewall for defense-in-depth (UFW also configured in cloud-init)
-        $linodeService->createFirewall('fw-'.substr($this->server->id, 0, 29), (int) $instance['id']);
+        // and record its id so team teardown can release it — otherwise every
+        // destroyed Linode team leaks an orphan Cloud Firewall.
+        $firewall = $linodeService->createFirewall('fw-'.substr($this->server->id, 0, 29), (int) $instance['id']);
+        if (! empty($firewall['id'])) {
+            $this->server->update(['provider_firewall_id' => (string) $firewall['id']]);
+        }
 
         $this->server->events()->create([
             'event' => 'provisioning_started',

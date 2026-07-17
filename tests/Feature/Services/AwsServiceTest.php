@@ -94,6 +94,33 @@ it('waits for instance propagation before describing it', function () {
         ->toMatchArray(['InstanceId' => 'i-0abc123', 'VpcId' => 'vpc-9']);
 });
 
+it('waits for the InstanceTerminated state', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    $client->shouldReceive('waitUntil')
+        ->once()
+        ->with('InstanceTerminated', Mockery::on(fn (array $args): bool => $args['InstanceIds'] === ['i-0abc123']));
+
+    $credentials = new AwsCredentials('AKIATEAM000000000000', 'team-secret', 'us-east-1');
+    $service = new AwsService($credentials, $client);
+
+    $service->waitForInstanceTerminated('i-0abc123');
+});
+
+it('treats an already-reaped instance as terminated', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    // A terminated instance eventually 404s from the waiter; that means gone.
+    $client->shouldReceive('waitUntil')
+        ->once()
+        ->andThrow(new AwsException('InvalidInstanceID.NotFound: gone', new Command('DescribeInstances'), [
+            'code' => 'InvalidInstanceID.NotFound',
+        ]));
+
+    $credentials = new AwsCredentials('AKIATEAM000000000000', 'team-secret', 'us-east-1');
+    $service = new AwsService($credentials, $client);
+
+    expect(fn () => $service->waitForInstanceTerminated('i-0abc123'))->not->toThrow(Exception::class);
+});
+
 it('verifies credentials via STS GetCallerIdentity', function () {
     $sts = Mockery::mock(StsClient::class);
     $sts->shouldReceive('getCallerIdentity')
