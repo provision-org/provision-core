@@ -75,3 +75,18 @@ test('customer-selected bedrock: ids pass straight through to the amazon-bedrock
         ->and(LlmProvider::Bedrock->openclawModel('bedrock:us.anthropic.claude-sonnet-4-6'))
         ->toBe('amazon-bedrock/us.anthropic.claude-sonnet-4-6');
 });
+
+test('mantle: ids route to the amazon-bedrock-mantle provider, distinct from classic bedrock:', function () {
+    // Bedrock Mantle models are stored as "mantle:<raw>" and resolve to the
+    // bundled amazon-bedrock-mantle provider (native Anthropic/OpenAI APIs),
+    // NOT the classic amazon-bedrock ConverseStream provider.
+    expect(LlmProvider::forModel('mantle:anthropic.claude-sonnet-5'))
+        ->toBe(LlmProvider::Bedrock)
+        ->and(LlmProvider::Bedrock->openclawModel('mantle:anthropic.claude-sonnet-5'))
+        ->toBe('amazon-bedrock-mantle/anthropic.claude-sonnet-5')
+        ->and(LlmProvider::Bedrock->openclawModel('mantle:openai.gpt-oss-120b'))
+        ->toBe('amazon-bedrock-mantle/openai.gpt-oss-120b')
+        // classic bedrock: is unaffected
+        ->and(LlmProvider::Bedrock->openclawModel('bedrock:openai.gpt-oss-120b-1:0'))
+        ->toBe('amazon-bedrock/openai.gpt-oss-120b-1:0');
+});

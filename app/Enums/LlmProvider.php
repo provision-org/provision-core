@@ -99,9 +99,10 @@ enum LlmProvider: string
     public static function forModel(string $modelId): ?self
     {
         // Customer-selected Bedrock models are stored as "bedrock:<raw-aws-id>"
-        // (e.g. "bedrock:openai.gpt-oss-120b-1:0") so any model their account
-        // exposes flows through without a fixed enum entry.
-        if (str_starts_with($modelId, 'bedrock:')) {
+        // (classic ConverseStream) or "mantle:<raw-aws-id>" (Bedrock Mantle
+        // endpoint) so any model their account exposes flows through without a
+        // fixed enum entry. Both resolve to the same Bedrock provider enum.
+        if (str_starts_with($modelId, 'bedrock:') || str_starts_with($modelId, 'mantle:')) {
             return self::Bedrock;
         }
 
@@ -154,9 +155,13 @@ enum LlmProvider: string
      */
     private static function bedrockInferenceProfile(string $modelId): string
     {
-        // Customer-selected models arrive as "bedrock:<raw-aws-id>" — the raw id
-        // is exactly what their account/discovery published, so pass it straight
-        // through to the provider with no remapping.
+        // Customer-selected models arrive as "bedrock:<raw>" (classic) or
+        // "mantle:<raw>" (Bedrock Mantle) — the raw id is exactly what their
+        // account/discovery published, so pass it straight through to the
+        // matching OpenClaw provider with no remapping.
+        if (str_starts_with($modelId, 'mantle:')) {
+            return 'amazon-bedrock-mantle/'.substr($modelId, strlen('mantle:'));
+        }
         if (str_starts_with($modelId, 'bedrock:')) {
             return 'amazon-bedrock/'.substr($modelId, strlen('bedrock:'));
         }

@@ -34,7 +34,12 @@ type BedrockModel = {
     label: string;
     provider: string;
     requiresUseCaseForm: boolean;
+    // Mantle only: supports zero-data-retention ("none" mode) — the HIPAA knob.
+    zeroRetention?: boolean;
 };
+
+// Governs the stored model-id prefix: 'mantle' (Bedrock Mantle) or 'classic'.
+type BedrockMode = 'mantle' | 'classic';
 
 function agentCsrfToken(): string {
     return decodeURIComponent(
@@ -610,6 +615,7 @@ export default function CreateAgent({
 
     const [bedrockModels, setBedrockModels] = useState<BedrockModel[]>([]);
     const [bedrockDefault, setBedrockDefault] = useState<string | null>(null);
+    const [bedrockMode, setBedrockMode] = useState<BedrockMode>('mantle');
     const [bedrockLoading, setBedrockLoading] = useState(false);
 
     const form = useForm({
@@ -663,6 +669,7 @@ export default function CreateAgent({
                 if (cancelled || !response.ok) return;
                 setBedrockModels(data.models ?? []);
                 setBedrockDefault(data.default ?? null);
+                setBedrockMode(data.mode === 'classic' ? 'classic' : 'mantle');
             } catch {
                 // Non-fatal: the tier still works on the team default.
             } finally {
@@ -1644,7 +1651,7 @@ export default function CreateAgent({
                                                                         Team
                                                                         default
                                                                         {bedrockDefault
-                                                                            ? ` (${bedrockDefault.replace('bedrock:', '')})`
+                                                                            ? ` (${bedrockDefault.replace(/^(bedrock|mantle):/, '')})`
                                                                             : ''}
                                                                     </SelectItem>
                                                                     {Object.entries(
@@ -1674,11 +1681,14 @@ export default function CreateAgent({
                                                                                             key={
                                                                                                 m.id
                                                                                             }
-                                                                                            value={`bedrock:${m.id}`}
+                                                                                            value={`${bedrockMode}:${m.id}`}
                                                                                         >
                                                                                             {
                                                                                                 m.label
                                                                                             }
+                                                                                            {m.zeroRetention
+                                                                                                ? ' · ZDR'
+                                                                                                : ''}
                                                                                         </SelectItem>
                                                                                     ),
                                                                                 )}

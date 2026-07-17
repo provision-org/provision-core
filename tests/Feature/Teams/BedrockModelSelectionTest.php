@@ -3,6 +3,7 @@
 use App\Models\User;
 use App\Services\Aws\AwsCredentials;
 use App\Services\Aws\BedrockCatalogService;
+use App\Services\Aws\MantleCatalogService;
 use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -10,11 +11,7 @@ use Illuminate\Support\Facades\Bus;
 
 uses(RefreshDatabase::class);
 
-/**
- * Swap the factory so both the STS credential check and the Bedrock catalog
- * calls are doubled — nothing hits real AWS.
- */
-function mockBedrockFactory(BedrockCatalogService $catalog, bool $credsOk = true): void
+function mockStsAws(): AwsService
 {
     $aws = Mockery::mock(AwsService::class);
     $aws->shouldReceive('verifyCredentials')->andReturn([
@@ -22,9 +19,32 @@ function mockBedrockFactory(BedrockCatalogService $catalog, bool $credsOk = true
         'arn' => 'arn:aws:iam::123456789012:user/provision',
     ]);
 
+    return $aws;
+}
+
+/**
+ * Swap the factory so the STS credential check and the CLASSIC ConverseStream
+ * catalog are doubled — for non-Mantle regions. Nothing hits real AWS.
+ */
+function mockBedrockFactory(BedrockCatalogService $catalog): void
+{
+    $aws = mockStsAws();
     test()->mock(CloudServiceFactory::class, function ($mock) use ($aws, $catalog): void {
         $mock->shouldReceive('makeAwsForCredentials')->andReturn($aws);
         $mock->shouldReceive('makeBedrockCatalogForCredentials')->andReturn($catalog);
+    });
+}
+
+/**
+ * Swap the factory so the STS check and the MANTLE catalog are doubled — the
+ * path a Mantle-supported region (e.g. us-east-1) takes.
+ */
+function mockMantleFactory(MantleCatalogService $catalog): void
+{
+    $aws = mockStsAws();
+    test()->mock(CloudServiceFactory::class, function ($mock) use ($aws, $catalog): void {
+        $mock->shouldReceive('makeAwsForCredentials')->andReturn($aws);
+        $mock->shouldReceive('makeMantleCatalogForCredentials')->andReturn($catalog);
     });
 }
 
@@ -55,7 +75,7 @@ test('team creation stores the chosen default bedrock model on the cloud key', f
         ->and(AwsCredentials::defaultBedrockModelForTeam($team))->toBe('bedrock:openai.gpt-oss-120b-1:0');
 });
 
-test('a bare raw model id is normalised to the bedrock: form on store', function () {
+test('a bare raw model id is region-prefixed on store (mantle: in a Mantle region)', function () {
     Bus::fake();
     config()->set('cloud.provider_selection_enabled', true);
 
@@ -71,7 +91,35 @@ test('a bare raw model id is normalised to the bedrock: form on store', function
         'aws_key_id' => 'AKIAEXAMPLE000000000',
         'aws_secret' => 'super-secret',
         'aws_region' => 'us-east-1',
+        'aws_instance_profile' => 'provision-bedrock',
         'aws_bedrock_model' => 'deepseek.v3.2',
+    ]);
+
+    $team = $user->fresh()->currentTeam;
+    $credentials = json_decode($team->cloudApiKeys()->where('provider', 'aws')->first()->api_key, true);
+
+    // us-east-1 supports Mantle, so a bare id is stored under the mantle: prefix.
+    expect($credentials['default_bedrock_model'])->toBe('mantle:deepseek.v3.2');
+});
+
+test('an explicit bedrock: prefix is honoured on store even in a Mantle region', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', true);
+
+    $catalog = Mockery::mock(BedrockCatalogService::class);
+    mockBedrockFactory($catalog);
+
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'AWS Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'aws',
+        'aws_key_id' => 'AKIAEXAMPLE000000000',
+        'aws_secret' => 'super-secret',
+        'aws_region' => 'us-east-1',
+        'aws_instance_profile' => 'provision-bedrock',
+        'aws_bedrock_model' => 'bedrock:deepseek.v3.2',
     ]);
 
     $team = $user->fresh()->currentTeam;
@@ -92,13 +140,13 @@ test('bedrock-models endpoint is forbidden without byo_cloud_enabled', function 
         ->assertForbidden();
 });
 
-test('bedrock-models endpoint returns the catalog and auto-detected default', function () {
-    $catalog = Mockery::mock(BedrockCatalogService::class);
+test('bedrock-models endpoint returns the Mantle catalog with ZDR flags and default (us-east-1)', function () {
+    $catalog = Mockery::mock(MantleCatalogService::class);
     $catalog->shouldReceive('listModels')->once()->andReturn([
-        ['id' => 'openai.gpt-oss-120b-1:0', 'label' => 'GPT-OSS 120B', 'provider' => 'OpenAI', 'requiresUseCaseForm' => false],
+        ['id' => 'anthropic.claude-sonnet-5', 'label' => 'Claude Sonnet 5', 'provider' => 'Anthropic', 'requiresUseCaseForm' => false, 'zeroRetention' => true],
     ]);
-    $catalog->shouldReceive('resolveBestDefaultModel')->once()->andReturn('openai.gpt-oss-120b-1:0');
-    mockBedrockFactory($catalog);
+    $catalog->shouldReceive('resolveBestDefaultModel')->once()->andReturn('anthropic.claude-sonnet-5');
+    mockMantleFactory($catalog);
 
     $user = User::factory()->withCompletedProfile()->byoCloud()->create();
 
@@ -109,11 +157,15 @@ test('bedrock-models endpoint returns the catalog and auto-detected default', fu
             'aws_region' => 'us-east-1',
         ])
         ->assertOk()
-        ->assertJsonPath('default', 'bedrock:openai.gpt-oss-120b-1:0')
-        ->assertJsonPath('models.0.id', 'openai.gpt-oss-120b-1:0');
+        ->assertJsonPath('mode', 'mantle')
+        ->assertJsonPath('default', 'mantle:anthropic.claude-sonnet-5')
+        ->assertJsonPath('models.0.id', 'anthropic.claude-sonnet-5')
+        ->assertJsonPath('models.0.zeroRetention', true);
 });
 
-test('verify-bedrock-model endpoint surfaces the use-case-form gate', function () {
+test('verify-bedrock-model surfaces the classic use-case-form gate in a non-Mantle region', function () {
+    // ca-central-1 is not a Mantle region, so the classic ConverseStream
+    // catalog runs — the only path that produces the Anthropic use-case gate.
     $catalog = Mockery::mock(BedrockCatalogService::class);
     $catalog->shouldReceive('verifyModel')
         ->once()
@@ -127,7 +179,7 @@ test('verify-bedrock-model endpoint surfaces the use-case-form gate', function (
         ->postJson(route('teams.verify-bedrock-model'), [
             'aws_key_id' => 'AKIAEXAMPLE000000000',
             'aws_secret' => 'super-secret',
-            'aws_region' => 'us-east-1',
+            'aws_region' => 'ca-central-1',
             'model_id' => 'bedrock:us.anthropic.claude-sonnet-4-6',
         ])
         ->assertStatus(422)

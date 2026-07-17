@@ -41,12 +41,19 @@ type BedrockModel = {
     label: string;
     provider: string;
     requiresUseCaseForm: boolean;
+    // Mantle only: model supports the "none" data-retention mode (zero data
+    // retention) — the knob HIPAA/BAA teams want. Absent on the classic catalog.
+    zeroRetention?: boolean;
 };
+
+// 'mantle' = Bedrock Mantle (native APIs, no use-case form, ZDR flags);
+// 'classic' = ConverseStream fallback. Governs the stored model-id prefix.
+type BedrockMode = 'mantle' | 'classic';
 
 type BedrockCatalogState =
     | { status: 'idle' }
     | { status: 'loading' }
-    | { status: 'loaded'; models: BedrockModel[] }
+    | { status: 'loaded'; models: BedrockModel[]; mode: BedrockMode }
     | { status: 'error'; message: string };
 
 type ModelVerifyState =
@@ -103,7 +110,9 @@ const bedrockPolicy = `{
       "Effect": "Allow",
       "Action": [
         "bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream",
-        "bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles"
+        "bedrock:ListFoundationModels", "bedrock:ListInferenceProfiles",
+        "bedrock:CallWithBearerToken", "bedrock-mantle:CallWithBearerToken",
+        "bedrock-mantle:ListModels", "bedrock-mantle:CreateInference"
       ],
       "Resource": "*"
     }
@@ -389,6 +398,7 @@ export default function CreateTeam({
                     setBedrockCatalog({
                         status: 'loaded',
                         models: data.models ?? [],
+                        mode: data.mode === 'mantle' ? 'mantle' : 'classic',
                     });
                     if (data.default && !selectedModel) {
                         form.setData('aws_bedrock_model', data.default);
@@ -979,7 +989,10 @@ export default function CreateTeam({
 
                                 <div className="grid gap-2">
                                     <Label htmlFor="aws_instance_profile">
-                                        Instance profile name (recommended)
+                                        Instance profile name{' '}
+                                        <span className="text-destructive">
+                                            *
+                                        </span>
                                     </Label>
                                     <Input
                                         id="aws_instance_profile"
@@ -1000,9 +1013,9 @@ export default function CreateTeam({
                                     <p className="text-xs text-muted-foreground">
                                         The role name from step 3. Agents run
                                         their Bedrock models with this role
-                                        &mdash; no keys on the server. Leave
-                                        blank only if this team won&rsquo;t use
-                                        Bedrock.
+                                        &mdash; no keys ever land on the server,
+                                        just short-lived role credentials from
+                                        instance metadata.
                                     </p>
                                     <InputError
                                         message={
@@ -1107,11 +1120,14 @@ export default function CreateTeam({
                                                                                 key={
                                                                                     m.id
                                                                                 }
-                                                                                value={`bedrock:${m.id}`}
+                                                                                value={`${bedrockCatalog.mode}:${m.id}`}
                                                                             >
                                                                                 {
                                                                                     m.label
                                                                                 }
+                                                                                {m.zeroRetention
+                                                                                    ? ' · ZDR'
+                                                                                    : ''}
                                                                                 {m.requiresUseCaseForm
                                                                                     ? ' (may need use-case form)'
                                                                                     : ''}

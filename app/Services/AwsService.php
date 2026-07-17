@@ -165,6 +165,16 @@ class AwsService
      */
     public function getInstance(string $instanceId): array
     {
+        // DescribeInstances can fail with InvalidInstanceID.NotFound for a few
+        // seconds after RunInstances (AWS eventual consistency). Wait for the id
+        // to propagate first, so callers running immediately post-launch (e.g.
+        // createSecurityGroup) don't spuriously throw and fail the whole job —
+        // which previously retried from the top and orphaned the launched box.
+        $this->execute('InstanceExists', fn (): mixed => $this->client->waitUntil('InstanceExists', [
+            'InstanceIds' => [$instanceId],
+            '@waiter' => ['delay' => 2, 'maxAttempts' => 20],
+        ]));
+
         $result = $this->execute('DescribeInstances', fn (): mixed => $this->client->describeInstances([
             'InstanceIds' => [$instanceId],
         ]));

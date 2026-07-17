@@ -22,6 +22,9 @@ readonly class AwsCredentials
         // Team-wide default Bedrock model in internal "bedrock:<raw-aws-id>"
         // form; seeds each new Bedrock agent's model unless the agent overrides.
         public ?string $defaultBedrockModel = null,
+        // Present only for temporary (STS/role) credentials; static IAM-user
+        // keys have none. Passed through to the Mantle bearer-token signer.
+        public ?string $sessionToken = null,
     ) {}
 
     /**
@@ -43,6 +46,7 @@ readonly class AwsCredentials
             sshKeyName: $data['ssh_key_name'] ?? null,
             instanceProfile: $data['instance_profile'] ?? null,
             defaultBedrockModel: $data['default_bedrock_model'] ?? null,
+            sessionToken: $data['session_token'] ?? null,
         );
     }
 
@@ -64,6 +68,7 @@ readonly class AwsCredentials
             sshKeyName: $config['ssh_key_name'] ?? null,
             instanceProfile: $config['instance_profile'] ?? null,
             defaultBedrockModel: $config['default_bedrock_model'] ?? null,
+            sessionToken: $config['session_token'] ?? null,
         );
     }
 

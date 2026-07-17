@@ -6,6 +6,9 @@ use App\Enums\CloudProvider;
 use App\Models\Team;
 use App\Services\Aws\AwsCredentials;
 use App\Services\Aws\BedrockCatalogService;
+use App\Services\Aws\MantleCatalogService;
+use App\Services\Aws\MantleTokenGenerator;
+use Illuminate\Http\Client\Factory as HttpFactory;
 
 class CloudServiceFactory
 {
@@ -44,6 +47,17 @@ class CloudServiceFactory
     public function makeBedrockCatalogForCredentials(AwsCredentials $credentials): BedrockCatalogService
     {
         return new BedrockCatalogService($credentials);
+    }
+
+    /**
+     * Build a MantleCatalogService for the given credentials — the Mantle
+     * endpoint's model list + verify, reached with a short-term bearer token
+     * minted from the credentials (no classic ConverseStream, no use-case form).
+     * Same mockable seam as makeBedrockCatalogForCredentials.
+     */
+    public function makeMantleCatalogForCredentials(AwsCredentials $credentials): MantleCatalogService
+    {
+        return new MantleCatalogService($credentials, new MantleTokenGenerator, app(HttpFactory::class));
     }
 
     private function resolveApiToken(Team $team, CloudProvider $provider): ?string

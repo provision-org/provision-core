@@ -164,13 +164,12 @@ test('a byo_cloud_enabled user can create an aws team with stored credentials', 
     Bus::assertDispatched(ProvisionAwsServerJob::class);
 });
 
-test('an aws team without instance profile omits the key from stored credentials', function () {
+test('an aws team requires an instance profile for the Bedrock role', function () {
     Bus::fake();
     config()->set('cloud.provider_selection_enabled', true);
-    mockAwsCredentialVerification();
     $user = User::factory()->withCompletedProfile()->byoCloud()->create();
 
-    $this->actingAs($user)->post(route('teams.store'), [
+    $response = $this->actingAs($user)->post(route('teams.store'), [
         'name' => 'AWS Team',
         'harness_type' => 'openclaw',
         'cloud_provider' => 'aws',
@@ -179,10 +178,8 @@ test('an aws team without instance profile omits the key from stored credentials
         'aws_region' => 'us-east-1',
     ]);
 
-    $key = $user->fresh()->currentTeam->cloudApiKeys()->where('provider', 'aws')->first();
-    $credentials = json_decode($key->api_key, true);
-
-    expect($credentials)->not->toHaveKey('instance_profile');
+    $response->assertSessionHasErrors('aws_instance_profile');
+    Bus::assertNotDispatched(ProvisionAwsServerJob::class);
 });
 
 test('server.region uses provider-specific code for Hetzner', function () {
@@ -262,6 +259,7 @@ test('an aws team is not created when credential verification fails', function (
         'aws_key_id' => 'AKIABOGUS00000000000',
         'aws_secret' => 'wrong-secret',
         'aws_region' => 'us-east-1',
+        'aws_instance_profile' => 'provision-bedrock',
     ]);
 
     $response->assertSessionHasErrors('aws_key_id');

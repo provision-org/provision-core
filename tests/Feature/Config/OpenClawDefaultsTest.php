@@ -240,6 +240,10 @@ test('applyBedrockPluginConfig enables instance-profile discovery with the team 
             'enabled' => true,
             'region' => 'eu-central-1',
         ])
+        // No plugins.allow — it is an exclusive allowlist that would disable the
+        // bundled browser plugin. Classic Bedrock models register via the explicit
+        // models.providers list below, not an allowlist.
+        ->and($config['plugins'] ?? [])->not->toHaveKey('allow')
         // Non-destructive merge — existing entries survive
         ->and($config['plugins']['entries']['device-pair'])->toBe(['enabled' => false]);
 });
@@ -277,6 +281,52 @@ test('applyBedrockPluginConfig declares the provider with the agent model and te
         ->and($declaredIds)->toContain('us.anthropic.claude-sonnet-4-6')
         // …and the tier defaults as a safety net.
         ->and($declaredIds)->toContain('us.anthropic.claude-haiku-4-5-20251001-v1:0');
+});
+
+test('applyBedrockPluginConfig enables discovery-owned amazon-bedrock-mantle for mantle: models', function () {
+    $team = Team::factory()->aws()->create();
+    $server = Server::factory()->running()->aws()->create(['team_id' => $team->id]);
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'auth_provider' => 'bedrock',
+        'model_primary' => 'mantle:anthropic.claude-sonnet-5',
+    ]);
+    TeamApiKey::factory()->awsCloud()->create([
+        'team_id' => $team->id,
+        'api_key' => json_encode([
+            'key_id' => 'AKIAEXAMPLEEXAMPLE',
+            'secret' => 'secret',
+            'region' => 'us-east-1',
+            'default_bedrock_model' => 'mantle:openai.gpt-oss-120b',
+        ]),
+    ]);
+
+    $config = $this->service->applyBedrockPluginConfig([], $server);
+
+    // The plugin is enabled (enough to load + trust it — no plugins.allow needed).
+    $entry = $config['plugins']['entries']['amazon-bedrock-mantle'];
+    expect($entry['enabled'])->toBeTrue();
+
+    // CRITICAL: we must NOT set plugins.allow — it is an exclusive allowlist that
+    // would disable the bundled browser plugin (and every unlisted plugin).
+    expect($config['plugins'] ?? [])->not->toHaveKey('allow');
+
+    // The provider declares its models EXPLICITLY (so they register without any
+    // allowlist) plus the IAM marker apiKey that triggers the instance-role bearer
+    // mint. Claude ids use the native Anthropic Messages API.
+    $provider = $config['models']['providers']['amazon-bedrock-mantle'];
+    $declaredIds = array_column($provider['models'], 'id');
+    $sonnet = collect($provider['models'])->firstWhere('id', 'anthropic.claude-sonnet-5');
+    expect($provider['apiKey'])->toBe('__amazon_bedrock_mantle_iam__')
+        ->and($provider['baseUrl'])->toBe('https://bedrock-mantle.us-east-1.api.aws/v1')
+        ->and($provider['auth'])->toBe('api-key')
+        ->and($declaredIds)->toContain('anthropic.claude-sonnet-5')
+        ->and($sonnet['api'])->toBe('anthropic-messages')
+        ->and($sonnet['name'])->toBe('anthropic.claude-sonnet-5')
+        // The classic ConverseStream plugin/provider stays absent in Mantle mode.
+        ->and($config['models']['providers'] ?? [])->not->toHaveKey('amazon-bedrock')
+        ->and($config['plugins']['entries'])->not->toHaveKey('amazon-bedrock');
 });
 
 test('applyBedrockPluginConfig is a no-op for servers without bedrock agents', function () {

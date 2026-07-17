@@ -5,6 +5,7 @@ use App\Services\AwsService;
 use Aws\Command;
 use Aws\Ec2\Ec2Client;
 use Aws\Exception\AwsException;
+use Aws\Result;
 use Aws\Sts\StsClient;
 
 beforeEach(function () {
@@ -70,6 +71,27 @@ it('omits the instance profile entirely when neither team nor config define one'
     $service = new AwsService($credentials, mockEc2ClientExpectingInstanceProfile(null));
 
     $service->createInstance(null, '#!/bin/bash');
+});
+
+it('waits for instance propagation before describing it', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    // Eventual consistency: getInstance must wait for InstanceExists before
+    // DescribeInstances, so a call right after RunInstances doesn't 404.
+    $client->shouldReceive('waitUntil')
+        ->once()
+        ->with('InstanceExists', Mockery::on(fn (array $args): bool => $args['InstanceIds'] === ['i-0abc123']));
+    $client->shouldReceive('describeInstances')
+        ->once()
+        ->with(['InstanceIds' => ['i-0abc123']])
+        ->andReturn(new Result([
+            'Reservations' => [['Instances' => [['InstanceId' => 'i-0abc123', 'VpcId' => 'vpc-9']]]],
+        ]));
+
+    $credentials = new AwsCredentials('AKIATEAM000000000000', 'team-secret', 'us-east-1');
+    $service = new AwsService($credentials, $client);
+
+    expect($service->getInstance('i-0abc123'))
+        ->toMatchArray(['InstanceId' => 'i-0abc123', 'VpcId' => 'vpc-9']);
 });
 
 it('verifies credentials via STS GetCallerIdentity', function () {

@@ -41,38 +41,51 @@ class ProvisionAwsServerJob implements ShouldQueue
             'daemon_token' => $this->server->daemon_token ?: Str::random(48),
         ]);
 
-        $callbackUrl = $this->buildCallbackUrl();
-        $timezone = $team->timezone ?? 'UTC';
-        $harnessType = $team->harness_type ?? HarnessType::Hermes;
-        $cloudInit = $scriptBuilder->build($callbackUrl, self::ROOT_DEVICE_PATH, $timezone, $harnessType);
+        // Idempotent across retries: only launch when we haven't already. An
+        // attempt that threw *after* RunInstances (e.g. the DescribeInstances
+        // eventual-consistency race in createSecurityGroup) leaves
+        // provider_server_id set — reuse that instance so the retry resumes
+        // rather than launching, and orphaning, a fresh box.
+        if (! $this->server->provider_server_id) {
+            $callbackUrl = $this->buildCallbackUrl();
+            $timezone = $team->timezone ?? 'UTC';
+            $harnessType = $team->harness_type ?? HarnessType::Hermes;
+            $cloudInit = $scriptBuilder->build($callbackUrl, self::ROOT_DEVICE_PATH, $timezone, $harnessType);
 
-        $instance = $awsService->createInstance(
-            $team,
-            $cloudInit,
-            $team->serverType(),
-            null,
-            "provision-{$this->server->id}",
-        );
+            $instance = $awsService->createInstance(
+                $team,
+                $cloudInit,
+                $team->serverType(),
+                null,
+                "provision-{$this->server->id}",
+            );
 
-        // PublicIpAddress may be null until the instance is running —
-        // SetupOpenClawOnServerJob fetches it before SSH if missing.
-        $ip = $awsService->extractIpAddress($instance);
+            // PublicIpAddress may be null until the instance is running —
+            // SetupOpenClawOnServerJob fetches it before SSH if missing.
+            $ip = $awsService->extractIpAddress($instance);
 
-        $this->server->update([
-            'provider_server_id' => (string) $instance['InstanceId'],
-            'ipv4_address' => $ip,
-        ]);
+            $this->server->update([
+                'provider_server_id' => (string) $instance['InstanceId'],
+                'ipv4_address' => $ip,
+            ]);
+        }
+
+        $instanceId = (string) $this->server->provider_server_id;
 
         // Create a security group for defense-in-depth (UFW also configured
         // in cloud-init). Persist the ID so DestroyTeamJob can release it.
-        $securityGroup = $awsService->createSecurityGroup("provision-{$this->server->id}", (string) $instance['InstanceId']);
-        $this->server->update([
-            'provider_firewall_id' => $securityGroup['id'] ?? null,
-        ]);
+        // Skip when a prior attempt already created it — the fixed group name
+        // would otherwise collide (InvalidGroup.Duplicate) on retry.
+        if (! $this->server->provider_firewall_id) {
+            $securityGroup = $awsService->createSecurityGroup("provision-{$this->server->id}", $instanceId);
+            $this->server->update([
+                'provider_firewall_id' => $securityGroup['id'] ?? null,
+            ]);
+        }
 
         $this->server->events()->create([
             'event' => 'provisioning_started',
-            'payload' => ['provider_server_id' => $instance['InstanceId'], 'provider' => 'aws'],
+            'payload' => ['provider_server_id' => $instanceId, 'provider' => 'aws'],
         ]);
     }
 

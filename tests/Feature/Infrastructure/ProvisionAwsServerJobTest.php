@@ -68,6 +68,51 @@ it('tolerates a missing public ip at launch time', function () {
         ->and($server->ipv4_address)->toBeNull();
 });
 
+it('does not relaunch when a prior attempt already created the instance', function () {
+    // Simulates a retry after createSecurityGroup failed on the eventual-
+    // consistency race: provider_server_id is already set, so the retry must
+    // resume at the security group step, never launching a second (orphaned) box.
+    $server = Server::factory()->aws()->create([
+        'provider_server_id' => 'i-0already',
+        'provider_firewall_id' => null,
+    ]);
+
+    $awsService = Mockery::mock(AwsService::class);
+    $awsService->shouldNotReceive('createInstance');
+    $awsService->shouldNotReceive('extractIpAddress');
+    $awsService->shouldReceive('createSecurityGroup')
+        ->once()
+        ->with("provision-{$server->id}", 'i-0already')
+        ->andReturn(['id' => 'sg-0resumed']);
+
+    (new ProvisionAwsServerJob($server))->handle(mockCloudFactoryForAws($awsService), app(CloudInitScriptBuilder::class));
+
+    $server->refresh();
+    expect($server->provider_server_id)->toBe('i-0already')
+        ->and($server->provider_firewall_id)->toBe('sg-0resumed');
+
+    $event = $server->events()->where('event', 'provisioning_started')->first();
+    expect($event->payload['provider_server_id'])->toBe('i-0already');
+});
+
+it('skips security group creation when one already exists', function () {
+    // Retry after the SG was created but a later step failed — must not
+    // recreate it (the fixed group name would collide).
+    $server = Server::factory()->aws()->create([
+        'provider_server_id' => 'i-0already',
+        'provider_firewall_id' => 'sg-existing',
+    ]);
+
+    $awsService = Mockery::mock(AwsService::class);
+    $awsService->shouldNotReceive('createInstance');
+    $awsService->shouldNotReceive('createSecurityGroup');
+
+    (new ProvisionAwsServerJob($server))->handle(mockCloudFactoryForAws($awsService), app(CloudInitScriptBuilder::class));
+
+    $server->refresh();
+    expect($server->provider_firewall_id)->toBe('sg-existing');
+});
+
 it('creates a provisioning_started event with aws provider', function () {
     $server = Server::factory()->aws()->create();
 

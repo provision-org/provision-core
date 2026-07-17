@@ -15,6 +15,8 @@ use App\Mail\TeamCreatedMail;
 use App\Models\ServerEvent;
 use App\Models\Team;
 use App\Services\Aws\AwsCredentials;
+use App\Services\Aws\BedrockCatalogService;
+use App\Services\Aws\MantleCatalogService;
 use App\Services\CloudServiceFactory;
 use App\Services\FirecrawlService;
 use App\Services\ServerProvisioningDispatcher;
@@ -128,10 +130,13 @@ class TeamController extends Controller
             }
 
             // Team-wide default Bedrock model the customer picked in the wizard.
-            // Stored in internal "bedrock:<raw>" form; seeds each new agent.
+            // Stored in internal "mantle:<raw>" (Mantle) or "bedrock:<raw>"
+            // (classic) form; seeds each new agent.
             if ($request->filled('aws_bedrock_model')) {
-                $raw = preg_replace('/^bedrock:/', '', (string) $request->aws_bedrock_model);
-                $credentials['default_bedrock_model'] = 'bedrock:'.$raw;
+                $credentials['default_bedrock_model'] = $this->normalizeBedrockModelId(
+                    (string) $request->aws_bedrock_model,
+                    $credentials['region'],
+                );
             }
 
             $team->apiKeys()->create([
@@ -210,18 +215,24 @@ class TeamController extends Controller
         abort_unless((bool) $request->user()->byo_cloud_enabled, 403);
 
         try {
-            $catalog = $factory->makeBedrockCatalogForCredentials($this->resolveBedrockCredentials($request));
+            $catalog = $this->bedrockCatalog($request, $factory);
             $models = $catalog->listModels();
             $default = $catalog->resolveBestDefaultModel($models);
-        } catch (RuntimeException $e) {
+        } catch (\Throwable $e) {
             return response()->json(['message' => $e->getMessage()], 422);
         }
 
+        $prefix = $catalog instanceof MantleCatalogService ? 'mantle' : 'bedrock';
+
         return response()->json([
             'models' => $models,
-            // Return the default in the internal "bedrock:<raw>" form the rest
-            // of the app stores; null when nothing usable was detected.
-            'default' => $default ? 'bedrock:'.$default : null,
+            // 'mantle' exposes richer models (incl. Claude 5) with no use-case
+            // form + per-model zeroRetention; 'classic' is the ConverseStream
+            // fallback. Drives which prefix the wizard stores model ids under.
+            'mode' => $prefix,
+            // Default in the internal "<prefix>:<raw>" form the app stores;
+            // null when nothing usable was detected.
+            'default' => $default ? $prefix.':'.$default : null,
         ]);
     }
 
@@ -238,18 +249,52 @@ class TeamController extends Controller
             'model_id' => ['required', 'string', 'max:255'],
         ]);
 
-        // Accept either the internal "bedrock:<raw>" form or a bare raw id.
-        $rawId = (string) preg_replace('/^bedrock:/', '', (string) $request->input('model_id'));
+        // Accept the internal "mantle:<raw>" / "bedrock:<raw>" form or a bare id.
+        $rawId = (string) preg_replace('/^(bedrock|mantle):/', '', (string) $request->input('model_id'));
 
         try {
-            $result = $factory
-                ->makeBedrockCatalogForCredentials($this->resolveBedrockCredentials($request))
-                ->verifyModel($rawId);
-        } catch (RuntimeException $e) {
+            $result = $this->bedrockCatalog($request, $factory)->verifyModel($rawId);
+        } catch (\Throwable $e) {
             return response()->json(['ok' => false, 'error' => $e->getMessage()], 422);
         }
 
         return response()->json($result, ($result['ok'] ?? false) ? 200 : 422);
+    }
+
+    /**
+     * Normalise a wizard-supplied model id to the internal "<prefix>:<raw>"
+     * form. An explicit "mantle:"/"bedrock:" prefix is honoured; a bare id is
+     * prefixed by region (Mantle where supported, classic elsewhere).
+     */
+    private function normalizeBedrockModelId(string $value, string $region): string
+    {
+        $raw = (string) preg_replace('/^(bedrock|mantle):/', '', $value);
+
+        if (str_starts_with($value, 'mantle:')) {
+            return 'mantle:'.$raw;
+        }
+        if (str_starts_with($value, 'bedrock:')) {
+            return 'bedrock:'.$raw;
+        }
+
+        $prefix = in_array($region, MantleCatalogService::SUPPORTED_REGIONS, true) ? 'mantle' : 'bedrock';
+
+        return $prefix.':'.$raw;
+    }
+
+    /**
+     * Pick the catalog backend for the resolved credentials: the Mantle endpoint
+     * (bearer token, no use-case form, richer catalog incl. ZDR flags) when the
+     * region supports it, else the classic ConverseStream catalog. Mantle is the
+     * primary path; classic is the fallback for regions Mantle hasn't reached.
+     */
+    private function bedrockCatalog(Request $request, CloudServiceFactory $factory): MantleCatalogService|BedrockCatalogService
+    {
+        $credentials = $this->resolveBedrockCredentials($request);
+
+        return in_array($credentials->region, MantleCatalogService::SUPPORTED_REGIONS, true)
+            ? $factory->makeMantleCatalogForCredentials($credentials)
+            : $factory->makeBedrockCatalogForCredentials($credentials);
     }
 
     /**

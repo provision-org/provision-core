@@ -27,9 +27,10 @@ class UpdateAgentRequest extends FormRequest
             'model_primary' => [
                 'nullable', 'string',
                 function (string $attribute, mixed $value, \Closure $fail) use ($team, $allowedModels): void {
-                    // Bedrock ids ("bedrock:<raw-aws-id>") are trusted from the
-                    // verified wizard selection; managed models stay enum-checked.
-                    if (is_string($value) && str_starts_with($value, 'bedrock:')) {
+                    // Bedrock ids ("bedrock:<raw>" classic or "mantle:<raw>"
+                    // Bedrock Mantle) are trusted from the verified wizard
+                    // selection; managed models stay enum-checked.
+                    if (is_string($value) && (str_starts_with($value, 'bedrock:') || str_starts_with($value, 'mantle:'))) {
                         if ($team->cloudProvider() !== CloudProvider::Aws) {
                             $fail('Bedrock models are only available for teams running in their own AWS account.');
                         }
