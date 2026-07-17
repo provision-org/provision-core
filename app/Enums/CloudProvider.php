@@ -8,6 +8,7 @@ enum CloudProvider: string
     case DigitalOcean = 'digitalocean';
     case Linode = 'linode';
     case Docker = 'docker';
+    case Aws = 'aws';
 
     public function label(): string
     {
@@ -16,6 +17,7 @@ enum CloudProvider: string
             self::DigitalOcean => 'DigitalOcean',
             self::Linode => 'Linode',
             self::Docker => 'Docker',
+            self::Aws => 'AWS (your account)',
         };
     }
 
@@ -25,6 +27,7 @@ enum CloudProvider: string
             self::Hetzner => 'us-east',
             self::DigitalOcean => 'us-east',
             self::Linode => 'us-east',
+            self::Aws => 'us-east',
             self::Docker => 'local',
         };
     }
@@ -50,6 +53,7 @@ enum CloudProvider: string
                 self::Hetzner => 'ash',
                 self::DigitalOcean => 'nyc1',
                 self::Linode => 'us-east',
+                self::Aws => 'us-east-1',
                 self::Docker => 'local',
             };
     }

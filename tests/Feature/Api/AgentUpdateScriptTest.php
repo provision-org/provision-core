@@ -6,6 +6,7 @@ use App\Enums\LlmProvider;
 use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
+use App\Models\TeamApiKey;
 use App\Services\Scripts\AgentUpdateScriptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 
@@ -85,6 +86,61 @@ test('openclaw update script reports error (not warning) when gateway never beco
 
     expect($script)->toContain('status=error&error_message=openclaw-gateway+failed+to+become+healthy+after+restart')
         ->not->toContain('warning=health_check_failed');
+});
+
+test('openclaw config snapshot wires bedrock discovery, models, and heartbeat for BYO-AWS agents', function () {
+    $team = Team::factory()->aws()->create();
+    $server = Server::factory()->running()->aws()->create(['team_id' => $team->id]);
+
+    TeamApiKey::factory()->awsCloud()->create([
+        'team_id' => $team->id,
+        'api_key' => json_encode([
+            'key_id' => 'AKIALEAKCANARYVALUE',
+            'secret' => 'leak-canary-secret',
+            'region' => 'eu-central-1',
+        ]),
+    ]);
+
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-bdrk',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'Bedrocker',
+        'status' => AgentStatus::Active,
+        'auth_provider' => 'bedrock',
+        'model_primary' => 'bedrock-claude-sonnet-4-6',
+        'model_fallbacks' => ['bedrock-claude-haiku-4-5'],
+    ]);
+
+    $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
+
+    // amazon-bedrock plugin: instance-profile discovery pinned to the team region
+    expect($config['plugins']['entries']['amazon-bedrock']['enabled'])->toBeTrue()
+        ->and($config['plugins']['entries']['amazon-bedrock']['config']['discovery'])->toBe([
+            'enabled' => true,
+            'region' => 'eu-central-1',
+        ]);
+
+    // Agent entry: inference-profile model refs + in-cloud heartbeat override
+    $entry = collect($config['agents']['list'])->firstWhere('id', 'agent-bdrk');
+    expect($entry['model'])->toBe([
+        'primary' => 'amazon-bedrock/us.anthropic.claude-sonnet-4-6',
+        'fallbacks' => ['amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0'],
+    ])->and($entry['heartbeat'])->toBe([
+        'model' => 'amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0',
+        'lightContext' => true,
+    ]);
+
+    // All-bedrock server: defaults route heartbeat + subagents + memory search in-cloud
+    expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+        ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+        ->and($config['agents']['defaults']['memorySearch']['provider'])->toBe('bedrock');
+
+    // The IAM key/secret never appear anywhere in the config
+    $json = json_encode($config);
+    expect($json)->not->toContain('AKIALEAKCANARYVALUE')
+        ->and($json)->not->toContain('leak-canary-secret');
 });
 
 test('update script endpoint returns hermes script for hermes agents', function () {

@@ -532,10 +532,14 @@ class AgentUpdateScriptService
 
         $config['agents']['list'] = $agentList;
 
-        // Heartbeat defaults: cheap model, light context
+        // Heartbeat defaults: cheap model, light context. All-Bedrock AWS
+        // servers heartbeat in-cloud on Bedrock Haiku instead of the managed
+        // OpenRouter automation model.
         $config['agents']['defaults'] = $config['agents']['defaults'] ?? [];
         $config['agents']['defaults']['heartbeat'] = $config['agents']['defaults']['heartbeat'] ?? [];
-        $config['agents']['defaults']['heartbeat']['model'] = LlmProvider::AUTOMATION_MODEL;
+        $config['agents']['defaults']['heartbeat']['model'] = $this->defaultsService->serverIsAllBedrock($server)
+            ? OpenClawDefaultsService::bedrockAutomationModel()
+            : LlmProvider::AUTOMATION_MODEL;
         $config['agents']['defaults']['heartbeat']['lightContext'] = true;
 
         // Rebuild all channel configs from database
@@ -642,6 +646,10 @@ class AgentUpdateScriptService
             'device-pair' => ['enabled' => false],
         ]];
 
+        // Bedrock (BYO-AWS): enable instance-profile discovery for the
+        // amazon-bedrock plugin when any agent on the server uses Bedrock.
+        $config = $this->defaultsService->applyBedrockPluginConfig($config, $server);
+
         $config['session'] = [
             'dmScope' => 'per-channel-peer',
             'reset' => [
@@ -722,7 +730,8 @@ class AgentUpdateScriptService
     private function collectLlmProviderEnvKeys(Server $server): array
     {
         $team = $server->team;
-        $activeKeys = $team->apiKeys()->where('is_active', true)->get();
+        // LLM keys only — cloud keys (BYO-AWS) have string providers and no env mapping.
+        $activeKeys = $team->llmApiKeys()->where('is_active', true)->get();
         $envKeys = [];
 
         foreach ($activeKeys as $apiKey) {

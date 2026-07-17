@@ -3,8 +3,10 @@
 namespace App\Jobs;
 
 use App\Contracts\CommandExecutor;
+use App\Enums\CloudProvider;
 use App\Enums\LlmProvider;
 use App\Models\Server;
+use App\Services\Aws\AwsCredentials;
 use App\Services\HarnessManager;
 use App\Services\OpenClawDefaultsService;
 use App\Support\OpenClawConfig;
@@ -20,7 +22,11 @@ class UpdateEnvOnServerJob implements ShouldQueue
     public function handle(HarnessManager $harnessManager, OpenClawDefaultsService $defaultsService): void
     {
         $team = $this->server->team;
-        $activeKeys = $team->apiKeys()->where('is_active', true)->get();
+        // LLM keys only — cloud keys (e.g. the BYO-AWS credential row) carry a
+        // raw string provider and must never be pushed to the agent .env.
+        // Bedrock needs no key at all (EC2 instance-profile auth), so it is
+        // naturally absent here.
+        $activeKeys = $team->llmApiKeys()->where('is_active', true)->get();
         $executor = $harnessManager->resolveExecutor($this->server);
 
         $envLines = [];
@@ -58,6 +64,15 @@ class UpdateEnvOnServerJob implements ShouldQueue
                 $envLines[] = "ANTHROPIC_API_KEY={$managedKey->api_key}";
                 $envConfigKeys['ANTHROPIC_API_KEY'] = $managedKey->api_key;
             }
+        }
+
+        // BYO-AWS: the OpenClaw amazon-bedrock plugin resolves its endpoint
+        // from AWS_REGION. Only the region is pushed — the AWS key/secret are
+        // NEVER written to the box (Bedrock auth is the EC2 instance profile).
+        if ($team->cloudProvider() === CloudProvider::Aws) {
+            $awsRegion = AwsCredentials::regionForTeam($team);
+            $envLines[] = "AWS_REGION={$awsRegion}";
+            $envConfigKeys['AWS_REGION'] = $awsRegion;
         }
 
         // Add custom env vars (only to .env file, not openclaw.json env section)
@@ -204,6 +219,10 @@ class UpdateEnvOnServerJob implements ShouldQueue
         if (is_array($config['plugins']) && isset($config['plugins']['entries'])) {
             $config['plugins']['entries']['device-pair'] = ['enabled' => false];
         }
+
+        // Bedrock (BYO-AWS): keep instance-profile discovery enabled for the
+        // amazon-bedrock plugin when any agent on the server uses Bedrock.
+        $config = $defaultsService->applyBedrockPluginConfig($config, $this->server);
 
         // When using managed OpenRouter key, prefix model with openrouter/ so
         // OpenClaw routes through OpenRouter instead of calling providers directly

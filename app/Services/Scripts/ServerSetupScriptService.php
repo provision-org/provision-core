@@ -2,8 +2,11 @@
 
 namespace App\Services\Scripts;
 
+use App\Enums\CloudProvider;
 use App\Enums\HarnessType;
 use App\Models\Server;
+use App\Services\Aws\AwsCredentials;
+use App\Services\Aws\MantleCatalogService;
 use App\Services\OpenClawDefaultsService;
 use App\Support\OpenClawConfig;
 use App\Support\OperatorPairingPatch;
@@ -128,6 +131,29 @@ class ServerSetupScriptService
             $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
             $lines[] = 'openclaw plugins install @byterover/byterover 2>&1 || true';
             $lines[] = '';
+
+            // 3b. Install the Amazon Bedrock provider plugin (AWS teams only).
+            // OpenClaw does NOT bundle it, and BYO-AWS agents run their models
+            // through Bedrock via the EC2 instance profile — without the plugin,
+            // every Bedrock model resolves to "Unknown model". Installed at server
+            // setup (not agent install) because agents don't exist yet, and every
+            // agent on an AWS team is Bedrock-backed. Non-fatal: a failure here is
+            // surfaced later as a config warning rather than aborting setup.
+            if ($server->team?->cloudProvider() === CloudProvider::Aws) {
+                $lines[] = '# --- Step 3b: Install Amazon Bedrock provider plugins (AWS teams) ---';
+                // Classic ConverseStream provider (bedrock: models).
+                $lines[] = 'openclaw plugins install @openclaw/amazon-bedrock-provider 2>&1 || true';
+
+                // Mantle provider (mantle: models) is a SEPARATE, non-bundled
+                // plugin. It auto-mints a bearer token from the instance-profile
+                // role and discovers models over the OpenAI/Anthropic-compatible
+                // endpoint — the BYO-AWS path that needs no use-case form. Only
+                // available in Mantle regions.
+                if (in_array(AwsCredentials::regionForTeam($server->team), MantleCatalogService::SUPPORTED_REGIONS, true)) {
+                    $lines[] = 'openclaw plugins install @openclaw/amazon-bedrock-mantle-provider 2>&1 || true';
+                }
+                $lines[] = '';
+            }
         } else {
             // Hermes: just ensure the data directories exist
             $lines[] = '# --- Hermes: Setup Data Directories ---';
@@ -245,15 +271,31 @@ WRAPPER);
             // Timezone + DISPLAY + startup optimizations for gateway service
             $lines[] = '# Gateway systemd overrides (timezone + display + perf)';
             $lines[] = 'mkdir -p /root/.config/systemd/user/openclaw-gateway.service.d';
+
+            $overrideLines = [
+                '[Service]',
+                "Environment=OPENCLAW_TZ={$timezone}",
+                'Environment=DISPLAY=:99',
+                'Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache',
+                'Environment=OPENCLAW_NO_RESPAWN=1',
+            ];
+
+            // AWS teams: the Bedrock/Mantle providers sign requests (and Mantle
+            // mints its bearer token) via the AWS SDK using the EC2 instance-role
+            // credentials. The SDK reads the region from the gateway DAEMON's own
+            // environment — it does NOT load ~/.openclaw/.env — so without this
+            // the SigV4 mint fails and Mantle discovery silently skips every
+            // model ("Unknown model" at agent turn). This is the load-bearing
+            // line for BYO-AWS Bedrock; see OpenClawDefaultsService::applyMantleProviderConfig.
+            if ($server->team?->cloudProvider() === CloudProvider::Aws) {
+                $region = AwsCredentials::regionForTeam($server->team);
+                $overrideLines[] = "Environment=AWS_REGION={$region}";
+                $overrideLines[] = "Environment=AWS_DEFAULT_REGION={$region}";
+            }
+
             $lines[] = $this->buildHeredoc(
                 '/root/.config/systemd/user/openclaw-gateway.service.d/overrides.conf',
-                <<<OVERRIDE
-[Service]
-Environment=OPENCLAW_TZ={$timezone}
-Environment=DISPLAY=:99
-Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache
-Environment=OPENCLAW_NO_RESPAWN=1
-OVERRIDE
+                implode("\n", $overrideLines),
             );
             $lines[] = 'systemctl --user daemon-reload';
             $lines[] = 'systemctl --user restart openclaw-gateway';
@@ -465,6 +507,10 @@ OVERRIDE
         $config['plugins'] = ['entries' => [
             'device-pair' => ['enabled' => false],
         ]];
+
+        // Bedrock (BYO-AWS): enable instance-profile discovery for the
+        // amazon-bedrock plugin when any agent on the server uses Bedrock.
+        $config = $this->defaultsService->applyBedrockPluginConfig($config, $server);
 
         // Session management — multi-user isolation and cleanup
         $config['session'] = [

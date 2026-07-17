@@ -9,10 +9,10 @@ return [
     'ssh_private_key_path' => env('SSH_PRIVATE_KEY_PATH'),
 
     'regions' => [
-        'us-east' => ['label' => 'US East', 'hetzner' => 'ash', 'digitalocean' => 'nyc1', 'linode' => 'us-east'],
-        'us-west' => ['label' => 'US West', 'hetzner' => 'hil', 'digitalocean' => 'sfo3', 'linode' => 'us-west'],
-        'europe' => ['label' => 'Europe', 'hetzner' => 'fsn1', 'digitalocean' => 'fra1', 'linode' => 'eu-west'],
-        'asia-pacific' => ['label' => 'Asia Pacific', 'hetzner' => null, 'digitalocean' => 'sgp1', 'linode' => 'ap-south'],
+        'us-east' => ['label' => 'US East', 'hetzner' => 'ash', 'digitalocean' => 'nyc1', 'linode' => 'us-east', 'aws' => 'us-east-1'],
+        'us-west' => ['label' => 'US West', 'hetzner' => 'hil', 'digitalocean' => 'sfo3', 'linode' => 'us-west', 'aws' => 'us-west-2'],
+        'europe' => ['label' => 'Europe', 'hetzner' => 'fsn1', 'digitalocean' => 'fra1', 'linode' => 'eu-west', 'aws' => 'eu-central-1'],
+        'asia-pacific' => ['label' => 'Asia Pacific', 'hetzner' => null, 'digitalocean' => 'sgp1', 'linode' => 'ap-south', 'aws' => 'ap-southeast-1'],
     ],
 
     'hetzner' => [
@@ -31,6 +31,17 @@ return [
         'api_token' => env('LINODE_API_KEY'),
         'ssh_public_key_path' => env('SSH_PUBLIC_KEY_PATH', env('SSH_PRIVATE_KEY_PATH') ? env('SSH_PRIVATE_KEY_PATH').'.pub' : null),
         'default_image' => 'linode/ubuntu24.04',
+    ],
+
+    'aws' => [
+        // Global env fallback exists for parity/testing — the product path
+        // for BYO AWS is per-team credentials stored in TeamApiKey.
+        'key_id' => env('AWS_CLOUD_KEY_ID'),
+        'secret' => env('AWS_CLOUD_SECRET'),
+        'default_region' => env('AWS_CLOUD_DEFAULT_REGION', 'us-east-1'),
+        'ami' => env('AWS_CLOUD_AMI'),
+        'instance_profile' => env('AWS_CLOUD_INSTANCE_PROFILE'),
+        'ssh_key_name' => env('AWS_CLOUD_SSH_KEY_NAME'),
     ],
 
     'warm_pool' => [

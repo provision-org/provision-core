@@ -147,10 +147,11 @@ class ChannelConfigBuilder
         $webAccounts = $channelAccounts['provision-web'] ?? [];
         if (! empty($webAccounts)) {
             $appUrl = rtrim((string) config('app.url'), '/');
+            // No dmPolicy/allowFrom here: OpenClaw 2026.7.1 strict-validates
+            // channel config against the provision-web plugin schema, which
+            // does not declare them (both were permissive defaults anyway).
             $channels['provision-web'] = [
                 'enabled' => true,
-                'dmPolicy' => 'open',
-                'allowFrom' => ['*'],
                 'apiUrl' => $appUrl,
                 'accounts' => [],
             ];

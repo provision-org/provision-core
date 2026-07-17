@@ -65,6 +65,15 @@ class ServerFactory extends Factory
         ]);
     }
 
+    public function aws(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'cloud_provider' => CloudProvider::Aws,
+            'server_type' => 't3.large',
+            'region' => 'us-east-1',
+        ]);
+    }
+
     public function error(): static
     {
         return $this->state(fn (array $attributes) => [

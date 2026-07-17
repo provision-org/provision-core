@@ -62,6 +62,9 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-profile-compl
     Route::get('settings/teams/create', [TeamController::class, 'create'])->name('teams.create');
     Route::post('settings/teams', [TeamController::class, 'store'])->name('teams.store');
     Route::post('settings/teams/scrape-company', [TeamController::class, 'scrapeCompany'])->name('teams.scrape-company');
+    Route::post('settings/teams/verify-aws', [TeamController::class, 'verifyAws'])->name('teams.verify-aws');
+    Route::post('settings/teams/bedrock-models', [TeamController::class, 'bedrockModels'])->name('teams.bedrock-models');
+    Route::post('settings/teams/verify-bedrock-model', [TeamController::class, 'verifyBedrockModel'])->name('teams.verify-bedrock-model');
     Route::get('settings/teams/{team}', [TeamController::class, 'show'])->name('teams.show');
     Route::get('settings/teams/{team}/provisioning', [TeamController::class, 'provisioning'])->name('teams.provisioning');
     Route::patch('settings/teams/{team}', [TeamController::class, 'update'])->name('teams.update');

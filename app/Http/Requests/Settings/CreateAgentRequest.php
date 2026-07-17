@@ -5,6 +5,7 @@ namespace App\Http\Requests\Settings;
 use App\Contracts\Modules\AgentEmailProvider;
 use App\Enums\AgentMode;
 use App\Enums\AgentRole;
+use App\Enums\CloudProvider;
 use App\Enums\ModelTier;
 use App\Http\Controllers\AgentController;
 use App\Models\AgentEmailConnection;
@@ -81,8 +82,35 @@ class CreateAgentRequest extends FormRequest
             ],
             'role' => ['required', Rule::enum(AgentRole::class)],
             'job_description' => ['nullable', 'string', 'max:5000'],
-            'model_tier' => ['nullable', Rule::enum(ModelTier::class)],
-            'model_primary' => ['nullable', 'string', Rule::in($allowedModels)],
+            'model_tier' => [
+                'nullable', Rule::enum(ModelTier::class),
+                function (string $attribute, mixed $value, \Closure $fail) use ($team): void {
+                    if ($value === ModelTier::Bedrock->value && $team->cloudProvider() !== CloudProvider::Aws) {
+                        $fail('The Bedrock tier is only available for teams running in their own AWS account.');
+                    }
+                },
+            ],
+            'model_primary' => [
+                'nullable', 'string',
+                function (string $attribute, mixed $value, \Closure $fail) use ($team, $allowedModels): void {
+                    // Customer-selected Bedrock models ("bedrock:<raw>" classic
+                    // or "mantle:<raw>" Bedrock Mantle) can't be enumerated
+                    // without an AWS call per request, so we trust the wizard's
+                    // verified selection here — the raw id is re-checked at save
+                    // (verify endpoint) and again at deploy.
+                    if (is_string($value) && (str_starts_with($value, 'bedrock:') || str_starts_with($value, 'mantle:'))) {
+                        if ($team->cloudProvider() !== CloudProvider::Aws) {
+                            $fail('Bedrock models are only available for teams running in their own AWS account.');
+                        }
+
+                        return;
+                    }
+
+                    if ($value !== null && ! in_array($value, $allowedModels, true)) {
+                        $fail('The selected model is not available. Please configure an API key for that provider.');
+                    }
+                },
+            ],
             'model_fallbacks' => ['nullable', 'array'],
             'model_fallbacks.*' => ['string', 'max:255'],
             'system_prompt' => ['nullable', 'string', 'max:10000'],

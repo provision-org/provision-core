@@ -1,6 +1,6 @@
 import { Transition } from '@headlessui/react';
 import { Form, Head, usePoll } from '@inertiajs/react';
-import { Loader2 } from 'lucide-react';
+import { Cloud, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -50,10 +50,12 @@ export default function ConfigureAgent({
     agent,
     availableModels,
     modelTiers = [],
+    bedrockAvailable = false,
 }: {
     agent: Agent;
     availableModels: AvailableModel[];
     modelTiers?: ModelTierOption[];
+    bedrockAvailable?: boolean;
 }) {
     const [configOpen, setConfigOpen] = useState(false);
     const initialTier = detectTier(agent.model_primary, modelTiers);
@@ -140,8 +142,14 @@ export default function ConfigureAgent({
                                                         value={selectedModel}
                                                     />
                                                     <div className="grid grid-cols-2 gap-3">
-                                                        {modelTiers.map(
-                                                            (tier) => (
+                                                        {modelTiers
+                                                            .filter(
+                                                                (tier) =>
+                                                                    tier.value !==
+                                                                        'bedrock' ||
+                                                                    bedrockAvailable,
+                                                            )
+                                                            .map((tier) => (
                                                                 <button
                                                                     type="button"
                                                                     key={
@@ -164,12 +172,17 @@ export default function ConfigureAgent({
                                                                             : 'border-border hover:border-foreground/30',
                                                                     )}
                                                                 >
-                                                                    <div className="mb-1 text-lg">
-                                                                        {tier.value ===
-                                                                        'efficient'
-                                                                            ? '⚡'
-                                                                            : '🧠'}
-                                                                    </div>
+                                                                    {tier.value ===
+                                                                    'bedrock' ? (
+                                                                        <Cloud className="mb-1 size-5 text-orange-500" />
+                                                                    ) : (
+                                                                        <div className="mb-1 text-lg">
+                                                                            {tier.value ===
+                                                                            'efficient'
+                                                                                ? '⚡'
+                                                                                : '🧠'}
+                                                                        </div>
+                                                                    )}
                                                                     <p className="text-sm font-bold">
                                                                         {
                                                                             tier.label
@@ -181,15 +194,13 @@ export default function ConfigureAgent({
                                                                         }
                                                                     </p>
                                                                     <p className="mt-2 text-[11px] font-medium text-muted-foreground">
-                                                                        {
-                                                                            tier.cost
-                                                                        }{' '}
-                                                                        in AI
-                                                                        costs
+                                                                        {tier.value ===
+                                                                        'bedrock'
+                                                                            ? tier.cost
+                                                                            : `${tier.cost} in AI costs`}
                                                                     </p>
                                                                 </button>
-                                                            ),
-                                                        )}
+                                                            ))}
                                                     </div>
 
                                                     {availableModels.length >

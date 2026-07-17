@@ -38,6 +38,13 @@ class TeamFactory extends Factory
         ]);
     }
 
+    public function aws(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'cloud_provider' => 'aws',
+        ]);
+    }
+
     public function withCompanyDetails(): static
     {
         return $this->state(fn (array $attributes) => [

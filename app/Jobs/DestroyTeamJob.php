@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\CloudProvider;
 use App\Models\Team;
+use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\HetznerService;
@@ -105,6 +106,7 @@ class DestroyTeamJob implements ShouldQueue
                 CloudProvider::Hetzner => $this->destroyHetzner($server),
                 CloudProvider::DigitalOcean => $this->destroyDigitalOcean($server),
                 CloudProvider::Linode => $this->destroyLinode($server),
+                CloudProvider::Aws => $this->destroyAws($server),
             };
         } catch (\Throwable $e) {
             Log::error("Failed to destroy cloud resources for server {$server->id}: {$e->getMessage()}");
@@ -184,6 +186,30 @@ class DestroyTeamJob implements ShouldQueue
 
                 Log::info("DO volume {$volumeId} still detaching; retrying in {$delay}s");
                 sleep($delay);
+            }
+        }
+    }
+
+    private function destroyAws($server): void
+    {
+        /** @var AwsService $aws */
+        $aws = app(CloudServiceFactory::class)->makeFor($this->team, CloudProvider::Aws);
+
+        $aws->terminateInstance($server->provider_server_id);
+        Log::info("Terminated AWS instance {$server->provider_server_id}");
+
+        // Release the per-server security group created during provisioning.
+        // deleteSecurityGroup already retries DependencyViolation (the group
+        // can't be deleted while the instance is still terminating) and
+        // treats a missing group as already-gone.
+        if ($server->provider_firewall_id) {
+            try {
+                $aws->deleteSecurityGroup($server->provider_firewall_id);
+                Log::info("Deleted AWS security group {$server->provider_firewall_id}");
+            } catch (\Throwable $e) {
+                // Non-fatal: log and move on. Cleanup command can sweep
+                // any survivors later.
+                Log::warning("Failed to delete AWS security group {$server->provider_firewall_id}: {$e->getMessage()}");
             }
         }
     }

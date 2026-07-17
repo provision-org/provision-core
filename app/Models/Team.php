@@ -237,6 +237,7 @@ class Team extends Model
         return match ($provider) {
             CloudProvider::DigitalOcean => 's-4vcpu-8gb',
             CloudProvider::Linode => 'g6-standard-4',
+            CloudProvider::Aws => 't3.large',
             default => 'cpx21',
         };
     }

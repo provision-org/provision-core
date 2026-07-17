@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Models\Server;
+use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\HarnessManager;
@@ -128,6 +129,7 @@ class SetupOpenClawOnServerJob implements ShouldQueue
         $ip = match ($this->server->cloud_provider) {
             CloudProvider::DigitalOcean => $this->fetchDigitalOceanIp(),
             CloudProvider::Linode => $this->fetchLinodeIp(),
+            CloudProvider::Aws => $this->fetchAwsIp(),
             default => $this->fetchHetznerIp(),
         };
 
@@ -165,6 +167,15 @@ class SetupOpenClawOnServerJob implements ShouldQueue
         $instance = $linodeService->getInstance($this->server->provider_server_id);
 
         return $linodeService->extractIpAddress($instance);
+    }
+
+    private function fetchAwsIp(): ?string
+    {
+        /** @var AwsService $awsService */
+        $awsService = app(CloudServiceFactory::class)->makeFor($this->server->team, CloudProvider::Aws);
+        $instance = $awsService->getInstance($this->server->provider_server_id);
+
+        return $awsService->extractIpAddress($instance);
     }
 
     private function captureOpenClawVersion(SshService $sshService): void

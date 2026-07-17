@@ -8,6 +8,7 @@ enum LlmProvider: string
     case OpenAi = 'openai';
     case OpenRouter = 'open_router';
     case OpenAiCodex = 'openai_codex';
+    case Bedrock = 'bedrock';
 
     public const DEFAULT_MODEL = 'z-ai/glm-4.7';
 
@@ -21,6 +22,11 @@ enum LlmProvider: string
             self::OpenAi => 'OPENAI_API_KEY',
             self::OpenRouter => 'OPENROUTER_API_KEY',
             self::OpenAiCodex => 'OPENAI_API_KEY',
+            // Bedrock authenticates via the EC2 instance profile — there is no
+            // API key to push to the server. This placeholder is never written:
+            // Bedrock has no TeamApiKey llm row, so the env-key collection
+            // paths (which iterate llmApiKeys) never reach this arm.
+            self::Bedrock => 'AWS_BEDROCK_INSTANCE_PROFILE',
         };
     }
 
@@ -31,6 +37,7 @@ enum LlmProvider: string
             self::OpenAi => 'OpenAI',
             self::OpenRouter => 'OpenRouter',
             self::OpenAiCodex => 'ChatGPT Subscription',
+            self::Bedrock => 'AWS Bedrock',
         };
     }
 
@@ -66,6 +73,11 @@ enum LlmProvider: string
                 'gpt-5.4-pro',
                 'gpt-5.4-mini',
             ],
+            self::Bedrock => [
+                'bedrock-claude-opus-4-6',
+                'bedrock-claude-sonnet-4-6',
+                'bedrock-claude-haiku-4-5',
+            ],
         };
     }
 
@@ -86,6 +98,14 @@ enum LlmProvider: string
 
     public static function forModel(string $modelId): ?self
     {
+        // Customer-selected Bedrock models are stored as "bedrock:<raw-aws-id>"
+        // (classic ConverseStream) or "mantle:<raw-aws-id>" (Bedrock Mantle
+        // endpoint) so any model their account exposes flows through without a
+        // fixed enum entry. Both resolve to the same Bedrock provider enum.
+        if (str_starts_with($modelId, 'bedrock:') || str_starts_with($modelId, 'mantle:')) {
+            return self::Bedrock;
+        }
+
         foreach (self::cases() as $provider) {
             if (in_array($modelId, $provider->models(), true)) {
                 return $provider;
@@ -116,6 +136,46 @@ enum LlmProvider: string
             self::Anthropic => "openrouter/anthropic/{$forOpenRouter}",
             self::OpenAi => "openrouter/openai/{$forOpenRouter}",
             self::OpenAiCodex => "openai-codex/{$modelId}",
+            // Direct Bedrock routing — never via OpenRouter. Model traffic
+            // stays inside the customer's AWS account. OpenClaw's provider
+            // prefix is "amazon-bedrock" and the model reference is a US
+            // regional inference profile ("us." prefix). AWS does NOT use a
+            // uniform id scheme across model generations — some carry a dated
+            // "-YYYYMMDD-v1:0" suffix, others none — so these are mapped to the
+            // exact inference-profile ids returned by Bedrock ListInferenceProfiles
+            // rather than derived by a formula.
+            self::Bedrock => self::bedrockInferenceProfile($modelId),
         };
+    }
+
+    /**
+     * Map an internal Bedrock model id to its exact OpenClaw provider-qualified
+     * US regional inference-profile id. Verified against the account's
+     * `bedrock:ListInferenceProfiles` output — the suffix differs per model.
+     */
+    private static function bedrockInferenceProfile(string $modelId): string
+    {
+        // Customer-selected models arrive as "bedrock:<raw>" (classic) or
+        // "mantle:<raw>" (Bedrock Mantle) — the raw id is exactly what their
+        // account/discovery published, so pass it straight through to the
+        // matching OpenClaw provider with no remapping.
+        if (str_starts_with($modelId, 'mantle:')) {
+            return 'amazon-bedrock-mantle/'.substr($modelId, strlen('mantle:'));
+        }
+        if (str_starts_with($modelId, 'bedrock:')) {
+            return 'amazon-bedrock/'.substr($modelId, strlen('bedrock:'));
+        }
+
+        $profile = match ($modelId) {
+            'bedrock-claude-opus-4-6' => 'us.anthropic.claude-opus-4-6-v1',
+            'bedrock-claude-sonnet-4-6' => 'us.anthropic.claude-sonnet-4-6',
+            'bedrock-claude-haiku-4-5' => 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+            // Fallback for any unmapped id: strip the "bedrock-" prefix and hope
+            // discovery recognizes the bare regional profile. Logged upstream as
+            // "Unknown model" if AWS doesn't publish it.
+            default => 'us.anthropic.'.str_replace('bedrock-', '', $modelId),
+        };
+
+        return "amazon-bedrock/{$profile}";
     }
 }

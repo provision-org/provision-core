@@ -4,6 +4,7 @@ use App\Contracts\CommandExecutor;
 use App\Enums\LlmProvider;
 use App\Jobs\RestartGatewayJob;
 use App\Jobs\UpdateEnvOnServerJob;
+use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\TeamApiKey;
@@ -115,4 +116,62 @@ test('it skips inactive api keys', function () {
     // Verify inactive keys are also not in openclaw.json env section
     $config = json_decode($writtenConfigJson, true);
     expect($config)->not->toHaveKey('env');
+});
+
+test('it pushes AWS_REGION but never the AWS key or secret for BYO-AWS teams', function () {
+    Bus::fake([RestartGatewayJob::class]);
+
+    $team = Team::factory()->aws()->create();
+    $server = Server::factory()->running()->aws()->create(['team_id' => $team->id]);
+
+    TeamApiKey::factory()->awsCloud()->create([
+        'team_id' => $team->id,
+        'api_key' => json_encode([
+            'key_id' => 'AKIALEAKCANARYVALUE',
+            'secret' => 'leak-canary-secret',
+            'region' => 'eu-central-1',
+        ]),
+    ]);
+
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'auth_provider' => 'bedrock',
+        'model_primary' => 'bedrock-claude-sonnet-4-6',
+    ]);
+
+    $writtenContent = null;
+    $writtenConfigJson = null;
+
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('writeFile')
+        ->once()
+        ->with('/root/.openclaw/.env', Mockery::on(function ($content) use (&$writtenContent) {
+            $writtenContent = $content;
+
+            return true;
+        }));
+    mockExecutorWithConfigUpdate($executor, $writtenConfigJson);
+
+    (new UpdateEnvOnServerJob($server))->handle(mockHarnessManager($executor), new OpenClawDefaultsService);
+
+    // The bedrock plugin needs the region; auth is the EC2 instance profile,
+    // so the IAM key/secret must never land on the box.
+    expect($writtenContent)->toContain('AWS_REGION=eu-central-1')
+        ->and($writtenContent)->not->toContain('AKIALEAKCANARYVALUE')
+        ->and($writtenContent)->not->toContain('leak-canary-secret');
+
+    $config = json_decode($writtenConfigJson, true);
+    expect($config['env']['AWS_REGION'])->toBe('eu-central-1')
+        ->and($config['plugins']['entries']['amazon-bedrock']['config']['discovery'])->toBe([
+            'enabled' => true,
+            'region' => 'eu-central-1',
+        ])
+        ->and(json_encode($config))->not->toContain('AKIALEAKCANARYVALUE')
+        ->and(json_encode($config))->not->toContain('leak-canary-secret');
+
+    // All-bedrock server: defaults route heartbeat + subagents in-cloud too
+    expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+        ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
+        ->and($config['agents']['defaults']['memorySearch']['provider'])->toBe('bedrock');
 });
