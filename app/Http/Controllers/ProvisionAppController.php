@@ -6,6 +6,7 @@ use App\Enums\AgentStatus;
 use App\Enums\HarnessType;
 use App\Enums\ServerStatus;
 use App\Exceptions\MobilePairingFailedException;
+use App\Exceptions\MobilePairingUnavailableException;
 use App\Models\Agent;
 use App\Models\MobilePairingHandoff;
 use App\Services\MobilePairingService;
@@ -47,6 +48,10 @@ class ProvisionAppController extends Controller
 
         try {
             $handoff = $this->pairingService->createHandoff($agent, $request->user());
+        } catch (MobilePairingUnavailableException $exception) {
+            return response()->json([
+                'message' => $exception->getMessage(),
+            ], 422);
         } catch (MobilePairingFailedException) {
             return response()->json([
                 'message' => 'Provision could not prepare secure mobile pairing. Please try again.',

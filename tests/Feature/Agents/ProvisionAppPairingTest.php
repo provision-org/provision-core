@@ -28,6 +28,7 @@ function pairingAgent(User $user, array $agentAttributes = [], array $serverAttr
     $server = Server::factory()->running()->create([
         'team_id' => $team->id,
         'ipv4_address' => '203.0.113.42',
+        'openclaw_version' => config('provision.openclaw_version'),
         ...$serverAttributes,
     ]);
 
@@ -47,6 +48,10 @@ function mockPairingExecutor(Server $server, ?string $setupCode = null): Command
 {
     $executor = Mockery::mock(CommandExecutor::class);
     $executor->shouldReceive('exec')->andReturnUsing(function (string $command) use ($server, $setupCode): string {
+        if ($command === 'openclaw --version 2>/dev/null') {
+            return 'openclaw '.config('provision.openclaw_version');
+        }
+
         if ($command === "if [ -f '/etc/caddy/Caddyfile' ]; then cat '/etc/caddy/Caddyfile'; fi") {
             return OpenClawGatewayEndpoint::caddyfile($server);
         }
@@ -181,6 +186,42 @@ test('creating a new code revokes an earlier unused code', function () {
 
     expect($first->fresh()->revoked_at)->not->toBeNull()
         ->and(MobilePairingHandoff::query()->count())->toBe(2);
+});
+
+test('pairing fails closed with upgrade guidance when the installed OpenClaw is too old', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $agent = pairingAgent($user, serverAttributes: ['openclaw_version' => '2026.5.19']);
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with('openclaw --version 2>/dev/null')
+        ->andReturn('openclaw 2026.5.19');
+
+    $harness = Mockery::mock(HarnessManager::class);
+    $harness->shouldReceive('resolveExecutor')->once()->andReturn($executor);
+    app()->instance(HarnessManager::class, $harness);
+
+    $this->actingAs($user)
+        ->postJson(route('agents.provision-app.handoffs.store', $agent))
+        ->assertUnprocessable()
+        ->assertJsonPath(
+            'message',
+            'Update this agent to OpenClaw '.config('provision.openclaw_version').' or newer before pairing the Provision App.',
+        );
+
+    expect(MobilePairingHandoff::query()->count())->toBe(0);
+});
+
+test('pairing refreshes a stale recorded OpenClaw version from the live server', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $agent = pairingAgent($user, serverAttributes: ['openclaw_version' => '2026.5.19']);
+    mockPairingExecutor($agent->server);
+
+    $this->actingAs($user)
+        ->postJson(route('agents.provision-app.handoffs.store', $agent))
+        ->assertCreated();
+
+    expect($agent->server->fresh()->openclaw_version)->toBe(config('provision.openclaw_version'));
 });
 
 test('only active OpenClaw agents on running servers can create a handoff', function (array $agentAttributes, array $serverAttributes, int $expectedStatus) {

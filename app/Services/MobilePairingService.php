@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Contracts\CommandExecutor;
 use App\Exceptions\MobilePairingFailedException;
 use App\Exceptions\MobilePairingUnavailableException;
 use App\Models\Agent;
@@ -45,7 +46,10 @@ class MobilePairingService
 
         try {
             $executor = $this->harnessManager->resolveExecutor($server);
+            $this->ensureCompatibleVersion($server, $executor);
             $this->gatewayEndpoint->ensureConfigured($server, $executor);
+        } catch (MobilePairingUnavailableException $exception) {
+            throw $exception;
         } catch (Throwable) {
             throw new MobilePairingFailedException;
         }
@@ -180,6 +184,40 @@ class MobilePairingService
         }
 
         return $url;
+    }
+
+    private function ensureCompatibleVersion(Server $server, CommandExecutor $executor): void
+    {
+        $required = (string) config('provision.openclaw_version');
+        $installed = $this->parseVersion($server->openclaw_version);
+
+        if ($installed === null || version_compare($installed, $required, '<')) {
+            try {
+                $installed = $this->parseVersion($executor->exec('openclaw --version 2>/dev/null'));
+            } catch (Throwable) {
+                $installed = null;
+            }
+
+            if ($installed !== null && $installed !== $server->openclaw_version) {
+                $server->forceFill(['openclaw_version' => $installed])->save();
+            }
+        }
+
+        if ($installed === null || version_compare($installed, $required, '<')) {
+            throw new MobilePairingUnavailableException(
+                "Update this agent to OpenClaw {$required} or newer before pairing the Provision App.",
+            );
+        }
+    }
+
+    private function parseVersion(?string $value): ?string
+    {
+        if (! is_string($value)
+            || preg_match('/(\d{4}\.\d+\.\d+(?:[-.][a-z0-9.]+)?)/i', $value, $matches) !== 1) {
+            return null;
+        }
+
+        return $matches[1];
     }
 
     private function qrSvg(string $contents): string
