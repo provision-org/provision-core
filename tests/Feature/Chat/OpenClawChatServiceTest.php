@@ -142,6 +142,61 @@ test('native OpenClaw chat stages every file in the agent workspace', function (
     expect($result['content'])->toBe([['type' => 'text', 'text' => 'File received']]);
 });
 
+test('native OpenClaw chat keeps large attachments out of the gateway command argument', function () {
+    Storage::fake('local');
+    [$conversation, $message, $server] = nativeChatFixture();
+    $contents = str_repeat('large-attachment-', 10_240);
+    Storage::disk('local')->put('chat-attachments/large.txt', $contents);
+    $message->update([
+        'content' => [[
+            'type' => 'file',
+            'path' => 'chat-attachments/large.txt',
+            'fileName' => 'Large Attachment.txt',
+            'mimeType' => 'text/plain',
+        ]],
+    ]);
+
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('exec')->once()->with(Mockery::on(fn (string $command) => str_contains($command, 'install -d -m 0700')))->andReturn('');
+    $executor->shouldReceive('writeFile')
+        ->once()
+        ->with(Mockery::on(fn (string $path) => str_ends_with($path, '/01-large-attachment.txt')), $contents);
+    $executor->shouldReceive('exec')->once()->with(Mockery::on(fn (string $command) => str_contains($command, 'chmod 0600')))->andReturn('');
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")
+            && str_contains($command, '01-large-attachment.txt')
+            && ! str_contains($command, '"attachments"')
+            && strlen($command) < 100_000))
+        ->andReturn(json_encode(['runId' => 'run-large-file', 'status' => 'started']));
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.history'")))
+        ->andReturn(json_encode([
+            'messages' => [
+                ['role' => 'user', 'idempotencyKey' => 'provision-chat:'.$message->id.':user'],
+                ['role' => 'assistant', 'content' => 'Large file received', '__openclaw' => ['id' => 'large-file-reply']],
+            ],
+        ]));
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, 'rm -rf --')
+            && str_contains($command, 'provision-chat-attachments')))
+        ->andReturn('');
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')->once()->withArgs(fn (Server $value) => $value->is($server))->andReturn($executor);
+
+    $result = (new OpenClawChatService($manager))->sendAndWait(
+        $conversation,
+        $message,
+        timeoutSeconds: 1,
+        pollIntervalMilliseconds: 0,
+    );
+
+    expect($result['content'])->toBe([['type' => 'text', 'text' => 'Large file received']]);
+});
+
 test('native OpenClaw chat preserves assistant media in the durable transcript', function () {
     Storage::fake('local');
     [$conversation, $message, $server] = nativeChatFixture();

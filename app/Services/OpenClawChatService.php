@@ -20,7 +20,12 @@ final class OpenClawChatService
 
     private const GATEWAY_REQUEST_TIMEOUT_MS = 15_000;
 
-    private const NATIVE_ATTACHMENT_MAX_BYTES = 524_288;
+    /**
+     * Keep the base64-expanded Gateway payload comfortably below Linux's
+     * per-argument limit. Larger files remain available through their staged
+     * workspace paths included in the message.
+     */
+    private const NATIVE_ATTACHMENT_MAX_BYTES = 49_152;
 
     public function __construct(private readonly HarnessManager $harnessManager) {}
 
