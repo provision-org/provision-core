@@ -27,6 +27,15 @@ class Agent extends Model
     /** @use HasFactory<AgentFactory> */
     use HasFactory, HasUlids;
 
+    /**
+     * @var list<string>
+     */
+    protected $hidden = [
+        'api_server_key',
+        'config_snapshot',
+        'default_password',
+    ];
+
     protected static function booted(): void
     {
         static::creating(function (Agent $agent): void {

@@ -105,3 +105,17 @@ test('config_snapshot is cast to array', function () {
 
     expect($agent->config_snapshot)->toBe($snapshot);
 });
+
+test('gateway and credential fields are hidden from generic serialization', function () {
+    $agent = Agent::factory()->create([
+        'api_server_key' => 'gateway-secret',
+        'config_snapshot' => ['gateway' => ['auth' => ['token' => 'snapshot-secret']]],
+        'default_password' => 'default-secret',
+    ]);
+
+    expect($agent->toArray())
+        ->not->toHaveKeys(['api_server_key', 'config_snapshot', 'default_password'])
+        ->and($agent->api_server_key)->toBe('gateway-secret')
+        ->and($agent->config_snapshot)->toBeArray()
+        ->and($agent->default_password)->toBe('default-secret');
+});
