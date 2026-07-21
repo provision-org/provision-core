@@ -18,6 +18,7 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Sleep;
 use Provision\MailboxKit\Services\MailboxKitService;
 
 class DestroyTeamJob implements ShouldQueue
@@ -65,7 +66,9 @@ class DestroyTeamJob implements ShouldQueue
         // Destroy cloud server and volume
         $server = $team->server;
         if ($server?->provider_server_id) {
-            $this->destroyCloudResources($server);
+            if (! $this->destroyCloudResources($server)) {
+                throw new \RuntimeException("Cloud resource teardown failed for server {$server->id}; team retained for retry.");
+            }
         }
 
         // Delete the team (cascades to agents, server, keys, etc.)
@@ -102,7 +105,7 @@ class DestroyTeamJob implements ShouldQueue
         }
     }
 
-    private function destroyCloudResources($server): void
+    private function destroyCloudResources($server): bool
     {
         try {
             match ($server->cloud_provider) {
@@ -111,8 +114,12 @@ class DestroyTeamJob implements ShouldQueue
                 CloudProvider::Linode => $this->destroyLinode($server),
                 CloudProvider::Aws => $this->destroyAws($server),
             };
+
+            return true;
         } catch (\Throwable $e) {
             Log::error("Failed to destroy cloud resources for server {$server->id}: {$e->getMessage()}");
+
+            return false;
         }
     }
 
@@ -135,15 +142,29 @@ class DestroyTeamJob implements ShouldQueue
         /** @var DigitalOceanService $do */
         $do = app(CloudServiceFactory::class)->makeFor($this->team, CloudProvider::DigitalOcean);
 
-        $do->deleteDroplet($server->provider_server_id);
-        Log::info("Deleted DO droplet {$server->provider_server_id}");
+        try {
+            $do->deleteDroplet($server->provider_server_id);
+            Log::info("Deleted DO droplet {$server->provider_server_id}");
+        } catch (RequestException $e) {
+            if ($e->response?->status() !== 404) {
+                throw $e;
+            }
+
+            Log::info("DO droplet {$server->provider_server_id} already gone (404)");
+        }
+
+        $volumeFailure = null;
 
         if ($server->provider_volume_id) {
             // DO returns 204 on droplet DELETE immediately but the volume
             // detach finishes asynchronously, so a follow-up volume DELETE
-            // can race in with 422 "still attached". Retry with backoff;
+            // can race in with 409/422 "still attached". Retry with backoff;
             // treat 404 as already-gone.
-            $this->deleteDoVolumeWithRetry($do, $server->provider_volume_id);
+            try {
+                $this->deleteDoVolumeWithRetry($do, $server->provider_volume_id);
+            } catch (\Throwable $e) {
+                $volumeFailure = $e;
+            }
         }
 
         // Release the per-server firewall created during provisioning.
@@ -159,16 +180,21 @@ class DestroyTeamJob implements ShouldQueue
                 Log::warning("Failed to delete DO firewall {$server->provider_firewall_id}: {$e->getMessage()}");
             }
         }
+
+        if ($volumeFailure) {
+            throw $volumeFailure;
+        }
     }
 
     private function deleteDoVolumeWithRetry(DigitalOceanService $do, string $volumeId): void
     {
         $delays = [2, 4, 8, 16]; // up to ~30s of patience for the detach
+        $retryCount = 0;
 
-        foreach ($delays as $i => $delay) {
+        while (true) {
             try {
                 $do->deleteVolume($volumeId);
-                Log::info("Deleted DO volume {$volumeId}".($i > 0 ? " (after {$i} retries)" : ''));
+                Log::info("Deleted DO volume {$volumeId}".($retryCount > 0 ? " (after {$retryCount} retries)" : ''));
 
                 return;
             } catch (RequestException $e) {
@@ -180,15 +206,18 @@ class DestroyTeamJob implements ShouldQueue
                     return;
                 }
 
-                $isLast = $i === count($delays) - 1;
-                if ($status !== 422 || $isLast) {
+                $delay = $delays[$retryCount] ?? null;
+                $isDetachRace = in_array($status, [409, 422], true);
+
+                if (! $isDetachRace || $delay === null) {
                     Log::warning("Failed to delete DO volume {$volumeId} (status {$status}): {$e->getMessage()}");
 
-                    return;
+                    throw $e;
                 }
 
                 Log::info("DO volume {$volumeId} still detaching; retrying in {$delay}s");
-                sleep($delay);
+                $retryCount++;
+                Sleep::sleep($delay);
             }
         }
     }
