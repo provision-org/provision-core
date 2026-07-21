@@ -31,10 +31,12 @@ import {
     ScrollText,
     Settings,
     ShieldAlert,
+    Smartphone,
     Trash2,
     Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { show as showProvisionApp } from '@/actions/App/Http/Controllers/ProvisionAppController';
 import ActivityFeed from '@/components/agents/activity-feed';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import {
@@ -1178,6 +1180,40 @@ function ChannelsTab({ agent }: { agent: Agent }) {
                         </Link>
                     </Button>
                 </div>
+
+                {agent.harness_type === 'openclaw' && (
+                    <div className="flex items-start justify-between rounded-lg border px-4 py-3.5">
+                        <div className="flex items-start gap-3">
+                            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
+                                <Smartphone className="size-4 text-muted-foreground" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <p className="text-sm font-medium">
+                                        Provision App
+                                    </p>
+                                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
+                                        iOS & Android
+                                    </span>
+                                </div>
+                                <p className="mt-0.5 text-sm text-muted-foreground">
+                                    Pair a phone to chat with every agent on
+                                    this server.
+                                </p>
+                            </div>
+                        </div>
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="h-8 text-xs"
+                            asChild
+                        >
+                            <Link href={showProvisionApp(agent.id)}>
+                                Pair app
+                            </Link>
+                        </Button>
+                    </div>
+                )}
 
                 {/* Telegram */}
                 <div className="flex items-start justify-between rounded-lg border px-4 py-3.5">

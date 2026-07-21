@@ -1,4 +1,4 @@
-import { Paperclip, Send, X } from 'lucide-react';
+import { LoaderCircle, Paperclip, Send, X } from 'lucide-react';
 import { useCallback, useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -7,20 +7,31 @@ export default function ChatInput({
     onSend,
     disabled,
 }: {
-    onSend: (content: string, files: File[]) => void;
+    onSend: (content: string, files: File[]) => Promise<boolean>;
     disabled: boolean;
 }) {
     const [content, setContent] = useState('');
     const [files, setFiles] = useState<File[]>([]);
+    const [isSubmitting, setIsSubmitting] = useState(false);
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const handleSubmit = useCallback(() => {
+    const handleSubmit = useCallback(async () => {
         const trimmed = content.trim();
-        if (!trimmed && files.length === 0) return;
-        if (disabled) return;
+        if ((!trimmed && files.length === 0) || disabled || isSubmitting) {
+            return;
+        }
 
-        onSend(trimmed, files);
+        setIsSubmitting(true);
+        let sent = false;
+        try {
+            sent = await onSend(trimmed, files);
+        } finally {
+            setIsSubmitting(false);
+        }
+
+        if (!sent) return;
+
         setContent('');
         setFiles([]);
 
@@ -28,12 +39,12 @@ export default function ChatInput({
         if (textareaRef.current) {
             textareaRef.current.style.height = 'auto';
         }
-    }, [content, files, disabled, onSend]);
+    }, [content, disabled, files, isSubmitting, onSend]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
-            handleSubmit();
+            void handleSubmit();
         }
     };
 
@@ -47,6 +58,11 @@ export default function ChatInput({
     };
 
     const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (disabled || isSubmitting) {
+            e.target.value = '';
+            return;
+        }
+
         if (e.target.files) {
             const newFiles = Array.from(e.target.files).slice(
                 0,
@@ -65,6 +81,8 @@ export default function ChatInput({
     const handleDrop = useCallback(
         (e: React.DragEvent) => {
             e.preventDefault();
+            if (disabled || isSubmitting) return;
+
             if (e.dataTransfer.files) {
                 const newFiles = Array.from(e.dataTransfer.files).slice(
                     0,
@@ -73,7 +91,7 @@ export default function ChatInput({
                 setFiles((prev) => [...prev, ...newFiles].slice(0, 5));
             }
         },
-        [files.length],
+        [disabled, files.length, isSubmitting],
     );
 
     return (
@@ -95,6 +113,7 @@ export default function ChatInput({
                             <button
                                 type="button"
                                 onClick={() => removeFile(i)}
+                                disabled={disabled || isSubmitting}
                                 className="text-muted-foreground hover:text-foreground"
                             >
                                 <X className="size-3" />
@@ -112,7 +131,7 @@ export default function ChatInput({
                         onChange={handleInput}
                         onKeyDown={handleKeyDown}
                         placeholder="Type a message..."
-                        disabled={disabled}
+                        disabled={disabled || isSubmitting}
                         rows={1}
                         className={cn(
                             'w-full resize-none rounded-xl border bg-background px-4 py-3 pr-10 text-sm',
@@ -124,7 +143,7 @@ export default function ChatInput({
                     <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        disabled={disabled || files.length >= 5}
+                        disabled={disabled || isSubmitting || files.length >= 5}
                         className="absolute right-3 bottom-3 text-muted-foreground hover:text-foreground disabled:opacity-50"
                     >
                         <Paperclip className="size-4" />
@@ -141,13 +160,19 @@ export default function ChatInput({
 
                 <Button
                     size="icon"
-                    onClick={handleSubmit}
+                    onClick={() => void handleSubmit()}
                     disabled={
-                        disabled || (!content.trim() && files.length === 0)
+                        disabled ||
+                        isSubmitting ||
+                        (!content.trim() && files.length === 0)
                     }
                     className="size-11 shrink-0 rounded-xl"
                 >
-                    <Send className="size-4" />
+                    {isSubmitting ? (
+                        <LoaderCircle className="size-4 animate-spin" />
+                    ) : (
+                        <Send className="size-4" />
+                    )}
                 </Button>
             </div>
         </div>

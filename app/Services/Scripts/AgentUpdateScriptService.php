@@ -12,6 +12,7 @@ use App\Services\ChannelConfigBuilder;
 use App\Services\Harness\HermesDriver;
 use App\Services\OpenClawDefaultsService;
 use App\Support\OpenClawConfig;
+use App\Support\OpenClawGatewayEndpoint;
 
 class AgentUpdateScriptService
 {
@@ -127,6 +128,67 @@ class AgentUpdateScriptService
         $lines[] = '# --- Step 1: Write OpenClaw Config ---';
         $lines[] = $this->buildHeredoc($configPath, $configJson);
         $lines[] = '';
+
+        if (! $server->isDocker()) {
+            $caddyfilePath = OpenClawGatewayEndpoint::CADDYFILE;
+            $caddyfile = OpenClawGatewayEndpoint::caddyfile($server);
+
+            // Repair the public mobile endpoint on servers provisioned before app pairing.
+            // Always validate and reload so an identical on-disk config is also proven active.
+            $lines[] = '# --- Step 1b: Configure Mobile Gateway Proxy ---';
+            $lines[] = 'mkdir -p /etc/caddy/conf.d';
+            $lines[] = "CADDY_CANDIDATE=\$(mktemp {$caddyfilePath}.provision-mobile.XXXXXX)";
+            $lines[] = 'CADDY_BACKUP="$CADDY_CANDIDATE.backup"';
+            $lines[] = 'CADDY_HAD_ACTIVE=0';
+            $lines[] = 'CADDY_REPLACED=0';
+            $lines[] = 'rollback_mobile_caddy() {';
+            $lines[] = '  if [ "$CADDY_REPLACED" -eq 1 ]; then';
+            $lines[] = '    if [ "$CADDY_HAD_ACTIVE" -eq 1 ] && [ -f "$CADDY_BACKUP" ]; then';
+            $lines[] = "      if mv \"\$CADDY_BACKUP\" {$caddyfilePath}; then";
+            $lines[] = "        chmod 0644 {$caddyfilePath} || true";
+            $lines[] = '        systemctl reload caddy || true';
+            $lines[] = '      fi';
+            $lines[] = '    else';
+            $lines[] = "      rm -f {$caddyfilePath} || true";
+            $lines[] = '    fi';
+            $lines[] = '  fi';
+            $lines[] = '  rm -f "$CADDY_CANDIDATE" "$CADDY_BACKUP" || true';
+            $lines[] = '}';
+            $lines[] = "if ! cat > \"\$CADDY_CANDIDATE\" << 'CADDY_EOF'\n{$caddyfile}\nCADDY_EOF\nthen";
+            $lines[] = '  rollback_mobile_caddy';
+            $lines[] = '  false';
+            $lines[] = 'fi';
+            $lines[] = 'if ! chmod 0644 "$CADDY_CANDIDATE" || ! caddy validate --config "$CADDY_CANDIDATE" --adapter caddyfile; then';
+            $lines[] = '  rollback_mobile_caddy';
+            $lines[] = '  false';
+            $lines[] = 'fi';
+            $lines[] = "if cmp -s \"\$CADDY_CANDIDATE\" {$caddyfilePath}; then";
+            $lines[] = "  if ! chmod 0644 {$caddyfilePath} || ! systemctl reload caddy; then";
+            $lines[] = '    rollback_mobile_caddy';
+            $lines[] = '    false';
+            $lines[] = '  fi';
+            $lines[] = 'else';
+            $lines[] = "  if [ -f {$caddyfilePath} ]; then";
+            $lines[] = "    if ! cp -p {$caddyfilePath} \"\$CADDY_BACKUP\"; then";
+            $lines[] = '      rollback_mobile_caddy';
+            $lines[] = '      false';
+            $lines[] = '    fi';
+            $lines[] = '    CADDY_HAD_ACTIVE=1';
+            $lines[] = '  fi';
+            $lines[] = "  if ! mv \"\$CADDY_CANDIDATE\" {$caddyfilePath}; then";
+            $lines[] = '    rollback_mobile_caddy';
+            $lines[] = '    false';
+            $lines[] = '  fi';
+            $lines[] = '  CADDY_REPLACED=1';
+            $lines[] = "  if ! chmod 0644 {$caddyfilePath} || ! systemctl reload caddy; then";
+            $lines[] = '    rollback_mobile_caddy';
+            $lines[] = '    false';
+            $lines[] = '  fi';
+            $lines[] = 'fi';
+            $lines[] = 'rm -f "$CADDY_CANDIDATE" "$CADDY_BACKUP"';
+            $lines[] = 'unset -f rollback_mobile_caddy';
+            $lines[] = '';
+        }
 
         // 2. Create agent directories
         $lines[] = '# --- Step 2: Create Agent Directories ---';
@@ -617,6 +679,7 @@ class AgentUpdateScriptService
         $config['gateway'] = [
             'mode' => 'local',
             'bind' => config('openclaw.gateway_bind'),
+            'trustedProxies' => OpenClawGatewayEndpoint::trustedProxies(),
             'auth' => [
                 'token' => $server->gateway_token,
             ],
@@ -627,6 +690,12 @@ class AgentUpdateScriptService
                 ],
             ],
         ];
+
+        if (! $server->isDocker()) {
+            $config['gateway']['controlUi'] = [
+                'allowedOrigins' => OpenClawGatewayEndpoint::allowedOrigins($server),
+            ];
+        }
 
         $config['logging'] = [
             'redactSensitive' => 'tools',

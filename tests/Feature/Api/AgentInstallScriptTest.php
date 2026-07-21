@@ -38,7 +38,8 @@ test('install script endpoint returns script with valid signature', function () 
         ->toContain('openclaw health')
         // Core skills are always deployed.
         ->toContain('skills/provision-tasks/SKILL.md')
-        ->toContain('skills/provision-publish/provision_publish_tool.js');
+        ->toContain('skills/provision-publish/provision_publish_tool.js')
+        ->not->toContain('provision-openclaw-web');
 });
 
 test('install script includes per-agent browser display services', function () {
@@ -115,7 +116,7 @@ test('onboarding content omits job-specific step when no job description', funct
         ->not->toContain('Review your job description');
 });
 
-test('onboarding content tells the agent to use web chat when available', function () {
+test('onboarding content tells the agent to use native Provision chat', function () {
     $team = Team::factory()->create();
     $server = Server::factory()->running()->create(['team_id' => $team->id]);
     $agent = Agent::factory()->deploying()->create([
@@ -125,14 +126,12 @@ test('onboarding content tells the agent to use web chat when available', functi
         'name' => 'Riley',
     ]);
 
-    // Observer auto-creates web connection on agent creation.
-    expect($agent->fresh()->webConnection)->not->toBeNull();
-
     $content = AgentInstallScriptService::buildOnboardingContent($agent->fresh());
     expect($content)
         ->toContain('How to talk to your team')
-        ->toContain('Provision web chat')
-        ->toContain('ask the user via web chat');
+        ->toContain('Provision chat')
+        ->toContain('dashboard and mobile app')
+        ->toContain('ask the user in the current chat');
 });
 
 test('onboarding content credential pattern guides through API key + OAuth flows', function () {

@@ -76,39 +76,81 @@ class WebChannelController extends Controller
             return response()->json(['error' => 'orphaned_account'], 404);
         }
 
-        $conversationId = $payload['conversationId'] ?? null;
-        $conversation = $conversationId
-            ? ChatConversation::query()
+        $upstreamId = $payload['replyToId'] ?? null;
+        if ($upstreamId !== null && (! is_string($upstreamId) || $upstreamId === '' || Str::length($upstreamId) > 255)) {
+            return response()->json(['error' => 'invalid_replyToId'], 422);
+        }
+
+        $content = $this->buildContentBlocks($payload, $connection);
+        if (empty($content)) {
+            return response()->json(['error' => 'empty_payload'], 422);
+        }
+
+        $conversation = null;
+        if (array_key_exists('conversationId', $payload)) {
+            $conversationId = $payload['conversationId'];
+            if (! is_string($conversationId) || $conversationId === '') {
+                return response()->json(['error' => 'invalid_conversationId'], 422);
+            }
+
+            $conversation = ChatConversation::query()
                 ->where('id', $conversationId)
                 ->where('agent_id', $agent->id)
+                ->first();
+
+            if (! $conversation) {
+                return response()->json(['error' => 'unknown_conversation'], 404);
+            }
+        } elseif (is_string($upstreamId)) {
+            $conversation = ChatMessage::query()
+                ->whereKey($upstreamId)
+                ->where('role', ChatMessageRole::User)
+                ->whereHas('conversation', fn ($query) => $query->where('agent_id', $agent->id))
+                ->with('conversation')
                 ->first()
-            : null;
+                ?->conversation;
+        }
 
         if (! $conversation) {
+            $ownerId = $agent->team?->user_id;
+            if (! is_string($ownerId) || $ownerId === '') {
+                return response()->json(['error' => 'orphaned_team'], 404);
+            }
+
             $conversation = ChatConversation::create([
                 'agent_id' => $agent->id,
-                'user_id' => $agent->team?->user_id,
+                'user_id' => $ownerId,
                 'session_key' => 'web:'.Str::ulid()->toBase32(),
                 'last_message_at' => now(),
             ]);
         }
 
-        $content = $this->buildContentBlocks($payload);
-        if (empty($content)) {
-            return response()->json(['error' => 'empty_payload'], 422);
-        }
-
-        $message = ChatMessage::create([
+        $messageAttributes = [
             'chat_conversation_id' => $conversation->id,
             'role' => ChatMessageRole::Assistant,
             'content' => $content,
             'sent_at' => now(),
-        ]);
+        ];
+
+        $message = is_string($upstreamId)
+            ? ChatMessage::query()->firstOrCreate([
+                'chat_conversation_id' => $conversation->id,
+                'upstream_id' => $upstreamId,
+            ], $messageAttributes)
+            : ChatMessage::query()->create($messageAttributes);
+
+        if (! $message->wasRecentlyCreated) {
+            return response()->json([
+                'messageId' => $message->id,
+                'conversationId' => $conversation->id,
+                'duplicate' => true,
+            ]);
+        }
 
         $conversation->update(['last_message_at' => now()]);
 
         try {
-            broadcast(new ChatMessageReceivedEvent($message, $agent->team_id));
+            broadcast(new ChatMessageReceivedEvent($message));
         } catch (\Throwable $e) {
             Log::warning('provision-web inbound: broadcast failed', [
                 'agent_id' => $agent->id,
@@ -144,7 +186,7 @@ class WebChannelController extends Controller
         ];
 
         try {
-            broadcast(new ChatAgentActivityEvent($conversation->id, $broadcastPayload, $agent->team_id));
+            broadcast(new ChatAgentActivityEvent($conversation->id, $broadcastPayload));
         } catch (\Throwable $e) {
             Log::warning('provision-web activity: broadcast failed', [
                 'agent_id' => $agent->id,
@@ -187,7 +229,6 @@ class WebChannelController extends Controller
                 delta: $delta,
                 cumulative: $cumulative,
                 isFinal: $isFinal,
-                teamId: $agent->team_id,
             ));
         } catch (\Throwable $e) {
             Log::warning('provision-web stream-chunk: broadcast failed', [
@@ -472,7 +513,7 @@ class WebChannelController extends Controller
      * @param  array<string, mixed>  $payload
      * @return list<array<string, mixed>>
      */
-    private function buildContentBlocks(array $payload): array
+    private function buildContentBlocks(array $payload, AgentWebConnection $connection): array
     {
         $blocks = [];
         $kind = $payload['kind'] ?? 'text';
@@ -486,14 +527,76 @@ class WebChannelController extends Controller
             if (is_string($text) && $text !== '') {
                 $blocks[] = ['type' => 'text', 'text' => $text];
             }
-            $blocks[] = [
-                'type' => 'image',
+            $mimeType = is_string($payload['mediaMime'] ?? null)
+                ? $payload['mediaMime']
+                : 'application/octet-stream';
+            $mediaPath = $this->durableAgentMediaPath($payload, $connection);
+            $mediaBlock = [
+                'type' => str_starts_with($mimeType, 'image/') ? 'image' : 'file',
                 'url' => $payload['mediaUrl'],
-                'mimeType' => $payload['mediaMime'] ?? 'image/png',
+                'fileName' => is_string($payload['mediaName'] ?? null)
+                    ? basename($payload['mediaName'])
+                    : basename(parse_url($payload['mediaUrl'], PHP_URL_PATH) ?: ''),
+                'mimeType' => $mimeType,
             ];
+
+            if ($mediaPath !== null) {
+                $mediaBlock['disk'] = 'r2';
+                $mediaBlock['path'] = $mediaPath;
+            }
+
+            $blocks[] = $mediaBlock;
         }
 
         return $blocks;
+    }
+
+    /**
+     * Resolve media uploaded through this account back to its durable R2 key.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function durableAgentMediaPath(array $payload, AgentWebConnection $connection): ?string
+    {
+        $agent = $connection->agent;
+        if (! $agent) {
+            return null;
+        }
+
+        $prefix = "web-channel/{$agent->team_id}/{$connection->account_id}/";
+        $candidates = [];
+
+        if (is_string($payload['mediaPath'] ?? null)) {
+            $candidates[] = ltrim($payload['mediaPath'], '/');
+        }
+
+        if (is_string($payload['mediaUrl'] ?? null)) {
+            $urlPath = rawurldecode((string) parse_url($payload['mediaUrl'], PHP_URL_PATH));
+            $position = strpos(ltrim($urlPath, '/'), $prefix);
+            if ($position !== false) {
+                $candidates[] = substr(ltrim($urlPath, '/'), $position);
+            }
+        }
+
+        foreach (array_unique($candidates) as $candidate) {
+            if (! Str::startsWith($candidate, $prefix) || str_contains($candidate, '..')) {
+                continue;
+            }
+
+            try {
+                if (Storage::disk('r2')->exists($candidate)) {
+                    return $candidate;
+                }
+            } catch (\Throwable $e) {
+                Log::warning('provision-web inbound: media lookup failed', [
+                    'account_id' => $connection->account_id,
+                    'path' => $candidate,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return null;
     }
 
     private function flush(): void

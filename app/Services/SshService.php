@@ -18,6 +18,8 @@ class SshService implements CommandExecutor
 
     private ?SFTP $sftp = null;
 
+    private ?SSH2 $ssh = null;
+
     private ?Server $server = null;
 
     public function connect(Server $server): self
@@ -27,12 +29,7 @@ class SshService implements CommandExecutor
         $this->host = $server->ipv4_address;
         $this->server = $server;
 
-        // Verify SSH connectivity
-        $ssh = new SSH2($this->host);
-        if (! $ssh->login('root', $this->key)) {
-            throw new RuntimeException("SSH login failed for server {$server->id}");
-        }
-        $ssh->disconnect();
+        $this->connectSsh();
 
         return $this;
     }
@@ -43,11 +40,7 @@ class SshService implements CommandExecutor
         $this->key = PublicKeyLoader::load(file_get_contents($keyPath));
         $this->host = $ipAddress;
 
-        $ssh = new SSH2($this->host);
-        if (! $ssh->login('root', $this->key)) {
-            throw new RuntimeException("SSH login failed for {$ipAddress}");
-        }
-        $ssh->disconnect();
+        $this->connectSsh();
 
         return $this;
     }
@@ -58,15 +51,11 @@ class SshService implements CommandExecutor
             throw new RuntimeException('Not connected. Call connect() first.');
         }
 
-        $ssh = new SSH2($this->host);
+        $ssh = $this->connectSsh();
         $ssh->setTimeout($timeout);
-        if (! $ssh->login('root', $this->key)) {
-            throw new RuntimeException("SSH login failed for {$this->host}");
-        }
 
         $output = $ssh->exec($command);
         $exitStatus = $ssh->getExitStatus();
-        $ssh->disconnect();
 
         if ($exitStatus !== false && $exitStatus !== 0) {
             throw new RuntimeException("Command failed (exit {$exitStatus}): {$command}\nOutput: {$output}");
@@ -155,6 +144,8 @@ class SshService implements CommandExecutor
 
     public function disconnect(): void
     {
+        $this->ssh?->disconnect();
+        $this->ssh = null;
         $this->sftp?->disconnect();
         $this->sftp = null;
         $this->host = null;
@@ -174,5 +165,25 @@ class SshService implements CommandExecutor
                 throw new RuntimeException("SFTP login failed for {$this->host}");
             }
         }
+    }
+
+    private function connectSsh(): SSH2
+    {
+        if (! $this->host || ! $this->key) {
+            throw new RuntimeException('Not connected. Call connect() first.');
+        }
+
+        if ($this->ssh?->isConnected() && $this->ssh->isAuthenticated()) {
+            return $this->ssh;
+        }
+
+        $this->ssh = new SSH2($this->host);
+        if (! $this->ssh->login('root', $this->key)) {
+            $this->ssh = null;
+
+            throw new RuntimeException("SSH login failed for {$this->host}");
+        }
+
+        return $this->ssh;
     }
 }

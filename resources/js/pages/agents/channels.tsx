@@ -1,5 +1,13 @@
 import { Head, Link } from '@inertiajs/react';
-import { ArrowRight, Hash, MessageCircle, MessageSquare, Send } from 'lucide-react';
+import {
+    ArrowRight,
+    Hash,
+    MessageCircle,
+    MessageSquare,
+    Send,
+    Smartphone,
+} from 'lucide-react';
+import { show as showProvisionApp } from '@/actions/App/Http/Controllers/ProvisionAppController';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import AppLayout from '@/layouts/app-layout';
@@ -13,6 +21,18 @@ export default function Channels({ agent }: { agent: Agent }) {
     ];
 
     const channels = [
+        ...(agent.harness_type === 'openclaw'
+            ? [
+                  {
+                      name: 'Provision App',
+                      description:
+                          'Chat with every agent on this server from iOS or Android',
+                      href: showProvisionApp(agent.id),
+                      icon: Smartphone,
+                      connected: false,
+                  },
+              ]
+            : []),
         {
             name: 'Slack',
             description: 'Your agent joins Slack channels and DMs',
@@ -78,8 +98,8 @@ export default function Channels({ agent }: { agent: Agent }) {
                                         </Badge>
                                     </div>
                                     <p className="text-sm text-muted-foreground">
-                                        Chat from the browser. No setup —
-                                        {' '}{agent.name} will say hi and walk you
+                                        Chat from the browser. No setup —{' '}
+                                        {agent.name} will say hi and walk you
                                         through what they need.
                                     </p>
                                 </div>

@@ -21,7 +21,10 @@ function awsOpenClawServerInRegion(string $region): Server
         ]),
     ]);
 
-    return Server::factory()->aws()->create(['team_id' => $team->id]);
+    return Server::factory()->aws()->create([
+        'team_id' => $team->id,
+        'ipv4_address' => '203.0.113.42',
+    ]);
 }
 
 test('setup script installs both bedrock plugins and sets AWS_REGION for a mantle-region AWS team', function () {
@@ -48,10 +51,40 @@ test('setup script skips the mantle plugin outside mantle regions but still sets
 
 test('setup script does not set AWS_REGION or install bedrock plugins for a non-AWS team', function () {
     $team = Team::factory()->create(['cloud_provider' => 'digitalocean', 'harness_type' => HarnessType::OpenClaw]);
-    $server = Server::factory()->create(['team_id' => $team->id]);
+    $server = Server::factory()->create([
+        'team_id' => $team->id,
+        'ipv4_address' => '203.0.113.42',
+    ]);
 
     $script = app(ServerSetupScriptService::class)->generateScript($server);
 
     expect($script)->not->toContain('amazon-bedrock')
         ->and($script)->not->toContain('AWS_REGION');
+});
+
+test('openclaw setup keeps the gateway on loopback behind a WebSocket-only TLS proxy', function () {
+    $team = Team::factory()->create([
+        'cloud_provider' => 'digitalocean',
+        'harness_type' => HarnessType::OpenClaw,
+    ]);
+    $server = Server::factory()->create([
+        'team_id' => $team->id,
+        'ipv4_address' => '203.0.113.42',
+    ]);
+
+    $script = app(ServerSetupScriptService::class)->generateScript($server);
+
+    expect($script)->toContain('gateway.203-0-113-42.sslip.io {')
+        ->toContain("`header({'Connection':'*Upgrade*','Upgrade':'websocket'}) || header({':protocol':'websocket'})`")
+        ->toContain('reverse_proxy 127.0.0.1:18789')
+        ->toContain('respond 404')
+        ->toContain('chmod 0644 /etc/caddy/Caddyfile')
+        ->toContain('"bind": "loopback"')
+        ->toContain('"trustedProxies": [')
+        ->toContain('"127.0.0.1"')
+        ->toContain('"::1"')
+        ->toContain('"controlUi": {')
+        ->toContain('"allowedOrigins": [')
+        ->toContain('"https://gateway.203-0-113-42.sslip.io"')
+        ->not->toContain('0.0.0.0:18789');
 });

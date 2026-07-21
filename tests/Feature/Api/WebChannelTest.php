@@ -2,10 +2,12 @@
 
 use App\Enums\ChatMessageRole;
 use App\Models\Agent;
+use App\Models\AgentWebConnection;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
 use App\Models\Team;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 uses(RefreshDatabase::class);
@@ -17,7 +19,7 @@ function makeAgentWithWebConnection(): array
         'team_id' => $team->id,
         'harness_agent_id' => 'agent-test',
     ]);
-    $connection = $agent->webConnection;
+    $connection = AgentWebConnection::provisionFor($agent);
 
     return [$team, $agent, $connection];
 }
@@ -29,7 +31,7 @@ function signInbound(string $body, string $secret): string
     return 't='.$ts.',v1='.hash_hmac('sha256', $ts.'.'.$body, $secret);
 }
 
-test('agent observer auto-creates a web connection', function () {
+test('legacy web connections can still be provisioned explicitly during rollout', function () {
     [$team, $agent, $connection] = makeAgentWithWebConnection();
 
     expect($connection)->not->toBeNull()
@@ -144,6 +146,140 @@ test('inbound preserves an existing conversation when conversationId is given', 
     $response->assertSuccessful();
     $response->assertJsonPath('conversationId', $existing->id);
     expect(ChatConversation::where('agent_id', $agent->id)->count())->toBe(1);
+});
+
+test('inbound rejects a provided conversation that does not belong to the account agent', function () {
+    [, $agent, $connection] = makeAgentWithWebConnection();
+    $otherTeam = Team::factory()->subscribed()->create();
+    $otherAgent = Agent::factory()->create([
+        'team_id' => $otherTeam->id,
+        'harness_agent_id' => 'agent-other',
+    ]);
+    $otherConversation = ChatConversation::factory()->create([
+        'agent_id' => $otherAgent->id,
+        'user_id' => $otherAgent->team->user_id,
+    ]);
+
+    $body = json_encode([
+        'accountId' => $connection->account_id,
+        'conversationId' => $otherConversation->id,
+        'kind' => 'text',
+        'text' => 'misrouted reply',
+        'replyToId' => 'upstream-1',
+    ]);
+
+    $response = $this->call(
+        'POST',
+        '/api/agents/web-channel/inbound',
+        [], [], [],
+        ['HTTP_X-Provision-Signature' => signInbound($body, $connection->webhook_secret), 'CONTENT_TYPE' => 'application/json'],
+        $body,
+    );
+
+    $response->assertNotFound()->assertJsonPath('error', 'unknown_conversation');
+    expect(ChatConversation::where('agent_id', $agent->id)->count())->toBe(0);
+});
+
+test('inbound retries with the same reply identifier are idempotent', function () {
+    [, $agent, $connection] = makeAgentWithWebConnection();
+    $conversation = ChatConversation::factory()->create([
+        'agent_id' => $agent->id,
+        'user_id' => $agent->team->user_id,
+    ]);
+
+    $body = json_encode([
+        'accountId' => $connection->account_id,
+        'conversationId' => $conversation->id,
+        'kind' => 'text',
+        'text' => 'one durable reply',
+        'replyToId' => 'openclaw-reply-123',
+    ]);
+    $server = [
+        'HTTP_X-Provision-Signature' => signInbound($body, $connection->webhook_secret),
+        'CONTENT_TYPE' => 'application/json',
+    ];
+
+    $first = $this->call('POST', '/api/agents/web-channel/inbound', [], [], [], $server, $body);
+    $second = $this->call('POST', '/api/agents/web-channel/inbound', [], [], [], $server, $body);
+
+    $first->assertSuccessful();
+    $second->assertSuccessful()
+        ->assertJsonPath('messageId', $first->json('messageId'))
+        ->assertJsonPath('duplicate', true);
+
+    expect(ChatMessage::query()
+        ->where('chat_conversation_id', $conversation->id)
+        ->where('upstream_id', 'openclaw-reply-123')
+        ->count())->toBe(1);
+});
+
+test('inbound resolves a missing conversation from the replied-to user message', function () {
+    [, $agent, $connection] = makeAgentWithWebConnection();
+    $conversation = ChatConversation::factory()->create([
+        'agent_id' => $agent->id,
+        'user_id' => $agent->team->user_id,
+    ]);
+    $userMessage = ChatMessage::factory()->create([
+        'chat_conversation_id' => $conversation->id,
+        'role' => ChatMessageRole::User,
+    ]);
+
+    $body = json_encode([
+        'accountId' => $connection->account_id,
+        'kind' => 'text',
+        'text' => 'reply without an explicit conversation',
+        'replyToId' => $userMessage->id,
+    ]);
+
+    $response = $this->call(
+        'POST',
+        '/api/agents/web-channel/inbound',
+        [], [], [],
+        ['HTTP_X-Provision-Signature' => signInbound($body, $connection->webhook_secret), 'CONTENT_TYPE' => 'application/json'],
+        $body,
+    );
+
+    $response->assertSuccessful()->assertJsonPath('conversationId', $conversation->id);
+    expect(ChatConversation::where('agent_id', $agent->id)->count())->toBe(1);
+});
+
+test('inbound persists a durable storage key for media uploaded through the account', function () {
+    Storage::fake('r2');
+    [, $agent, $connection] = makeAgentWithWebConnection();
+    $conversation = ChatConversation::factory()->create([
+        'agent_id' => $agent->id,
+        'user_id' => $agent->team->user_id,
+    ]);
+    $path = "web-channel/{$agent->team_id}/{$connection->account_id}/image.png";
+    Storage::disk('r2')->put($path, 'image-bytes');
+
+    $body = json_encode([
+        'accountId' => $connection->account_id,
+        'conversationId' => $conversation->id,
+        'kind' => 'media',
+        'mediaUrl' => "https://r2.example.test/{$path}?X-Amz-Expires=300",
+        'mediaMime' => 'image/png',
+        'replyToId' => 'media-reply-1',
+    ]);
+
+    $response = $this->call(
+        'POST',
+        '/api/agents/web-channel/inbound',
+        [], [], [],
+        ['HTTP_X-Provision-Signature' => signInbound($body, $connection->webhook_secret), 'CONTENT_TYPE' => 'application/json'],
+        $body,
+    );
+
+    $response->assertSuccessful();
+    $message = ChatMessage::findOrFail($response->json('messageId'));
+
+    expect($message->content[0])
+        ->toMatchArray([
+            'type' => 'image',
+            'disk' => 'r2',
+            'path' => $path,
+            'mimeType' => 'image/png',
+        ]);
 });
 
 test('probe rejects bad bearer', function () {

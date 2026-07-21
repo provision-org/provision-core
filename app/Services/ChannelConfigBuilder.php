@@ -11,12 +11,12 @@ class ChannelConfigBuilder
     /**
      * Collect all channel accounts from agents on a server.
      *
-     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>, provision-web: list<array>}
+     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>}
      */
     public function collectAccounts(Server $server): array
     {
         $allAgents = $server->agents()
-            ->with(['slackConnection', 'telegramConnection', 'discordConnection', 'webConnection'])
+            ->with(['slackConnection', 'telegramConnection', 'discordConnection'])
             ->get();
 
         return $this->collectAccountsFromAgents($allAgents);
@@ -25,11 +25,11 @@ class ChannelConfigBuilder
     /**
      * Collect channel accounts from a given collection of agents.
      *
-     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>, provision-web: list<array>}
+     * @return array{slack: list<array>, telegram: list<array>, discord: list<array>}
      */
     public function collectAccountsFromAgents(Collection $agents): array
     {
-        $channelAccounts = ['slack' => [], 'telegram' => [], 'discord' => [], 'provision-web' => []];
+        $channelAccounts = ['slack' => [], 'telegram' => [], 'discord' => []];
 
         foreach ($agents as $agent) {
             $agentId = $agent->harness_agent_id;
@@ -56,14 +56,6 @@ class ChannelConfigBuilder
                 ];
             }
 
-            if ($agent->webConnection?->webhook_secret && $agent->webConnection?->api_token) {
-                $channelAccounts['provision-web'][] = [
-                    'agentId' => $agentId,
-                    'accountId' => $agent->webConnection->account_id,
-                    'webhookSecret' => $agent->webConnection->webhook_secret,
-                    'apiToken' => $agent->webConnection->api_token,
-                ];
-            }
         }
 
         return $channelAccounts;
@@ -142,35 +134,6 @@ class ChannelConfigBuilder
             }
 
             $channels[$channel] = $channelConfig;
-        }
-
-        $webAccounts = $channelAccounts['provision-web'] ?? [];
-        if (! empty($webAccounts)) {
-            $appUrl = rtrim((string) config('app.url'), '/');
-            // No dmPolicy/allowFrom here: OpenClaw 2026.7.1 strict-validates
-            // channel config against the provision-web plugin schema, which
-            // does not declare them (both were permissive defaults anyway).
-            $channels['provision-web'] = [
-                'enabled' => true,
-                'apiUrl' => $appUrl,
-                'accounts' => [],
-            ];
-            $plugins['provision-web'] = ['enabled' => true];
-
-            foreach ($webAccounts as $account) {
-                $accountId = $account['accountId'];
-                $channels['provision-web']['accounts'][$accountId] = [
-                    'name' => $accountId,
-                    'webhookSecret' => $account['webhookSecret'],
-                    'apiToken' => $account['apiToken'],
-                    'webhookUrl' => $appUrl.'/api/agents/web-channel/inbound',
-                    'streamUrl' => $appUrl."/api/agents/web-channel/{$accountId}/stream",
-                ];
-                $bindings[] = [
-                    'agentId' => $account['agentId'],
-                    'match' => ['channel' => 'provision-web', 'accountId' => $accountId],
-                ];
-            }
         }
 
         return [
