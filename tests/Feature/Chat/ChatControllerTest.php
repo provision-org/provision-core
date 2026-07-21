@@ -42,10 +42,19 @@ test('user can view the chat page', function () {
     Bus::fake();
     $user = chatUser();
     $agent = chatAgent($user->currentTeam);
+    $agent->update([
+        'api_server_key' => 'gateway-secret',
+        'config_snapshot' => ['gateway' => ['auth' => ['token' => 'snapshot-secret']]],
+        'default_password' => 'default-secret',
+    ]);
 
     $response = $this->actingAs($user)->get(route('agents.chat', $agent));
 
-    $response->assertSuccessful();
+    $response->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->missing('agent.api_server_key')
+            ->missing('agent.config_snapshot')
+            ->missing('agent.default_password'));
 });
 
 test('chat page lists conversations for the authenticated user', function () {
