@@ -13,13 +13,21 @@ use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\LinodeService;
 use App\Services\SlackAppCleanupService;
+use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\Client\RequestException;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Sleep;
 use Provision\Billing\Models\ManagedOpenRouterKey;
 use Provision\Billing\Services\OpenRouterProvisioningService;
 use Provision\MailboxKit\Services\MailboxKitService;
 
 uses(RefreshDatabase::class);
+
+afterEach(function () {
+    Sleep::fake(false);
+});
 
 it('dispatches DestroyTeamJob when team owner deletes team', function () {
     Queue::fake();
@@ -126,6 +134,129 @@ it('destroys cloud server and volume when destroying team', function () {
 
     DestroyTeamJob::dispatchSync($team);
 
+    expect(Team::find($team->id))->toBeNull();
+    expect(Server::find($server->id))->toBeNull();
+});
+
+it('retries DO volume conflicts for the full detach backoff window', function () {
+    Sleep::fake();
+
+    $team = Team::factory()->subscribed()->create();
+    $server = Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::DigitalOcean,
+        'provider_server_id' => '999888',
+        'provider_volume_id' => 'vol-detaching',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $conflict = new RequestException(new Response(new Psr7Response(409, [], json_encode([
+        'id' => 'conflict',
+        'message' => 'attached volume cannot be deleted',
+    ], JSON_THROW_ON_ERROR))));
+    $deleteAttempts = 0;
+
+    $doService = Mockery::mock(DigitalOceanService::class);
+    $doService->shouldReceive('deleteDroplet')->with('999888')->once();
+    $doService->shouldReceive('deleteVolume')
+        ->with('vol-detaching')
+        ->times(5)
+        ->andReturnUsing(function () use (&$deleteAttempts, $conflict): void {
+            $deleteAttempts++;
+
+            if ($deleteAttempts < 5) {
+                throw $conflict;
+            }
+        });
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->andReturn($doService);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+
+    Sleep::assertSequence([
+        Sleep::for(2)->seconds(),
+        Sleep::for(4)->seconds(),
+        Sleep::for(8)->seconds(),
+        Sleep::for(16)->seconds(),
+    ]);
+    expect(Team::find($team->id))->toBeNull();
+    expect(Server::find($server->id))->toBeNull();
+});
+
+it('retains teardown state after DO volume retries exhaust and can safely retry', function () {
+    Sleep::fake();
+
+    $team = Team::factory()->subscribed()->create();
+    $server = Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::DigitalOcean,
+        'provider_server_id' => '999888',
+        'provider_volume_id' => 'vol-still-attached',
+        'provider_firewall_id' => 'fw-cleanup',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $conflict = new RequestException(new Response(new Psr7Response(409)));
+    $notFound = new RequestException(new Response(new Psr7Response(404)));
+    $dropletDeleteAttempts = 0;
+    $volumeDeleteAttempts = 0;
+
+    $doService = Mockery::mock(DigitalOceanService::class);
+    $doService->shouldReceive('deleteDroplet')
+        ->with('999888')
+        ->twice()
+        ->andReturnUsing(function () use (&$dropletDeleteAttempts, $notFound): void {
+            $dropletDeleteAttempts++;
+
+            if ($dropletDeleteAttempts === 2) {
+                throw $notFound;
+            }
+        });
+    $doService->shouldReceive('deleteVolume')
+        ->with('vol-still-attached')
+        ->times(6)
+        ->andReturnUsing(function () use (&$volumeDeleteAttempts, $conflict): void {
+            $volumeDeleteAttempts++;
+
+            if ($volumeDeleteAttempts <= 5) {
+                throw $conflict;
+            }
+        });
+    $doService->shouldReceive('deleteFirewall')->with('fw-cleanup')->twice();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->twice()->andReturn($doService);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    expect(fn () => DestroyTeamJob::dispatchSync($team))
+        ->toThrow(RuntimeException::class, 'team retained for retry');
+
+    Sleep::assertSequence([
+        Sleep::for(2)->seconds(),
+        Sleep::for(4)->seconds(),
+        Sleep::for(8)->seconds(),
+        Sleep::for(16)->seconds(),
+    ]);
+    expect(Team::find($team->id))->not->toBeNull();
+    expect(Server::find($server->id))->not->toBeNull();
+
+    Sleep::fake();
+
+    DestroyTeamJob::dispatchSync($team->fresh());
+
+    Sleep::assertNeverSlept();
     expect(Team::find($team->id))->toBeNull();
     expect(Server::find($server->id))->toBeNull();
 });
