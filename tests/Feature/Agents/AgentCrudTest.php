@@ -164,11 +164,20 @@ test('a non-admin cannot create an agent', function () {
 test('a team member can view an agent show page', function () {
     $user = User::factory()->withPersonalTeam()->create();
     $team = $user->currentTeam;
-    $agent = Agent::factory()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'api_server_key' => 'gateway-secret',
+        'config_snapshot' => ['gateway' => ['auth' => ['token' => 'snapshot-secret']]],
+        'default_password' => 'agent-default-password',
+    ]);
 
     $response = $this->actingAs($user)->get(route('agents.show', $agent));
 
-    $response->assertSuccessful();
+    $response->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->where('agent.default_password', 'agent-default-password')
+            ->missing('agent.api_server_key')
+            ->missing('agent.config_snapshot'));
 });
 
 test('show page includes is_syncing in agent props', function () {
