@@ -9,6 +9,7 @@ use App\Services\Aws\AwsCredentials;
 use App\Services\Aws\MantleCatalogService;
 use App\Services\OpenClawDefaultsService;
 use App\Support\OpenClawConfig;
+use App\Support\OpenClawGatewayEndpoint;
 use App\Support\OperatorPairingPatch;
 use Illuminate\Support\Str;
 
@@ -192,11 +193,13 @@ UNIT);
         // 5. Caddyfile
         $lines[] = '# --- Step 5: Caddy Reverse Proxy ---';
         $lines[] = 'mkdir -p /etc/caddy/conf.d';
-        $lines[] = $this->buildHeredoc('/etc/caddy/Caddyfile', <<<CADDY
-{$hostname} {
-    import /etc/caddy/conf.d/*.caddy
-}
-CADDY);
+        $caddyfile = $isOpenClaw ? OpenClawGatewayEndpoint::caddyfile($server) : <<<CADDY
+        {$hostname} {
+            import /etc/caddy/conf.d/*.caddy
+        }
+        CADDY;
+        $lines[] = $this->buildHeredoc(OpenClawGatewayEndpoint::CADDYFILE, $caddyfile);
+        $lines[] = 'chmod 0644 '.OpenClawGatewayEndpoint::CADDYFILE;
         $lines[] = 'systemctl restart caddy';
         $lines[] = '';
 
@@ -476,6 +479,7 @@ WRAPPER);
         $config['gateway'] = [
             'mode' => 'local',
             'bind' => config('openclaw.gateway_bind'),
+            'trustedProxies' => OpenClawGatewayEndpoint::trustedProxies(),
             'auth' => [
                 'token' => $gatewayToken,
             ],
@@ -486,6 +490,12 @@ WRAPPER);
                 ],
             ],
         ];
+
+        if (! $server->isDocker()) {
+            $config['gateway']['controlUi'] = [
+                'allowedOrigins' => OpenClawGatewayEndpoint::allowedOrigins($server),
+            ];
+        }
 
         // Logging — redact sensitive data from tool outputs
         $config['logging'] = [

@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-class ChatAgentActivityEvent extends TeamBroadcastEvent
+class ChatAgentActivityEvent extends ChatConversationBroadcastEvent
 {
     /**
      * @param  array<string, mixed>  $payload
@@ -10,12 +10,11 @@ class ChatAgentActivityEvent extends TeamBroadcastEvent
     public function __construct(
         public string $conversationId,
         public array $payload,
-        private string $teamId,
     ) {}
 
-    protected function teamId(): string
+    protected function conversationId(): string
     {
-        return $this->teamId;
+        return $this->conversationId;
     }
 
     /**

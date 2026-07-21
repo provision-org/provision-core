@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AgentUpdateCallbackController;
 use App\Http\Controllers\Api\AgentUpdateScriptController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\HermesInstallScriptController;
+use App\Http\Controllers\Api\MobilePairingExchangeController;
 use App\Http\Controllers\Api\ServerCallbackController;
 use App\Http\Controllers\Api\ServerSetupCallbackController;
 use App\Http\Controllers\Api\ServerSetupScriptController;
@@ -12,6 +13,10 @@ use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\WebChannelController;
 use App\Http\Controllers\CliController;
 use Illuminate\Support\Facades\Route;
+
+Route::post('/mobile/pairing/exchange', MobilePairingExchangeController::class)
+    ->middleware('throttle:10,1')
+    ->name('api.mobile.pairing.exchange');
 
 // Webhooks — HMAC-signed, rate-limited
 Route::middleware('throttle:60,1')->group(function () {

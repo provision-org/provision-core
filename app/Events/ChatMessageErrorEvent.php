@@ -2,17 +2,16 @@
 
 namespace App\Events;
 
-class ChatMessageErrorEvent extends TeamBroadcastEvent
+class ChatMessageErrorEvent extends ChatConversationBroadcastEvent
 {
     public function __construct(
-        private string $teamId,
         public string $chatConversationId,
         public string $errorMessage = 'The agent did not respond in time.',
     ) {}
 
-    protected function teamId(): string
+    protected function conversationId(): string
     {
-        return $this->teamId;
+        return $this->chatConversationId;
     }
 
     /**

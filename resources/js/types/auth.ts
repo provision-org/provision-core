@@ -126,6 +126,7 @@ export type Agent = {
     harness_type: HarnessType;
     agent_mode: AgentMode;
     name: string;
+    emoji: string | null;
     handle: string | null;
     role: AgentRole;
     status: AgentStatus;
@@ -391,12 +392,22 @@ export type ChatConversation = {
     created_at: string;
 };
 
+export type ChatDeliveryStatus =
+    | 'queued'
+    | 'running'
+    | 'completed'
+    | 'failed'
+    | 'aborted';
+
 export type ChatMessage = {
     id: string;
     chat_conversation_id: string;
     role: 'user' | 'assistant';
     content: ChatContentBlock[];
     sent_at: string;
+    delivery_status?: ChatDeliveryStatus | null;
+    delivery_error?: string | null;
+    upstream_run_id?: string | null;
 };
 
 export type Skill = {

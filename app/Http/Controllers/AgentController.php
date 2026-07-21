@@ -532,11 +532,13 @@ class AgentController extends Controller
 
         $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
 
+        $agent->load(array_filter([
+            'server', 'slackConnection', 'emailConnection', 'telegramConnection', 'discordConnection', 'tools',
+            class_exists(Skill::class) ? 'skills' : null,
+        ]))->makeVisible('default_password');
+
         return Inertia::render('agents/show', [
-            'agent' => $agent->load(array_filter([
-                'server', 'slackConnection', 'emailConnection', 'telegramConnection', 'discordConnection', 'tools',
-                class_exists(Skill::class) ? 'skills' : null,
-            ])),
+            'agent' => $agent,
             'activities' => $activities,
             'teamId' => $team->id,
             'browserUrl' => $browserUrl,
