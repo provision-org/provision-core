@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\AgentStatus;
+use App\Enums\CloudProvider;
 use App\Enums\HarnessType;
 use App\Enums\LlmProvider;
 use App\Models\Agent;
@@ -68,6 +69,68 @@ test('openclaw update script syncs binary to pinned version before restart (issu
     $pinnedPos = strpos($script, 'PINNED_OPENCLAW_VERSION=');
     $restartPos = strpos($script, 'systemctl --user restart openclaw-gateway');
     expect($pinnedPos)->toBeLessThan($restartPos);
+});
+
+test('openclaw update repairs the mobile gateway proxy and trusts only local proxies', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create([
+        'team_id' => $team->id,
+        'ipv4_address' => '203.0.113.42',
+    ]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-mobile',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'Mobile',
+        'status' => AgentStatus::Active,
+    ]);
+
+    $service = app(AgentUpdateScriptService::class);
+    $config = $service->buildOpenClawConfigSnapshot($agent);
+    $script = $service->generateOpenClawScript($agent);
+
+    expect($config['gateway']['bind'])->toBe('loopback')
+        ->and($config['gateway']['trustedProxies'])->toBe(['127.0.0.1', '::1'])
+        ->and($config['gateway']['controlUi']['allowedOrigins'])->toBe(['https://gateway.203-0-113-42.sslip.io'])
+        ->and($script)->toContain('gateway.203-0-113-42.sslip.io {')
+        ->toContain("`header({'Connection':'*Upgrade*','Upgrade':'websocket'}) || header({':protocol':'websocket'})`")
+        ->toContain('reverse_proxy 127.0.0.1:18789')
+        ->toContain('CADDY_CANDIDATE=$(mktemp /etc/caddy/Caddyfile.provision-mobile.XXXXXX)')
+        ->toContain('CADDY_BACKUP="$CADDY_CANDIDATE.backup"')
+        ->toContain('if ! chmod 0644 "$CADDY_CANDIDATE" || ! caddy validate --config "$CADDY_CANDIDATE" --adapter caddyfile; then')
+        ->toContain('if cmp -s "$CADDY_CANDIDATE" /etc/caddy/Caddyfile; then')
+        ->toContain('if ! chmod 0644 /etc/caddy/Caddyfile || ! systemctl reload caddy; then')
+        ->toContain('if ! cp -p /etc/caddy/Caddyfile "$CADDY_BACKUP"; then')
+        ->toContain('if mv "$CADDY_BACKUP" /etc/caddy/Caddyfile; then')
+        ->toContain('rm -f "$CADDY_CANDIDATE" "$CADDY_BACKUP"')
+        ->not->toContain('0.0.0.0:18789');
+});
+
+test('openclaw update omits the mobile gateway proxy repair for Docker servers', function () {
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::Docker,
+        'ipv4_address' => '127.0.0.1',
+    ]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_agent_id' => 'agent-docker',
+        'harness_type' => HarnessType::OpenClaw,
+        'name' => 'Docker',
+        'status' => AgentStatus::Active,
+    ]);
+
+    $service = app(AgentUpdateScriptService::class);
+    $config = $service->buildOpenClawConfigSnapshot($agent);
+    $script = $service->generateOpenClawScript($agent);
+
+    expect($script)->not->toContain('# --- Step 1b: Configure Mobile Gateway Proxy ---')
+        ->not->toContain('CADDY_CANDIDATE=')
+        ->not->toContain('/etc/caddy/Caddyfile')
+        ->and($config['gateway'])->not->toHaveKey('controlUi');
 });
 
 test('openclaw update script reports error (not warning) when gateway never becomes healthy (issue #41)', function () {

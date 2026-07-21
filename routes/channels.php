@@ -1,5 +1,6 @@
 <?php
 
+use App\Broadcasting\ChatConversationChannel;
 use Illuminate\Support\Facades\Broadcast;
 
 Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
@@ -9,3 +10,5 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
 Broadcast::channel('team.{teamId}', function ($user, $teamId) {
     return $user->teams()->where('teams.id', $teamId)->exists();
 });
+
+Broadcast::channel('chat.conversation.{conversationId}', ChatConversationChannel::class);

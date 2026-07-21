@@ -110,16 +110,6 @@ class AgentInstallScriptService
             $lines[] = '';
         }
 
-        // 2d. Always add the provision-web channel — every agent gets one for in-app chat
-        $web = $agent->webConnection;
-        if ($web && $web->webhook_secret && $web->api_token) {
-            $lines[] = '# Install + configure provision-web channel plugin';
-            $lines[] = $this->buildInstallProvisionWebPluginScript();
-            $lines[] = $this->buildProvisionWebPatchScript($agent, $web, $configFile);
-            $lines[] = $this->buildEnableChannelPluginScript('provision-web', $configFile);
-            $lines[] = '';
-        }
-
         // 3. Install MailboxKit email skill if agent has email connection and module is active
         $emailConnection = $agent->emailConnection;
         $hasEmailModule = app()->bound(AgentEmailProvider::class);
@@ -938,7 +928,7 @@ class AgentInstallScriptService
      */
     public static function buildOnboardingContent(Agent $agent): string
     {
-        $agent->loadMissing(['emailConnection', 'tools', 'webConnection']);
+        $agent->loadMissing(['emailConnection', 'tools']);
 
         $lines = [];
         $lines[] = "# Welcome to the team, {$agent->name}!";
@@ -956,31 +946,23 @@ class AgentInstallScriptService
         }
 
         // How to talk to the user
-        $hasWebChat = (bool) $agent->webConnection;
-        if ($hasWebChat) {
-            $lines[] = '## How to talk to your team';
-            $lines[] = '';
-            $lines[] = 'Your primary communication surface is the **Provision web chat** — when the user opens you in the dashboard, your messages reach them directly there.';
-            $lines[] = 'You can send messages anytime, even unprompted (e.g. "I just opened a PR for review", "I need an API key for X").';
-            $lines[] = 'When you need credentials, an OAuth link clicked, or a decision — ask the user via web chat. They will reply.';
-            $lines[] = '';
-        }
+        $lines[] = '## How to talk to your team';
+        $lines[] = '';
+        $lines[] = 'Your primary communication surface is the **Provision chat** in the dashboard and mobile app.';
+        $lines[] = 'When you need credentials, an OAuth link clicked, or a decision, ask the user in the current chat. They will reply.';
+        $lines[] = '';
 
         // Accounts & access setup
         $lines[] = '## Onboarding Checklist';
         $lines[] = '';
-        $lines[] = 'Work through these items one by one. When you need access, credentials, or an OAuth authorization, ask the user via web chat.';
+        $lines[] = 'Work through these items one by one. When you need access, credentials, or an OAuth authorization, ask the user in the current Provision chat.';
         $lines[] = '';
 
         $step = 1;
 
         // Always: introduce yourself
         $lines[] = "### {$step}. Introduce yourself";
-        if ($hasWebChat) {
-            $lines[] = 'Send a brief hello via the web chat. Tell the user who you are, your role, and that you are starting onboarding.';
-        } else {
-            $lines[] = 'Send a brief hello to your team. Let them know you are online and ready to get set up.';
-        }
+        $lines[] = 'Send a brief hello in the current chat. Tell the user who you are, your role, and that you are starting onboarding.';
         $lines[] = '';
         $step++;
 
@@ -1014,8 +996,8 @@ class AgentInstallScriptService
             $lines[] = 'You need access to the following tools. For each one, work through this order:';
             $lines[] = '';
             $lines[] = '1. **Try to sign up yourself** — open the tool\'s website in the browser and create an account using your email + password from IDENTITY.md.';
-            $lines[] = '2. **If the tool needs an API key** — sign in, find the API/integration settings, and grab the key. If you cannot create one without help, ask the user via web chat.';
-            $lines[] = '3. **If the tool requires OAuth** (e.g. Google Search Console, GitHub App install) — explain to the user via web chat what permission you need and ask them to authorize it. They will return with a link or token for you to save.';
+            $lines[] = '2. **If the tool needs an API key** — sign in, find the API/integration settings, and grab the key. If you cannot create one without help, ask the user in the current chat.';
+            $lines[] = '3. **If the tool requires OAuth** (e.g. Google Search Console, GitHub App install) — explain in the current chat what permission you need and ask the user to authorize it. They will return with a link or token for you to save.';
             $lines[] = '4. **Store secrets** in your agent `.env` file or under `~/.openclaw/agents/'.$agent->harness_agent_id.'/agent/auth-profiles.json`. NEVER write secrets to MEMORY.md or any committed file.';
             $lines[] = '';
             $lines[] = '| Tool | Website | Status |';
@@ -1025,7 +1007,7 @@ class AgentInstallScriptService
                 $lines[] = "| {$tool->name} | {$url} | Pending |";
             }
             $lines[] = '';
-            $lines[] = 'After each tool is connected, briefly tell the user via web chat that the integration is working and what you can do with it now.';
+            $lines[] = 'After each tool is connected, briefly tell the user in the current chat that the integration is working and what you can do with it now.';
             $lines[] = '';
             $step++;
         } elseif ($agent->job_description) {

@@ -4,13 +4,13 @@ namespace App\Events;
 
 use App\Models\ChatMessage;
 
-class ChatMessageReceivedEvent extends TeamBroadcastEvent
+class ChatMessageReceivedEvent extends ChatConversationBroadcastEvent
 {
-    public function __construct(public ChatMessage $message, private string $teamId) {}
+    public function __construct(public ChatMessage $message) {}
 
-    protected function teamId(): string
+    protected function conversationId(): string
     {
-        return $this->teamId;
+        return $this->message->chat_conversation_id;
     }
 
     /**

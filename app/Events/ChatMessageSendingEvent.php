@@ -2,17 +2,16 @@
 
 namespace App\Events;
 
-class ChatMessageSendingEvent extends TeamBroadcastEvent
+class ChatMessageSendingEvent extends ChatConversationBroadcastEvent
 {
     public function __construct(
-        private string $teamId,
         public string $chatConversationId,
         public string $agentId,
     ) {}
 
-    protected function teamId(): string
+    protected function conversationId(): string
     {
-        return $this->teamId;
+        return $this->chatConversationId;
     }
 
     /**

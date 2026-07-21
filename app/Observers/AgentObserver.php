@@ -2,23 +2,10 @@
 
 namespace App\Observers;
 
-use App\Models\Agent;
-use App\Models\AgentWebConnection;
-
-class AgentObserver
-{
-    public function created(Agent $agent): void
-    {
-        // Every agent gets a provision-web channel connection by default —
-        // no setup ceremony, the web chat is the primary surface.
-        if (! $agent->harness_agent_id) {
-            return;
-        }
-
-        if ($agent->webConnection()->exists()) {
-            return;
-        }
-
-        AgentWebConnection::provisionFor($agent);
-    }
-}
+/**
+ * Reserved for agent lifecycle hooks.
+ *
+ * Dashboard and mobile chat now use OpenClaw's native Gateway protocol, so
+ * agents no longer need an automatically provisioned custom web channel.
+ */
+class AgentObserver {}

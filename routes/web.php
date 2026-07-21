@@ -19,6 +19,7 @@ use App\Http\Controllers\GoalController;
 use App\Http\Controllers\GovernanceTaskController;
 use App\Http\Controllers\OrgChartController;
 use App\Http\Controllers\ProfileSetupController;
+use App\Http\Controllers\ProvisionAppController;
 use App\Http\Controllers\RoutineController;
 use App\Http\Controllers\SharedWorkspaceController;
 use App\Http\Controllers\SlackConnectionController;
@@ -158,8 +159,17 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::get('agents/{agent}/chat/{conversation}', [ChatController::class, 'show'])->name('agents.chat.show');
         Route::post('agents/{agent}/chat/{conversation}', [ChatController::class, 'sendMessage'])->name('agents.chat.send');
         Route::post('agents/{agent}/chat/{conversation}/stream', [ChatController::class, 'stream'])->name('agents.chat.stream');
+        Route::post('agents/{agent}/chat/{conversation}/abort', [ChatController::class, 'abort'])->name('agents.chat.abort');
 
         Route::get('agents/{agent}/channels', [AgentController::class, 'channels'])->name('agents.channels');
+
+        Route::get('agents/{agent}/provision-app', [ProvisionAppController::class, 'show'])
+            ->name('agents.provision-app.show');
+        Route::post('agents/{agent}/provision-app/handoffs', [ProvisionAppController::class, 'storeHandoff'])
+            ->middleware('throttle:6,1')
+            ->name('agents.provision-app.handoffs.store');
+        Route::get('agents/{agent}/provision-app/handoffs/{handoff}', [ProvisionAppController::class, 'showHandoff'])
+            ->name('agents.provision-app.handoffs.show');
 
         Route::get('agents/{agent}/telegram', [TelegramConnectionController::class, 'create'])->name('agents.telegram.create');
         Route::post('agents/{agent}/telegram', [TelegramConnectionController::class, 'store'])->name('agents.telegram.store');

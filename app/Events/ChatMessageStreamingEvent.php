@@ -2,7 +2,7 @@
 
 namespace App\Events;
 
-class ChatMessageStreamingEvent extends TeamBroadcastEvent
+class ChatMessageStreamingEvent extends ChatConversationBroadcastEvent
 {
     public function __construct(
         public string $conversationId,
@@ -10,12 +10,11 @@ class ChatMessageStreamingEvent extends TeamBroadcastEvent
         public string $delta,
         public string $cumulative,
         public bool $isFinal,
-        private string $teamId,
     ) {}
 
-    protected function teamId(): string
+    protected function conversationId(): string
     {
-        return $this->teamId;
+        return $this->conversationId;
     }
 
     /**
