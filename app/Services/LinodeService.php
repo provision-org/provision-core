@@ -82,9 +82,21 @@ class LinodeService
         return $response->json();
     }
 
+    /**
+     * Detach a volume from its instance.
+     *
+     * The body must be an explicit empty JSON OBJECT. Laravel's default for a
+     * body-less POST serializes to `[]` (a JSON array), which Linode rejects
+     * with 400 {"errors":[{"reason":"Invalid JSON"}]} — that silent failure
+     * aborted every Linode team teardown before it could delete the volume,
+     * the firewall, or the team record.
+     */
     public function detachVolume(int $volumeId): void
     {
-        $this->http->post("/volumes/{$volumeId}/detach")->throw();
+        $this->http
+            ->withBody('{}', 'application/json')
+            ->post("/volumes/{$volumeId}/detach")
+            ->throw();
     }
 
     public function updateInstanceLabel(string $linodeId, string $label): void
