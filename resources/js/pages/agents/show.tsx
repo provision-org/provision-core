@@ -16,6 +16,7 @@ import {
     FileText,
     FolderOpen,
     FolderPlus,
+    Globe,
     Key,
     Loader2,
     Lock,
@@ -36,6 +37,7 @@ import {
     Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { destroyArtifact } from '@/actions/App/Http/Controllers/AgentController';
 import { show as showProvisionApp } from '@/actions/App/Http/Controllers/ProvisionAppController';
 import ActivityFeed from '@/components/agents/activity-feed';
 import AgentAvatar from '@/components/agents/agent-avatar';
@@ -88,9 +90,21 @@ type Tab =
     | 'channels'
     | 'schedules'
     | 'workspace'
+    | 'apps'
     | 'memory'
     | 'browser'
     | 'settings';
+
+type AgentArtifact = {
+    id: string;
+    name: string;
+    path_slug: string;
+    type: 'static' | 'app';
+    visibility: 'public' | 'gated';
+    status: string;
+    public_url: string | null;
+    last_published_at: string | null;
+};
 
 type MessageSummary = {
     id: string | number;
@@ -2844,6 +2858,101 @@ function SettingsTab({ agent }: { agent: Agent }) {
     );
 }
 
+function ArtifactsTab({
+    agent,
+    artifacts,
+}: {
+    agent: Agent;
+    artifacts: AgentArtifact[];
+}) {
+    if (artifacts.length === 0) {
+        return (
+            <div className="flex min-h-[30vh] flex-col items-center justify-center text-center">
+                <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-muted">
+                    <Globe className="size-7 text-muted-foreground" />
+                </div>
+                <h3 className="mt-5 text-lg font-semibold">
+                    No published artifacts yet
+                </h3>
+                <p className="mt-2 max-w-md text-sm text-muted-foreground">
+                    When {agent.name} publishes a web artifact — a dashboard, a
+                    report, an app — it appears here with its public link.
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-3">
+            {artifacts.map((artifact) => (
+                <div
+                    key={artifact.id}
+                    className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card p-4"
+                >
+                    <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                            <span className="truncate text-sm font-semibold">
+                                {artifact.name}
+                            </span>
+                            <Badge
+                                variant="outline"
+                                className="shrink-0 gap-1 text-[10px] font-normal"
+                            >
+                                {artifact.visibility === 'gated' ? (
+                                    <>
+                                        <Lock className="size-2.5" />
+                                        Gated
+                                    </>
+                                ) : (
+                                    <>
+                                        <Globe className="size-2.5" />
+                                        Public
+                                    </>
+                                )}
+                            </Badge>
+                            {artifact.status !== 'live' && (
+                                <Badge
+                                    variant="outline"
+                                    className="shrink-0 text-[10px] font-normal text-muted-foreground"
+                                >
+                                    {artifact.status}
+                                </Badge>
+                            )}
+                        </div>
+                        {artifact.public_url && (
+                            <a
+                                href={artifact.public_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-1 block truncate text-xs text-primary hover:underline"
+                            >
+                                {artifact.public_url}
+                            </a>
+                        )}
+                    </div>
+                    <DeleteConfirmDialog
+                        name={artifact.name}
+                        label="artifact"
+                        onConfirm={() =>
+                            router.delete(
+                                destroyArtifact.url({
+                                    agent: agent.id,
+                                    artifact: artifact.id,
+                                }),
+                            )
+                        }
+                        trigger={
+                            <Button variant="outline" size="sm">
+                                Unpublish
+                            </Button>
+                        }
+                    />
+                </div>
+            ))}
+        </div>
+    );
+}
+
 // ─── Page ────────────────────────────────────────────────────────
 
 export default function ShowAgent({
@@ -2852,12 +2961,16 @@ export default function ShowAgent({
     teamId = '',
     browserUrl = null,
     emailDomains = [],
+    artifactsEnabled = false,
+    artifacts = [],
 }: {
     agent: Agent;
     activities?: AgentActivity[];
     teamId?: string;
     browserUrl?: string | null;
     emailDomains?: EmailDomainOption[];
+    artifactsEnabled?: boolean;
+    artifacts?: AgentArtifact[];
 }) {
     // Real-time agent updates via Reverb (replaces polling)
     useEcho<{ agent_id: string }>(
@@ -2876,6 +2989,7 @@ export default function ShowAgent({
         'channels',
         'schedules',
         'workspace',
+        ...(artifactsEnabled ? (['apps'] as Tab[]) : []),
         'memory',
         'browser',
         'settings',
@@ -2899,6 +3013,7 @@ export default function ShowAgent({
         { id: 'email', label: 'Email Inbox' },
         ...(!isHermes ? [{ id: 'browser' as Tab, label: 'Browser' }] : []),
         { id: 'workspace', label: 'Workspace' },
+        ...(artifactsEnabled ? [{ id: 'apps' as Tab, label: 'Apps' }] : []),
         { id: 'memory', label: 'Memory' },
         { id: 'schedules', label: 'Scheduled Tasks' },
         ...(agent.agent_mode !== 'workforce'
@@ -3152,6 +3267,13 @@ export default function ShowAgent({
                                     {activeTab === 'workspace' && (
                                         <WorkspaceTab agent={agent} />
                                     )}
+                                    {artifactsEnabled &&
+                                        activeTab === 'apps' && (
+                                            <ArtifactsTab
+                                                agent={agent}
+                                                artifacts={artifacts}
+                                            />
+                                        )}
                                     {activeTab === 'memory' && (
                                         <MemoryBrowser agent={agent} />
                                     )}

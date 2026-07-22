@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Settings;
 
 use App\Ai\CompanyExtractorAgent;
 use App\Contracts\Modules\BillingProvider;
+use App\Enums\AgentStatus;
 use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Enums\TeamRole;
@@ -12,6 +13,7 @@ use App\Http\Requests\Settings\CreateTeamRequest;
 use App\Http\Requests\Settings\UpdateTeamRequest;
 use App\Jobs\DestroyTeamJob;
 use App\Mail\TeamCreatedMail;
+use App\Models\AgentApiToken;
 use App\Models\ServerEvent;
 use App\Models\Team;
 use App\Services\Aws\AwsCredentials;
@@ -464,6 +466,12 @@ class TeamController extends Controller
     {
         abort_unless($request->user()->isTeamOwner($team), 403);
         abort_if($team->personal_team, 403);
+
+        // Fence agent-originated writes before the queued teardown can wait.
+        // The job repeats this idempotently for CLI/direct dispatches.
+        $team->server?->update(['status' => ServerStatus::Destroying]);
+        $team->agents()->update(['status' => AgentStatus::Paused->value]);
+        AgentApiToken::query()->where('team_id', $team->id)->delete();
 
         DestroyTeamJob::dispatch($team);
 

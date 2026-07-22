@@ -2,10 +2,13 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\AgentStatus;
+use App\Enums\ServerStatus;
 use App\Models\Agent;
+use App\Models\AgentApiToken;
 use App\Models\Server;
-use App\Models\Team;
 use App\Services\DigitalOceanService;
+use App\Services\PublishArtifactService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Laravel\Cashier\Subscription;
@@ -18,27 +21,44 @@ class ResetProduction extends Command
 
     protected $description = 'Delete all teams, agents, servers, subscriptions, and cloud resources for a clean test';
 
-    public function handle(MailboxKitService $mailboxKitService): int
+    public function handle(PublishArtifactService $artifacts): int
     {
         try {
-            // 1. Clean up MailboxKit inboxes/webhooks for all agents
-            $agents = Agent::with('emailConnection')->get();
-            foreach ($agents as $agent) {
-                $ec = $agent->emailConnection;
-                if ($ec?->mailboxkit_inbox_id) {
-                    try {
-                        $mailboxKitService->deleteInbox($ec->mailboxkit_inbox_id);
-                        $this->info("  Deleted MailboxKit inbox {$ec->mailboxkit_inbox_id} for agent {$agent->name}");
-                    } catch (\Throwable $e) {
-                        $this->warn("  Failed to delete MailboxKit inbox: {$e->getMessage()}");
-                    }
+            // Revoke agent-originated writes and remove every managed hostname
+            // before any server IP can be released or ownership rows erased.
+            // A DNS failure aborts the reset and leaves the database available
+            // for an operator to retry safely.
+            Server::query()->update(['status' => ServerStatus::Destroying->value]);
+            Agent::query()->update(['status' => AgentStatus::Paused->value]);
+            AgentApiToken::query()->delete();
 
-                    if ($ec->mailboxkit_webhook_id) {
+            foreach (Agent::query()->with('server')->get() as $agent) {
+                $artifacts->teardownAgent($agent, requireServerCleanup: true);
+            }
+
+            // 1. Clean up MailboxKit inboxes/webhooks for all agents when the
+            // optional module is installed.
+            if (class_exists(MailboxKitService::class)) {
+                $mailboxKitService = app(MailboxKitService::class);
+
+                $agents = Agent::with('emailConnection')->get();
+                foreach ($agents as $agent) {
+                    $ec = $agent->emailConnection;
+                    if ($ec?->mailboxkit_inbox_id) {
                         try {
-                            $mailboxKitService->deleteWebhook($ec->mailboxkit_webhook_id);
-                            $this->info("  Deleted MailboxKit webhook {$ec->mailboxkit_webhook_id}");
+                            $mailboxKitService->deleteInbox($ec->mailboxkit_inbox_id);
+                            $this->info("  Deleted MailboxKit inbox {$ec->mailboxkit_inbox_id} for agent {$agent->name}");
                         } catch (\Throwable $e) {
-                            $this->warn("  Failed to delete MailboxKit webhook: {$e->getMessage()}");
+                            $this->warn("  Failed to delete MailboxKit inbox: {$e->getMessage()}");
+                        }
+
+                        if ($ec->mailboxkit_webhook_id) {
+                            try {
+                                $mailboxKitService->deleteWebhook($ec->mailboxkit_webhook_id);
+                                $this->info("  Deleted MailboxKit webhook {$ec->mailboxkit_webhook_id}");
+                            } catch (\Throwable $e) {
+                                $this->warn("  Failed to delete MailboxKit webhook: {$e->getMessage()}");
+                            }
                         }
                     }
                 }

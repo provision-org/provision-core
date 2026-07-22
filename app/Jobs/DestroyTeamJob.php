@@ -2,7 +2,10 @@
 
 namespace App\Jobs;
 
+use App\Enums\AgentStatus;
 use App\Enums\CloudProvider;
+use App\Enums\ServerStatus;
+use App\Models\AgentApiToken;
 use App\Models\Team;
 use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
@@ -10,6 +13,7 @@ use App\Services\DigitalOceanService;
 use App\Services\HetznerService;
 use App\Services\LinodeService;
 use App\Services\OpenRouterKeyService;
+use App\Services\PublishArtifactService;
 use App\Services\SlackAppCleanupService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -36,19 +40,42 @@ class DestroyTeamJob implements ShouldQueue
 
     public function handle(
         SlackAppCleanupService $slackCleanup,
+        PublishArtifactService $artifacts,
     ): void {
         $team = $this->team;
 
         Log::info("Destroying team {$team->id} ({$team->name})");
+
+        // Fence publishing before cleanup takes the shared server lock. This
+        // also covers direct/CLI dispatches that bypass the web controller.
+        $team->server?->update(['status' => ServerStatus::Destroying]);
+        $team->agents()->update(['status' => AgentStatus::Paused->value]);
+        AgentApiToken::query()->where('team_id', $team->id)->delete();
 
         // Resolve MailboxKitService only when the module is installed
         $mailboxKitService = class_exists(MailboxKitService::class)
             ? app(MailboxKitService::class)
             : null;
 
+        $artifactCleanupFailures = [];
+
         // Clean up each agent's external resources
         foreach ($team->agents()->with(['emailConnection', 'slackConnection'])->get() as $agent) {
+            try {
+                // DNS cleanup is mandatory before releasing the server IP.
+                // Server-local failures are logged because destroying the
+                // whole server below is the definitive local cleanup.
+                $artifacts->teardownAgent($agent, requireServerCleanup: false);
+            } catch (\Throwable $e) {
+                $artifactCleanupFailures[] = $e;
+                Log::warning("Artifact cleanup on team destroy failed for agent {$agent->id}: {$e->getMessage()}");
+            }
+
             $this->cleanupAgent($agent, $mailboxKitService, $slackCleanup);
+        }
+
+        if ($artifactCleanupFailures !== []) {
+            throw new \RuntimeException('Artifact DNS cleanup failed; team retained for retry.', previous: $artifactCleanupFailures[0]);
         }
 
         // Revoke OpenRouter managed key

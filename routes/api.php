@@ -3,6 +3,8 @@
 use App\Http\Controllers\Api\AgentInstallScriptController;
 use App\Http\Controllers\Api\AgentUpdateCallbackController;
 use App\Http\Controllers\Api\AgentUpdateScriptController;
+use App\Http\Controllers\Api\ArtifactController;
+use App\Http\Controllers\Api\CaddyController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\HermesInstallScriptController;
 use App\Http\Controllers\Api\MobilePairingExchangeController;
@@ -29,6 +31,13 @@ Route::middleware('throttle:60,1')->group(function () {
     Route::post('/webhooks/agent-update', AgentUpdateCallbackController::class)
         ->name('api.webhooks.agent-update');
 });
+
+// Caddy on-demand TLS gate — called server-to-server by agent servers' Caddy
+// before issuing a cert for an artifact subdomain. Public but only returns 200
+// for hosts that map to a live artifact.
+Route::get('/caddy/ask', [CaddyController::class, 'ask'])
+    ->middleware('throttle:120,1')
+    ->name('api.caddy.ask');
 
 // Script endpoints — HMAC-signed, rate-limited
 Route::middleware('throttle:30,1')->group(function () {
@@ -61,6 +70,15 @@ Route::prefix('tasks')->middleware('auth.agent-token')->group(function () {
     Route::patch('/{task}/complete', [TaskController::class, 'complete']);
     Route::patch('/{task}/block', [TaskController::class, 'block']);
     Route::post('/{task}/notes', [TaskController::class, 'addNote']);
+});
+
+// Agent API — publish web artifacts to {agent.slug}.{artifact_domain}
+Route::prefix('artifacts')->middleware('auth.agent-token')->group(function () {
+    Route::get('/', [ArtifactController::class, 'index']);
+    Route::middleware('throttle:artifact-operations')->group(function () {
+        Route::post('/', [ArtifactController::class, 'store']);
+        Route::delete('/{artifact}', [ArtifactController::class, 'destroy']);
+    });
 });
 
 // Web channel — authenticated per-account via HMAC (inbound) or bearer (stream/probe)

@@ -4,10 +4,13 @@ namespace App\Providers;
 
 use App\Services\ModuleRegistry;
 use Carbon\CarbonImmutable;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Validation\Rules\Password;
 
@@ -28,6 +31,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
         $this->configureMailDefaults();
+        $this->configureRateLimiting();
     }
 
     /**
@@ -65,5 +69,16 @@ class AppServiceProvider extends ServiceProvider
                 ->uncompromised()
             : null
         );
+    }
+
+    protected function configureRateLimiting(): void
+    {
+        RateLimiter::for('artifact-operations', function (Request $request): Limit {
+            $agent = $request->input('authenticated_agent');
+            $key = $agent?->id ?? $request->ip();
+
+            return Limit::perMinute(max(1, (int) config('artifacts.operations_per_minute')))
+                ->by("artifact-operations:{$key}");
+        });
     }
 }

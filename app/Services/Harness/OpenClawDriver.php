@@ -169,11 +169,12 @@ class OpenClawDriver implements HarnessDriver
         // Remove invalid top-level keys that crash the gateway
         unset($config['config']);
 
-        // Enable provision-tasks + provision-publish skills (core, always deployed)
+        // Enable provision-tasks + provision-publish + provision-artifacts skills (core, always deployed)
         $config['skills'] = $config['skills'] ?? [];
         $config['skills']['entries'] = $config['skills']['entries'] ?? [];
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
         $config['skills']['entries']['provision-publish'] = ['enabled' => true];
+        $config['skills']['entries']['provision-artifacts'] = ['enabled' => true];
 
         // Write updated config
         $executor->writeFile($configPath, OpenClawConfig::toJson($config));
@@ -252,6 +253,9 @@ class OpenClawDriver implements HarnessDriver
 
         // Deploy provision-publish skill (core, always deployed)
         $this->deployPublishSkill($agent, $executor);
+
+        // Deploy provision-artifacts skill (core, always deployed)
+        $this->deployArtifactsSkill($agent, $executor);
 
         // Ensure agent has an API token for the tasks API
         $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
@@ -588,6 +592,28 @@ BASH;
         $executor->writeFile(
             "{$skillDir}/skill.json",
             file_get_contents(resource_path('skills/provision-publish/skill.json')),
+        );
+    }
+
+    private function deployArtifactsSkill(Agent $agent, CommandExecutor $executor): void
+    {
+        $agentDir = $this->agentDir($agent);
+        $skillDir = "{$agentDir}/skills/provision-artifacts";
+        $executor->exec("mkdir -p {$skillDir}");
+
+        $executor->writeFile(
+            "{$skillDir}/SKILL.md",
+            file_get_contents(resource_path('skills/provision-artifacts/SKILL.md')),
+        );
+
+        $executor->writeFile(
+            "{$skillDir}/provision_artifacts_tool.js",
+            file_get_contents(resource_path('skills/provision-artifacts/provision_artifacts_tool.js')),
+        );
+
+        $executor->writeFile(
+            "{$skillDir}/skill.json",
+            file_get_contents(resource_path('skills/provision-artifacts/skill.json')),
         );
     }
 

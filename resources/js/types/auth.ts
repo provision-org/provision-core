@@ -99,7 +99,12 @@ export type AgentRole =
 export type SlackConnectionStatus = 'connected' | 'disconnected' | 'error';
 export type LlmProvider = 'anthropic' | 'openai' | 'open_router';
 
-export type CloudProvider = 'hetzner' | 'digitalocean';
+export type CloudProvider =
+    | 'hetzner'
+    | 'digitalocean'
+    | 'linode'
+    | 'docker'
+    | 'aws';
 
 export type Server = {
     id: string;

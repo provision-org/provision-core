@@ -10,6 +10,7 @@ use App\Models\Team;
 use App\Models\TeamApiKey;
 use App\Services\Scripts\AgentUpdateScriptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Process;
 
 uses(RefreshDatabase::class);
 
@@ -89,22 +90,36 @@ test('openclaw update repairs the mobile gateway proxy and trusts only local pro
     $service = app(AgentUpdateScriptService::class);
     $config = $service->buildOpenClawConfigSnapshot($agent);
     $script = $service->generateOpenClawScript($agent);
+    $syntaxCheck = Process::input($script)->run(['bash', '-n']);
 
     expect($config['gateway']['bind'])->toBe('loopback')
         ->and($config['gateway']['trustedProxies'])->toBe(['127.0.0.1', '::1'])
         ->and($config['gateway']['controlUi']['allowedOrigins'])->toBe(['https://gateway.203-0-113-42.sslip.io'])
         ->and($script)->toContain('gateway.203-0-113-42.sslip.io {')
+        ->toContain('mkdir -p /etc/caddy/conf.d /etc/caddy/sites')
+        ->toContain('on_demand_tls')
+        ->toContain('import /etc/caddy/sites/*.caddy')
         ->toContain("`header({'Connection':'*Upgrade*','Upgrade':'websocket'}) || header({':protocol':'websocket'})`")
         ->toContain('reverse_proxy 127.0.0.1:18789')
         ->toContain('CADDY_CANDIDATE=$(mktemp /etc/caddy/Caddyfile.provision-mobile.XXXXXX)')
-        ->toContain('CADDY_BACKUP="$CADDY_CANDIDATE.backup"')
+        ->toContain('CADDY_BACKUP=/etc/caddy/Caddyfile.provision-previous')
+        ->toContain('CADDY_ABSENT_MARKER=/etc/caddy/Caddyfile.provision-previous-absent')
+        ->toContain('CADDY_LOCK_FILE=/run/lock/provision-caddy.lock')
         ->toContain('if ! chmod 0644 "$CADDY_CANDIDATE" || ! caddy validate --config "$CADDY_CANDIDATE" --adapter caddyfile; then')
-        ->toContain('if cmp -s "$CADDY_CANDIDATE" /etc/caddy/Caddyfile; then')
-        ->toContain('if ! chmod 0644 /etc/caddy/Caddyfile || ! systemctl reload caddy; then')
-        ->toContain('if ! cp -p /etc/caddy/Caddyfile "$CADDY_BACKUP"; then')
-        ->toContain('if mv "$CADDY_BACKUP" /etc/caddy/Caddyfile; then')
-        ->toContain('rm -f "$CADDY_CANDIDATE" "$CADDY_BACKUP"')
-        ->not->toContain('0.0.0.0:18789');
+        ->toContain('mutate_mobile_caddy() (')
+        ->toContain('exec 9>"$CADDY_LOCK_FILE" || exit 1')
+        ->toContain('flock -x 9 || exit 1')
+        ->toContain('cp -p /etc/caddy/Caddyfile "$CADDY_BACKUP" || exit 1')
+        ->toContain('touch "$CADDY_ABSENT_MARKER" || exit 1')
+        ->toContain('if mv "$CADDY_CANDIDATE" /etc/caddy/Caddyfile &&')
+        ->toContain('caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile &&')
+        ->toContain('restore_mobile_caddy || exit 1')
+        ->toContain('cp -p "$CADDY_BACKUP" /etc/caddy/Caddyfile || return 1')
+        ->toContain('rm -f "$CADDY_CANDIDATE" || true')
+        ->not->toContain('rm -f "$CADDY_BACKUP"')
+        ->not->toContain('0.0.0.0:18789')
+        ->and($syntaxCheck->errorOutput())->toBe('')
+        ->and($syntaxCheck->successful())->toBeTrue();
 });
 
 test('openclaw update omits the mobile gateway proxy repair for Docker servers', function () {

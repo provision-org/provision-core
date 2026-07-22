@@ -132,61 +132,61 @@ class AgentUpdateScriptService
         if (! $server->isDocker()) {
             $caddyfilePath = OpenClawGatewayEndpoint::CADDYFILE;
             $caddyfile = OpenClawGatewayEndpoint::caddyfile($server);
+            $caddyBackupPath = $caddyfilePath.'.provision-previous';
+            $caddyAbsentMarkerPath = $caddyfilePath.'.provision-previous-absent';
+            $caddyLockPath = OpenClawGatewayEndpoint::CADDY_LOCK_FILE;
 
             // Repair the public mobile endpoint on servers provisioned before app pairing.
             // Always validate and reload so an identical on-disk config is also proven active.
             $lines[] = '# --- Step 1b: Configure Mobile Gateway Proxy ---';
-            $lines[] = 'mkdir -p /etc/caddy/conf.d';
+            $lines[] = 'mkdir -p /etc/caddy/conf.d /etc/caddy/sites';
             $lines[] = "CADDY_CANDIDATE=\$(mktemp {$caddyfilePath}.provision-mobile.XXXXXX)";
-            $lines[] = 'CADDY_BACKUP="$CADDY_CANDIDATE.backup"';
-            $lines[] = 'CADDY_HAD_ACTIVE=0';
-            $lines[] = 'CADDY_REPLACED=0';
-            $lines[] = 'rollback_mobile_caddy() {';
-            $lines[] = '  if [ "$CADDY_REPLACED" -eq 1 ]; then';
-            $lines[] = '    if [ "$CADDY_HAD_ACTIVE" -eq 1 ] && [ -f "$CADDY_BACKUP" ]; then';
-            $lines[] = "      if mv \"\$CADDY_BACKUP\" {$caddyfilePath}; then";
-            $lines[] = "        chmod 0644 {$caddyfilePath} || true";
-            $lines[] = '        systemctl reload caddy || true';
-            $lines[] = '      fi';
-            $lines[] = '    else';
-            $lines[] = "      rm -f {$caddyfilePath} || true";
-            $lines[] = '    fi';
-            $lines[] = '  fi';
-            $lines[] = '  rm -f "$CADDY_CANDIDATE" "$CADDY_BACKUP" || true';
-            $lines[] = '}';
+            $lines[] = "CADDY_BACKUP={$caddyBackupPath}";
+            $lines[] = "CADDY_ABSENT_MARKER={$caddyAbsentMarkerPath}";
+            $lines[] = "CADDY_LOCK_FILE={$caddyLockPath}";
             $lines[] = "if ! cat > \"\$CADDY_CANDIDATE\" << 'CADDY_EOF'\n{$caddyfile}\nCADDY_EOF\nthen";
-            $lines[] = '  rollback_mobile_caddy';
+            $lines[] = '  rm -f "$CADDY_CANDIDATE" || true';
             $lines[] = '  false';
             $lines[] = 'fi';
             $lines[] = 'if ! chmod 0644 "$CADDY_CANDIDATE" || ! caddy validate --config "$CADDY_CANDIDATE" --adapter caddyfile; then';
-            $lines[] = '  rollback_mobile_caddy';
+            $lines[] = '  rm -f "$CADDY_CANDIDATE" || true';
             $lines[] = '  false';
             $lines[] = 'fi';
-            $lines[] = "if cmp -s \"\$CADDY_CANDIDATE\" {$caddyfilePath}; then";
-            $lines[] = "  if ! chmod 0644 {$caddyfilePath} || ! systemctl reload caddy; then";
-            $lines[] = '    rollback_mobile_caddy';
-            $lines[] = '    false';
+            $lines[] = 'restore_mobile_caddy() {';
+            $lines[] = '  if [ -f "$CADDY_ABSENT_MARKER" ]; then';
+            $lines[] = "    rm -f {$caddyfilePath} || return 1";
+            $lines[] = '  elif [ -f "$CADDY_BACKUP" ]; then';
+            $lines[] = "    cp -p \"\$CADDY_BACKUP\" {$caddyfilePath} || return 1";
+            $lines[] = "    chmod 0644 {$caddyfilePath} || return 1";
+            $lines[] = '  else';
+            $lines[] = '    return 1';
             $lines[] = '  fi';
-            $lines[] = 'else';
+            $lines[] = "  caddy validate --config {$caddyfilePath} --adapter caddyfile || return 1";
+            $lines[] = '  systemctl reload caddy || return 1';
+            $lines[] = '}';
+            $lines[] = 'mutate_mobile_caddy() (';
+            $lines[] = '  exec 9>"$CADDY_LOCK_FILE" || exit 1';
+            $lines[] = '  flock -x 9 || exit 1';
             $lines[] = "  if [ -f {$caddyfilePath} ]; then";
-            $lines[] = "    if ! cp -p {$caddyfilePath} \"\$CADDY_BACKUP\"; then";
-            $lines[] = '      rollback_mobile_caddy';
-            $lines[] = '      false';
-            $lines[] = '    fi';
-            $lines[] = '    CADDY_HAD_ACTIVE=1';
+            $lines[] = '    rm -f "$CADDY_ABSENT_MARKER" || exit 1';
+            $lines[] = "    cp -p {$caddyfilePath} \"\$CADDY_BACKUP\" || exit 1";
+            $lines[] = '  else';
+            $lines[] = '    touch "$CADDY_ABSENT_MARKER" || exit 1';
             $lines[] = '  fi';
-            $lines[] = "  if ! mv \"\$CADDY_CANDIDATE\" {$caddyfilePath}; then";
-            $lines[] = '    rollback_mobile_caddy';
-            $lines[] = '    false';
+            $lines[] = "  if mv \"\$CADDY_CANDIDATE\" {$caddyfilePath} &&";
+            $lines[] = "    chmod 0644 {$caddyfilePath} &&";
+            $lines[] = "    caddy validate --config {$caddyfilePath} --adapter caddyfile &&";
+            $lines[] = '    systemctl reload caddy; then';
+            $lines[] = '    exit 0';
             $lines[] = '  fi';
-            $lines[] = '  CADDY_REPLACED=1';
-            $lines[] = "  if ! chmod 0644 {$caddyfilePath} || ! systemctl reload caddy; then";
-            $lines[] = '    rollback_mobile_caddy';
-            $lines[] = '    false';
-            $lines[] = '  fi';
+            $lines[] = '  restore_mobile_caddy || exit 1';
+            $lines[] = '  exit 1';
+            $lines[] = ')';
+            $lines[] = 'if ! mutate_mobile_caddy; then';
+            $lines[] = '  false';
             $lines[] = 'fi';
-            $lines[] = 'rm -f "$CADDY_CANDIDATE" "$CADDY_BACKUP"';
-            $lines[] = 'unset -f rollback_mobile_caddy';
+            $lines[] = 'rm -f "$CADDY_CANDIDATE" || true';
+            $lines[] = 'unset -f restore_mobile_caddy mutate_mobile_caddy';
             $lines[] = '';
         }
 
@@ -353,6 +353,10 @@ class AgentUpdateScriptService
 
         // Deploy provision-publish skill (core, always deployed)
         array_push($lines, ...AgentInstallScriptService::buildProvisionPublishSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
+        $lines[] = '';
+
+        // Deploy provision-artifacts skill (core, always deployed)
+        array_push($lines, ...AgentInstallScriptService::buildProvisionArtifactsSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
         $lines[] = '';
 
         // 6. Deploy MailboxKit skill + email check script (if email connected)
@@ -622,11 +626,12 @@ class AgentUpdateScriptService
         unset($config['config']);
         unset($config['tools']['profile']);
 
-        // Enable provision-tasks + provision-publish skills (core, always deployed)
+        // Enable provision-tasks + provision-publish + provision-artifacts skills (core, always deployed)
         $config['skills'] = $config['skills'] ?? [];
         $config['skills']['entries'] = $config['skills']['entries'] ?? [];
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
         $config['skills']['entries']['provision-publish'] = ['enabled' => true];
+        $config['skills']['entries']['provision-artifacts'] = ['enabled' => true];
 
         // openclaw 2026.5.2+ requires a meta block; without it the gateway
         // detects "missing-meta-vs-last-good" and rolls back to the prior backup.

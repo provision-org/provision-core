@@ -1,9 +1,12 @@
 <?php
 
+use App\Enums\AgentStatus;
 use App\Enums\CloudProvider;
+use App\Enums\ServerStatus;
 use App\Enums\TeamRole;
 use App\Jobs\DestroyTeamJob;
 use App\Models\Agent;
+use App\Models\AgentApiToken;
 use App\Models\AgentEmailConnection;
 use App\Models\Server;
 use App\Models\Team;
@@ -12,6 +15,7 @@ use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\LinodeService;
+use App\Services\PublishArtifactService;
 use App\Services\SlackAppCleanupService;
 use GuzzleHttp\Psr7\Response as Psr7Response;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -36,12 +40,21 @@ it('dispatches DestroyTeamJob when team owner deletes team', function () {
     $team = Team::factory()->subscribed()->create(['user_id' => $user->id]);
     $team->members()->attach($user, ['role' => TeamRole::Admin->value]);
     $user->switchTeam($team);
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+    ]);
+    $apiToken = AgentApiToken::createForAgent($agent)['token'];
 
     $this->actingAs($user)
         ->delete(route('teams.destroy', $team))
         ->assertRedirect();
 
     Queue::assertPushed(DestroyTeamJob::class, fn ($job) => $job->team->id === $team->id);
+    expect($server->fresh()->status)->toBe(ServerStatus::Destroying)
+        ->and($agent->fresh()->status)->toBe(AgentStatus::Paused)
+        ->and(AgentApiToken::find($apiToken->id))->toBeNull();
 });
 
 it('cleans up mailboxkit inboxes and webhooks when destroying team', function () {
@@ -194,6 +207,7 @@ it('retains teardown state after DO volume retries exhaust and can safely retry'
     Sleep::fake();
 
     $team = Team::factory()->subscribed()->create();
+    $agent = Agent::factory()->create(['team_id' => $team->id]);
     $server = Server::factory()->create([
         'team_id' => $team->id,
         'cloud_provider' => CloudProvider::DigitalOcean,
@@ -208,6 +222,16 @@ it('retains teardown state after DO volume retries exhaust and can safely retry'
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
     app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
 
+    $teardownEvents = [];
+    $artifacts = Mockery::mock(PublishArtifactService::class);
+    $artifacts->shouldReceive('teardownAgent')
+        ->withArgs(fn (Agent $candidate, bool $requireServerCleanup) => $candidate->is($agent) && ! $requireServerCleanup)
+        ->twice()
+        ->andReturnUsing(function () use (&$teardownEvents): void {
+            $teardownEvents[] = 'artifacts';
+        });
+    app()->instance(PublishArtifactService::class, $artifacts);
+
     $conflict = new RequestException(new Response(new Psr7Response(409)));
     $notFound = new RequestException(new Response(new Psr7Response(404)));
     $dropletDeleteAttempts = 0;
@@ -217,7 +241,8 @@ it('retains teardown state after DO volume retries exhaust and can safely retry'
     $doService->shouldReceive('deleteDroplet')
         ->with('999888')
         ->twice()
-        ->andReturnUsing(function () use (&$dropletDeleteAttempts, $notFound): void {
+        ->andReturnUsing(function () use (&$dropletDeleteAttempts, &$teardownEvents, $notFound): void {
+            $teardownEvents[] = 'droplet';
             $dropletDeleteAttempts++;
 
             if ($dropletDeleteAttempts === 2) {
@@ -259,6 +284,59 @@ it('retains teardown state after DO volume retries exhaust and can safely retry'
     Sleep::assertNeverSlept();
     expect(Team::find($team->id))->toBeNull();
     expect(Server::find($server->id))->toBeNull();
+    expect($teardownEvents)->toBe([
+        'artifacts',
+        'droplet',
+        'artifacts',
+        'droplet',
+    ]);
+});
+
+it('retains the team and skips cloud teardown when artifact cleanup fails', function () {
+    $team = Team::factory()->subscribed()->create();
+    $agent = Agent::factory()->create(['team_id' => $team->id]);
+    $otherAgent = Agent::factory()->create(['team_id' => $team->id]);
+    $server = Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::DigitalOcean,
+        'provider_server_id' => '999888',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $artifacts = Mockery::mock(PublishArtifactService::class);
+    $artifactCleanupAttempts = [];
+    $artifacts->shouldReceive('teardownAgent')->twice()
+        ->withArgs(fn (Agent $candidate, bool $requireServerCleanup) => ! $requireServerCleanup)
+        ->andReturnUsing(function (Agent $candidate) use ($agent, &$artifactCleanupAttempts): void {
+            $artifactCleanupAttempts[] = $candidate->id;
+
+            if ($candidate->is($agent)) {
+                throw new RuntimeException('artifact host unavailable');
+            }
+        });
+    app()->instance(PublishArtifactService::class, $artifacts);
+
+    $doService = Mockery::mock(DigitalOceanService::class);
+    $doService->shouldReceive('deleteDroplet')->never();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->never();
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    expect(fn () => DestroyTeamJob::dispatchSync($team))
+        ->toThrow(RuntimeException::class, 'Artifact DNS cleanup failed; team retained for retry.');
+
+    expect(Team::find($team->id))->not->toBeNull();
+    expect(Agent::find($agent->id))->not->toBeNull();
+    expect(Agent::find($otherAgent->id))->not->toBeNull();
+    expect(Server::find($server->id))->not->toBeNull()
+        ->and(Server::find($server->id)->provider_server_id)->toBe('999888');
+    expect($artifactCleanupAttempts)->toContain($agent->id, $otherAgent->id);
 });
 
 it('releases the DO firewall when destroying a team that has one (issue #37)', function () {

@@ -16,6 +16,7 @@ use App\Enums\ServerStatus;
 use App\Events\AgentUpdatedEvent;
 use App\Http\Requests\Settings\CreateAgentRequest;
 use App\Http\Requests\Settings\UpdateAgentRequest;
+use App\Http\Resources\AgentArtifactResource;
 use App\Jobs\CreateAgentOnServerJob;
 use App\Jobs\GenerateAgentAvatarJob;
 use App\Jobs\ProvisionApiKeyJob;
@@ -28,6 +29,7 @@ use App\Jobs\VerifyAgentChannelsJob;
 use App\Mail\AgentDeletedMail;
 use App\Models\Agent;
 use App\Models\AgentActivity;
+use App\Models\AgentArtifact;
 use App\Models\AgentDailyStat;
 use App\Models\AgentTemplate;
 use App\Models\Team;
@@ -38,6 +40,7 @@ use App\Services\Aws\AwsCredentials;
 use App\Services\ChatGPTAuthService;
 use App\Services\Harness\HermesDriver;
 use App\Services\ModuleRegistry;
+use App\Services\PublishArtifactService;
 use App\Services\ServerProvisioningDispatcher;
 use App\Services\SlackAppCleanupService;
 use App\Services\SshService;
@@ -507,8 +510,11 @@ class AgentController extends Controller
         ]);
     }
 
-    public function show(Request $request, Agent $agent): Response
-    {
+    public function show(
+        Request $request,
+        Agent $agent,
+        PublishArtifactService $artifactPublisher,
+    ): Response {
         $team = $request->user()->currentTeam;
 
         abort_unless($agent->team_id === $team->id, 404);
@@ -537,6 +543,11 @@ class AgentController extends Controller
             class_exists(Skill::class) ? 'skills' : null,
         ]))->makeVisible('default_password');
 
+        $artifactsEnabled = $agent->harness_type === HarnessType::OpenClaw
+            && $agent->server
+            && ! $agent->server->isDocker()
+            && $artifactPublisher->isConfigured();
+
         return Inertia::render('agents/show', [
             'agent' => $agent,
             'activities' => $activities,
@@ -544,7 +555,26 @@ class AgentController extends Controller
             'browserUrl' => $browserUrl,
             // Verified domains the agent's email can be moved to (for the Email tab).
             'emailDomains' => $emailProvider ? $emailProvider->availableDomains($team) : [],
+            'artifactsEnabled' => $artifactsEnabled,
+            'artifacts' => $artifactsEnabled
+                ? AgentArtifactResource::collection(
+                    $agent->artifacts()->orderByDesc('created_at')->get(),
+                )->resolve($request)
+                : [],
         ]);
+    }
+
+    public function destroyArtifact(Request $request, Agent $agent, AgentArtifact $artifact, PublishArtifactService $publisher): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+        abort_unless($artifact->agent_id === $agent->id, 404);
+
+        $publisher->unpublish($artifact);
+
+        return back();
     }
 
     public function configure(Request $request, Agent $agent): Response
@@ -800,6 +830,7 @@ class AgentController extends Controller
         Agent $agent,
         SlackAppCleanupService $slackCleanup,
         ChatGPTAuthService $chatgptAuth,
+        PublishArtifactService $artifacts,
     ): RedirectResponse {
         $team = $request->user()->currentTeam;
 
@@ -807,6 +838,16 @@ class AgentController extends Controller
         abort_unless($request->user()->isTeamAdmin($team), 403);
 
         $agentName = $agent->name;
+
+        // Revoke the agent's publishing authority before cleanup waits for the
+        // server lock. Any request already waiting on that lock will refresh
+        // the paused state and fail closed.
+        $agent->update(['status' => AgentStatus::Paused]);
+        $agent->apiTokens()->delete();
+
+        // A failed route or DNS removal must retain the agent and artifact rows
+        // so cleanup can be retried; deleting them would orphan a public URL.
+        $artifacts->teardownAgent($agent);
 
         $slackCleanup->cleanup($agent);
 

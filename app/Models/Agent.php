@@ -34,25 +34,43 @@ class Agent extends Model
         'api_server_key',
         'config_snapshot',
         'default_password',
+        'artifact_dns_record_id',
+        'artifact_dns_record_name',
+        'artifact_dns_zone_id',
+        'artifact_cleanup_required',
     ];
 
     protected static function booted(): void
     {
         static::creating(function (Agent $agent): void {
-            if ($agent->handle || ! $agent->name) {
+            if (! $agent->name) {
                 return;
             }
 
-            $base = Str::slug($agent->name);
-            $handle = $base;
-            $suffix = 2;
+            $base = Str::slug($agent->name) ?: 'agent';
 
-            while (static::where('team_id', $agent->team_id)->where('handle', $handle)->exists()) {
-                $handle = "{$base}-{$suffix}";
-                $suffix++;
+            // handle: unique per team.
+            if (! $agent->handle) {
+                $handle = $base;
+                $suffix = 2;
+                while (static::where('team_id', $agent->team_id)->where('handle', $handle)->exists()) {
+                    $handle = "{$base}-{$suffix}";
+                    $suffix++;
+                }
+                $agent->handle = $handle;
             }
 
-            $agent->handle = $handle;
+            // Include the immutable agent ULID so deleting a row can never make
+            // its public hostname available to another tenant.
+            if (! $agent->slug) {
+                $slugBase = $base;
+            } else {
+                $slugBase = Str::slug($agent->slug) ?: 'agent';
+            }
+
+            $suffix = Str::lower((string) $agent->getKey());
+            $slugBase = Str::limit($slugBase, 62 - strlen($suffix), '');
+            $agent->slug = "{$slugBase}-{$suffix}";
         });
     }
 
@@ -66,6 +84,7 @@ class Agent extends Model
         'harness_type',
         'name',
         'handle',
+        'slug',
         'emoji',
         'role',
         'job_description',
@@ -126,6 +145,7 @@ class Agent extends Model
             'stats_synced_at' => 'datetime',
             'chatgpt_connected_at' => 'datetime',
             'chatgpt_token_expires_at' => 'datetime',
+            'artifact_cleanup_required' => 'boolean',
         ];
     }
 
@@ -263,6 +283,30 @@ class Agent extends Model
     public function activities(): HasMany
     {
         return $this->hasMany(AgentActivity::class);
+    }
+
+    /**
+     * @return HasMany<AgentArtifact, $this>
+     */
+    public function artifacts(): HasMany
+    {
+        return $this->hasMany(AgentArtifact::class);
+    }
+
+    /**
+     * The agent's public subdomain where artifacts are served, e.g.
+     * "luna.provisionagents.com". Null if no artifact domain is configured.
+     */
+    public function artifactSubdomain(): ?string
+    {
+        if (is_string($this->artifact_dns_record_name)
+            && $this->artifact_dns_record_name !== '') {
+            return $this->artifact_dns_record_name;
+        }
+
+        $domain = config('cloudflare.artifact_domain');
+
+        return $domain ? "{$this->slug}.{$domain}" : null;
     }
 
     /**
