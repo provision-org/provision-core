@@ -34,6 +34,10 @@ class Agent extends Model
         'api_server_key',
         'config_snapshot',
         'default_password',
+        'artifact_dns_record_id',
+        'artifact_dns_record_name',
+        'artifact_dns_zone_id',
+        'artifact_cleanup_required',
     ];
 
     protected static function booted(): void
@@ -56,17 +60,17 @@ class Agent extends Model
                 $agent->handle = $handle;
             }
 
-            // slug: globally unique — it becomes the agent's public subdomain
-            // ({slug}.provisionagents.com) for serving published artifacts.
+            // Include the immutable agent ULID so deleting a row can never make
+            // its public hostname available to another tenant.
             if (! $agent->slug) {
-                $slug = $base;
-                $suffix = 2;
-                while (static::where('slug', $slug)->exists()) {
-                    $slug = "{$base}-{$suffix}";
-                    $suffix++;
-                }
-                $agent->slug = $slug;
+                $slugBase = $base;
+            } else {
+                $slugBase = Str::slug($agent->slug) ?: 'agent';
             }
+
+            $suffix = Str::lower((string) $agent->getKey());
+            $slugBase = Str::limit($slugBase, 62 - strlen($suffix), '');
+            $agent->slug = "{$slugBase}-{$suffix}";
         });
     }
 
@@ -141,6 +145,7 @@ class Agent extends Model
             'stats_synced_at' => 'datetime',
             'chatgpt_connected_at' => 'datetime',
             'chatgpt_token_expires_at' => 'datetime',
+            'artifact_cleanup_required' => 'boolean',
         ];
     }
 
@@ -294,6 +299,11 @@ class Agent extends Model
      */
     public function artifactSubdomain(): ?string
     {
+        if (is_string($this->artifact_dns_record_name)
+            && $this->artifact_dns_record_name !== '') {
+            return $this->artifact_dns_record_name;
+        }
+
         $domain = config('cloudflare.artifact_domain');
 
         return $domain ? "{$this->slug}.{$domain}" : null;

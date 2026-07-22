@@ -37,6 +37,25 @@ class FixServerStatus extends Command
                 return self::FAILURE;
             }
 
+            $hasArtifactState = $server->agents()
+                ->where(function ($query): void {
+                    $query->whereHas('artifacts')
+                        ->orWhere('artifact_cleanup_required', true)
+                        ->orWhereNotNull('artifact_dns_record_id')
+                        ->orWhereNotNull('artifact_dns_record_name')
+                        ->orWhereNotNull('artifact_dns_zone_id');
+                })
+                ->exists();
+
+            if ($hasArtifactState) {
+                $this->error(
+                    "Cannot re-provision server {$server->id} while its agents have artifact state. "
+                    .'Unpublish those artifacts or delete the agents/team through the safe teardown flow first.',
+                );
+
+                return self::FAILURE;
+            }
+
             $this->info("Deleting broken server {$server->id} and re-provisioning...");
             $team = $server->team;
             $server->delete();

@@ -2,10 +2,14 @@
 
 namespace App\Services;
 
+use App\Contracts\CommandExecutor;
 use App\Enums\ArtifactType;
 use App\Models\Agent;
 use App\Models\AgentArtifact;
+use App\Support\OpenClawGatewayEndpoint;
 use Illuminate\Support\Collection;
+use RuntimeException;
+use Throwable;
 
 /**
  * Manages the per-agent Caddy site file that serves published artifacts at
@@ -14,7 +18,10 @@ use Illuminate\Support\Collection;
  */
 class CaddyArtifactService
 {
-    public function __construct(private HarnessManager $harness) {}
+    public function __construct(
+        private HarnessManager $harness,
+        private ArtifactStaticService $static,
+    ) {}
 
     /**
      * Rebuild and write the agent's Caddy site file from its live artifacts,
@@ -31,13 +38,20 @@ class CaddyArtifactService
         $executor = $this->harness->resolveExecutor($server);
         $sitePath = $this->sitePath($agent);
 
-        if ($liveArtifacts->isEmpty()) {
-            $executor->exec("rm -f {$sitePath}");
-        } else {
-            $executor->writeFile($sitePath, $this->buildSiteConfig($agent, $liveArtifacts));
-        }
+        // Existing servers may predate artifact routing. Repair the shared root
+        // atomically before claiming that a per-agent site is live.
+        OpenClawGatewayEndpoint::ensureConfigured($server, $executor);
+        $executor->exec('mkdir -p /etc/caddy/sites');
 
-        $executor->exec('systemctl reload caddy 2>/dev/null || caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || true');
+        if ($liveArtifacts->isEmpty()) {
+            $this->removeSite($executor, $sitePath);
+        } else {
+            $this->replaceSite(
+                $executor,
+                $sitePath,
+                $this->buildSiteConfig($agent, $liveArtifacts),
+            );
+        }
     }
 
     /**
@@ -51,8 +65,8 @@ class CaddyArtifactService
         }
 
         $executor = $this->harness->resolveExecutor($server);
-        $executor->exec("rm -f {$this->sitePath($agent)}");
-        $executor->exec('systemctl reload caddy 2>/dev/null || true');
+        $executor->exec('mkdir -p /etc/caddy/sites');
+        $this->removeSite($executor, $this->sitePath($agent));
     }
 
     /**
@@ -62,8 +76,14 @@ class CaddyArtifactService
      */
     public function buildSiteConfig(Agent $agent, Collection $artifacts): string
     {
+        $subdomain = $agent->artifactSubdomain();
+
+        if (! $subdomain) {
+            throw new RuntimeException('Artifact publishing is not configured.');
+        }
+
         $lines = [];
-        $lines[] = "{$agent->artifactSubdomain()} {";
+        $lines[] = "{$subdomain} {";
         $lines[] = '    tls {';
         $lines[] = '        on_demand';
         $lines[] = '    }';
@@ -89,11 +109,23 @@ class CaddyArtifactService
         $inner = $this->serveDirectives($agent, $artifact);
 
         if ($artifact->isGated()) {
-            // Gated artifacts require ?token=<access_token>; Caddy validates it
-            // locally so revocation is a re-sync away and there's no round-trip.
+            // Exchange the shared-link query token for a path-scoped cookie.
+            // Browser subresources do not inherit a query string, so checking
+            // only ?token= would break CSS, JavaScript, images, and app APIs.
+            if (! is_string($artifact->access_token) || $artifact->access_token === '') {
+                throw new RuntimeException("Gated artifact {$artifact->id} has no access token.");
+            }
+
+            $cookieName = "provision_artifact_{$artifact->id}";
+            $cookie = "{$cookieName}={$artifact->access_token}";
             $lines = ["handle_path /{$path}/* {"];
-            $lines[] = "    @ok query token={$artifact->access_token}";
-            $lines[] = '    handle @ok {';
+            $lines[] = "    @shared_link query token={$artifact->access_token}";
+            $lines[] = '    handle @shared_link {';
+            $lines[] = "        header Set-Cookie \"{$cookie}; Path=/{$path}/; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax\"";
+            $lines[] = "        redir /{$path}/ 303";
+            $lines[] = '    }';
+            $lines[] = "    @authorized header Cookie *{$cookie}*";
+            $lines[] = '    handle @authorized {';
             foreach ($inner as $line) {
                 $lines[] = "        {$line}";
             }
@@ -123,11 +155,15 @@ class CaddyArtifactService
     private function serveDirectives(Agent $agent, AgentArtifact $artifact): array
     {
         if ($artifact->type === ArtifactType::App) {
-            return ["reverse_proxy localhost:{$artifact->port}"];
+            return [
+                "reverse_proxy localhost:{$artifact->port} {",
+                "    header_up X-Forwarded-Prefix /{$artifact->path_slug}",
+                '}',
+            ];
         }
 
         return [
-            'root * '.$this->agentDir($agent)."/public/{$artifact->source_dir}",
+            'root * '.$this->quoteCaddyValue($this->static->publishedDirectory($agent, $artifact)),
             'file_server',
         ];
     }
@@ -137,8 +173,47 @@ class CaddyArtifactService
         return "/etc/caddy/sites/{$agent->slug}.caddy";
     }
 
-    private function agentDir(Agent $agent): string
+    private function quoteCaddyValue(string $value): string
     {
-        return "/root/.openclaw/agents/{$agent->harness_agent_id}";
+        return json_encode($value, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+    }
+
+    private function replaceSite(CommandExecutor $executor, string $sitePath, string $config): void
+    {
+        $candidate = $sitePath.'.provision-artifact-'.bin2hex(random_bytes(8));
+        $quotedCandidate = escapeshellarg($candidate);
+
+        try {
+            $executor->writeFile($candidate, $config);
+            $executor->exec("chmod 0644 {$quotedCandidate}");
+            $executor->exec("caddy validate --config {$quotedCandidate} --adapter caddyfile");
+        } catch (Throwable $exception) {
+            $this->removeTemporaryFiles($executor, $candidate);
+            throw $exception;
+        }
+
+        // The shared transaction owns backup, activation, full-root validation,
+        // reload, and rollback while holding the same lock as root Caddy edits.
+        // On an exception, retain both recovery state and the candidate because
+        // the SSH outcome may be ambiguous.
+        $executor->exec(OpenClawGatewayEndpoint::replacementTransaction($sitePath, $candidate));
+
+        $this->removeTemporaryFiles($executor, $candidate);
+    }
+
+    private function removeSite(CommandExecutor $executor, string $sitePath): void
+    {
+        $executor->exec(OpenClawGatewayEndpoint::removalTransaction($sitePath));
+    }
+
+    private function removeTemporaryFiles(CommandExecutor $executor, string ...$paths): void
+    {
+        $quotedPaths = array_map(escapeshellarg(...), $paths);
+
+        try {
+            $executor->exec('rm -f '.implode(' ', $quotedPaths));
+        } catch (Throwable) {
+            // Cleanup must not hide the configuration or reload result.
+        }
     }
 }

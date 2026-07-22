@@ -29,6 +29,7 @@ class AgentArtifactFactory extends Factory
             'path_slug' => Str::slug($name),
             'type' => ArtifactType::Static,
             'source_dir' => Str::slug($name),
+            'deployment_key' => Str::lower(Str::random(16)),
             'visibility' => ArtifactVisibility::Public,
             'status' => 'live',
         ];

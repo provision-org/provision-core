@@ -6,15 +6,6 @@
  * Provision REST API. Mirrors the provision-tasks skill.
  */
 
-import { homedir } from 'os';
-import { join } from 'path';
-import dotenv from 'dotenv';
-
-// Load environment variables — workspace .env first, then global fallback
-dotenv.config({ path: join(process.cwd(), '.env') });
-dotenv.config({ path: join(homedir(), '.openclaw', '.env') });
-dotenv.config({ path: join(homedir(), '.env') });
-
 const apiUrl = process.env.PROVISION_API_URL;
 const token = process.env.PROVISION_AGENT_TOKEN;
 
@@ -67,6 +58,12 @@ export async function artifact_publish({
                 error: 'start_command is required when type is "app"',
             };
         }
+        if (type === 'app' && !source_dir) {
+            return {
+                success: false,
+                error: 'source_dir (--dir) is required when type is "app"',
+            };
+        }
 
         const body = { name };
         if (path_slug) body.path_slug = path_slug;
@@ -101,7 +98,10 @@ export async function artifact_unpublish({ artifact_id }) {
             return { success: false, error: 'artifact_id is required' };
         }
         const result = await api('DELETE', `/artifacts/${artifact_id}`);
-        return { success: true, message: result.message || 'Artifact unpublished.' };
+        return {
+            success: true,
+            message: result.message || 'Artifact unpublished.',
+        };
     } catch (error) {
         return { success: false, error: error.message };
     }
@@ -147,7 +147,8 @@ async function main() {
         default:
             console.log(
                 'Commands:\n' +
-                    '  publish --name "My Dashboard" [--path dashboard] [--type static|app] [--dir dashboard] [--command "npm start"] [--visibility public|gated]\n' +
+                    '  publish --name "My Dashboard" [--path dashboard] [--type static --dir dashboard] [--visibility public|gated]\n' +
+                    '  publish --name "My App" [--path app] --type app --dir app --command "npm start" [--visibility public|gated]\n' +
                     '  list\n' +
                     '  unpublish --id <artifact_id>',
             );

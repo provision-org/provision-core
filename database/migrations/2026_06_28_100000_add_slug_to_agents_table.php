@@ -18,23 +18,25 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('agents', function (Blueprint $table) {
-            $table->string('slug')->nullable()->after('handle');
+            $table->string('slug', 63)->nullable()->after('handle');
+            $table->string('artifact_dns_record_id')->nullable()->after('slug');
+            $table->string('artifact_dns_record_name')->nullable()->after('artifact_dns_record_id');
+            $table->string('artifact_dns_zone_id')->nullable()->after('artifact_dns_record_name');
+            $table->boolean('artifact_cleanup_required')->default(false)->after('artifact_dns_zone_id');
         });
 
-        // Backfill a globally-unique slug for existing agents, seeded from the
-        // per-team handle (or a slugified name) and de-duplicated globally.
-        $used = [];
+        // Include a stable ID suffix so deleting an agent never makes its public
+        // hostname available to a future tenant.
         DB::table('agents')->orderBy('created_at')->orderBy('id')
             ->select('id', 'handle', 'name')
-            ->each(function ($agent) use (&$used) {
-                $base = $agent->handle ?: (Str::slug($agent->name) ?: 'agent');
-                $slug = $base;
-                $suffix = 2;
-                while (isset($used[$slug])) {
-                    $slug = "{$base}-{$suffix}";
-                    $suffix++;
-                }
-                $used[$slug] = true;
+            ->each(function ($agent) {
+                $suffix = Str::lower((string) $agent->id);
+                $base = Str::limit(
+                    Str::slug($agent->handle ?: $agent->name) ?: 'agent',
+                    62 - strlen($suffix),
+                    '',
+                );
+                $slug = "{$base}-{$suffix}";
                 DB::table('agents')->where('id', $agent->id)->update(['slug' => $slug]);
             });
 
@@ -50,7 +52,13 @@ return new class extends Migration
     {
         Schema::table('agents', function (Blueprint $table) {
             $table->dropUnique(['slug']);
-            $table->dropColumn('slug');
+            $table->dropColumn([
+                'slug',
+                'artifact_dns_record_id',
+                'artifact_dns_record_name',
+                'artifact_dns_zone_id',
+                'artifact_cleanup_required',
+            ]);
         });
     }
 };

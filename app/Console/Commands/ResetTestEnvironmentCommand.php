@@ -2,10 +2,15 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\AgentStatus;
 use App\Enums\CloudProvider;
+use App\Enums\ServerStatus;
+use App\Models\Agent;
+use App\Models\AgentApiToken;
 use App\Models\Server;
 use App\Services\DigitalOceanService;
 use App\Services\HetznerService;
+use App\Services\PublishArtifactService;
 use Illuminate\Console\Command;
 use Illuminate\Http\Client\RequestException;
 use Provision\Billing\Models\ManagedOpenRouterKey;
@@ -21,6 +26,7 @@ class ResetTestEnvironmentCommand extends Command
     public function handle(
         HetznerService $hetzner,
         DigitalOceanService $digitalOcean,
+        PublishArtifactService $artifacts,
     ): int {
         if (app()->isProduction()) {
             $this->error('This command cannot be run in production.');
@@ -30,6 +36,22 @@ class ResetTestEnvironmentCommand extends Command
 
         if (! $this->option('force') && ! $this->confirm('This will delete ALL servers, volumes, inboxes, API keys, and reset the database. Continue?')) {
             return self::SUCCESS;
+        }
+
+        try {
+            // Test environments can still use real public DNS and recyclable
+            // cloud IPs. Remove managed hostnames before deleting either.
+            Server::query()->update(['status' => ServerStatus::Destroying->value]);
+            Agent::query()->update(['status' => AgentStatus::Paused->value]);
+            AgentApiToken::query()->delete();
+
+            foreach (Agent::query()->with('server')->get() as $agent) {
+                $artifacts->teardownAgent($agent, requireServerCleanup: true);
+            }
+        } catch (\Throwable $e) {
+            $this->error("Artifact cleanup failed; reset aborted before cloud teardown: {$e->getMessage()}");
+
+            return self::FAILURE;
         }
 
         $this->deleteHetznerResources($hetzner);

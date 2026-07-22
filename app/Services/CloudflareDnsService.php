@@ -40,16 +40,29 @@ class CloudflareDnsService
         }
 
         $name = $this->recordName($agent);
+        $this->assertRecordConfigurationUnchanged($agent, $name);
 
-        if ($existing = $this->findRecord($name)) {
-            // Repoint if the server IP changed.
-            if (($existing['content'] ?? null) !== $ip) {
+        $records = $this->findRecords($name);
+        $existing = array_shift($records);
+
+        // Remove duplicate records so later reconciliation is deterministic.
+        foreach ($records as $duplicate) {
+            $this->client()->delete("/zones/{$this->zoneId()}/dns_records/{$duplicate['id']}")->throw();
+        }
+
+        if ($existing) {
+            // Repoint if the server IP changed and always force DNS-only mode.
+            if (($existing['content'] ?? null) !== $ip || ($existing['proxied'] ?? null) !== false) {
                 $this->client()->patch("/zones/{$this->zoneId()}/dns_records/{$existing['id']}", [
                     'content' => $ip,
+                    'proxied' => false,
                 ])->throw();
             }
 
-            return $existing['id'];
+            $recordId = (string) $existing['id'];
+            $this->rememberRecord($agent, $recordId, $name);
+
+            return $recordId;
         }
 
         $response = $this->client()->post("/zones/{$this->zoneId()}/dns_records", [
@@ -60,7 +73,15 @@ class CloudflareDnsService
             'proxied' => false,
         ])->throw();
 
-        return $response->json('result.id');
+        $recordId = $response->json('result.id');
+
+        if (! is_string($recordId) || $recordId === '') {
+            throw new RuntimeException('Cloudflare did not return a DNS record id.');
+        }
+
+        $this->rememberRecord($agent, $recordId, $name);
+
+        return $recordId;
     }
 
     /**
@@ -68,14 +89,20 @@ class CloudflareDnsService
      */
     public function removeAgentRecord(Agent $agent): void
     {
-        if (! $this->isConfigured()) {
-            return;
-        }
+        $this->assertConfigured();
 
-        $record = $this->findRecord($this->recordName($agent));
-        if ($record) {
+        $name = $this->recordName($agent);
+        $this->assertRecordConfigurationUnchanged($agent, $name);
+
+        foreach ($this->findRecords($name) as $record) {
             $this->client()->delete("/zones/{$this->zoneId()}/dns_records/{$record['id']}")->throw();
         }
+
+        $agent->forceFill([
+            'artifact_dns_record_id' => null,
+            'artifact_dns_record_name' => null,
+            'artifact_dns_zone_id' => null,
+        ])->save();
     }
 
     public function recordName(Agent $agent): string
@@ -84,21 +111,22 @@ class CloudflareDnsService
     }
 
     /**
-     * @return array<string, mixed>|null
+     * @return list<array<string, mixed>>
      */
-    private function findRecord(string $name): ?array
+    private function findRecords(string $name): array
     {
         $response = $this->client()->get("/zones/{$this->zoneId()}/dns_records", [
             'type' => 'A',
             'name' => $name,
         ])->throw();
 
-        return $response->json('result.0');
+        return $response->json('result') ?? [];
     }
 
     private function client(): PendingRequest
     {
         return Http::baseUrl(self::BASE_URL)
+            ->retry(3, 200)
             ->withToken((string) config('cloudflare.api_token'))
             ->acceptJson()
             ->asJson();
@@ -113,6 +141,28 @@ class CloudflareDnsService
     {
         if (! $this->isConfigured()) {
             throw new RuntimeException('Cloudflare DNS is not configured (CLOUDFLARE_API_TOKEN, CLOUDFLARE_ZONE_ID, ARTIFACT_DOMAIN).');
+        }
+    }
+
+    private function rememberRecord(Agent $agent, string $recordId, string $name): void
+    {
+        $agent->forceFill([
+            'artifact_dns_record_id' => $recordId,
+            'artifact_dns_record_name' => $name,
+            'artifact_dns_zone_id' => $this->zoneId(),
+        ])->save();
+    }
+
+    private function assertRecordConfigurationUnchanged(Agent $agent, string $name): void
+    {
+        if ($agent->artifact_dns_record_name
+            && $agent->artifact_dns_record_name !== $name) {
+            throw new RuntimeException('Artifact DNS configuration changed since this hostname was published.');
+        }
+
+        if ($agent->artifact_dns_zone_id
+            && $agent->artifact_dns_zone_id !== $this->zoneId()) {
+            throw new RuntimeException('Artifact DNS zone changed since this hostname was published.');
         }
     }
 }

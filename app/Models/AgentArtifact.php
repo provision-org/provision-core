@@ -27,6 +27,7 @@ class AgentArtifact extends Model
         'source_dir',
         'start_command',
         'port',
+        'deployment_key',
         'visibility',
         'access_token',
         'status',

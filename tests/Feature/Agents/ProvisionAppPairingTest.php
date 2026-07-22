@@ -66,7 +66,13 @@ function mockPairingExecutor(Server $server, ?string $setupCode = null): Command
 
         return '';
     });
-    $executor->shouldReceive('writeFile')->andReturnNull();
+    $executor->shouldReceive('writeFile')->andReturnUsing(function (string $path, string $content): void {
+        if (str_starts_with($path, OpenClawGatewayEndpoint::CADDYFILE.'.provision-mobile-')) {
+            expect($content)
+                ->toContain('import /etc/caddy/sites/*.caddy')
+                ->toContain('gateway.203-0-113-42.sslip.io {');
+        }
+    });
 
     $harness = Mockery::mock(HarnessManager::class);
     $harness->shouldReceive('resolveExecutor')->andReturn($executor);

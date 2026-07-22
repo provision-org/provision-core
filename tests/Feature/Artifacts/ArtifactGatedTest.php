@@ -6,6 +6,7 @@ use App\Models\AgentApiToken;
 use App\Models\AgentArtifact;
 use App\Models\Server;
 use App\Services\ArtifactAppService;
+use App\Services\ArtifactStaticService;
 use App\Services\CaddyArtifactService;
 use App\Services\CloudflareDnsService;
 use App\Services\PublishArtifactService;
@@ -26,8 +27,12 @@ test('gated artifacts are served behind a token check in the caddy config', func
     $config = app(CaddyArtifactService::class)->buildSiteConfig($agent, collect([$artifact]));
 
     expect($config)
-        ->toContain('@ok query token=secret-token')
-        ->toContain('handle @ok {')
+        ->toContain('@shared_link query token=secret-token')
+        ->toContain('Set-Cookie "provision_artifact_')
+        ->toContain('Path=/report/; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax')
+        ->toContain('redir /report/ 303')
+        ->toContain('@authorized header Cookie *provision_artifact_')
+        ->toContain('handle @authorized {')
         ->toContain('file_server')
         ->toContain('respond "Forbidden" 403');
 });
@@ -36,8 +41,11 @@ test('publishing a gated artifact mints a token and puts it in the url', functio
     $server = Server::factory()->running()->create();
     $agent = Agent::factory()->create(['name' => 'Luna', 'server_id' => $server->id]);
 
-    $this->mock(CloudflareDnsService::class)->shouldReceive('isConfigured')->andReturnFalse();
+    $dns = $this->mock(CloudflareDnsService::class);
+    $dns->shouldReceive('isConfigured')->andReturnTrue();
+    $dns->shouldReceive('ensureAgentRecord')->once();
     $this->mock(CaddyArtifactService::class)->shouldReceive('syncAgent');
+    $this->mock(ArtifactStaticService::class)->shouldReceive('deploy')->once();
 
     $artifact = app(PublishArtifactService::class)->publish($agent, [
         'name' => 'Q3 Report',
@@ -46,14 +54,17 @@ test('publishing a gated artifact mints a token and puts it in the url', functio
     ]);
 
     expect($artifact->access_token)->not->toBeNull()
-        ->and($artifact->public_url)->toBe("https://luna.provisionagents.com/report/?token={$artifact->access_token}");
+        ->and($artifact->public_url)->toBe("https://{$agent->slug}.provisionagents.com/report/?token={$artifact->access_token}");
 });
 
 test('an agent can publish a gated artifact via the api', function () {
     config(['cloudflare.artifact_domain' => 'provisionagents.com']);
     $this->mock(CaddyArtifactService::class)->shouldReceive('syncAgent');
-    $this->mock(CloudflareDnsService::class)->shouldReceive('isConfigured')->andReturnFalse();
+    $dns = $this->mock(CloudflareDnsService::class);
+    $dns->shouldReceive('isConfigured')->andReturnTrue();
+    $dns->shouldReceive('ensureAgentRecord')->once();
     $this->mock(ArtifactAppService::class);
+    $this->mock(ArtifactStaticService::class)->shouldReceive('deploy')->once();
 
     $server = Server::factory()->running()->create();
     $agent = Agent::factory()->create(['name' => 'Luna', 'server_id' => $server->id]);

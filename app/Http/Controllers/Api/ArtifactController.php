@@ -4,13 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Enums\ArtifactType;
 use App\Enums\ArtifactVisibility;
+use App\Enums\HarnessType;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\StoreArtifactRequest;
+use App\Http\Resources\AgentArtifactResource;
 use App\Models\AgentArtifact;
 use App\Services\PublishArtifactService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Str;
-use Illuminate\Validation\Rule;
 
 class ArtifactController extends Controller
 {
@@ -20,27 +21,20 @@ class ArtifactController extends Controller
     {
         $agent = $request->input('authenticated_agent');
 
-        return response()->json(
-            $agent->artifacts()->orderByDesc('created_at')->get()
-        );
+        return AgentArtifactResource::collection(
+            $agent->artifacts()->orderByDesc('created_at')->get(),
+        )->response();
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(StoreArtifactRequest $request): JsonResponse
     {
         $agent = $request->input('authenticated_agent');
+        $data = $request->validated();
 
-        $data = $request->validate([
-            'name' => ['required', 'string', 'max:100'],
-            'path_slug' => ['nullable', 'string', 'max:60', 'regex:/^[a-z0-9][a-z0-9-]*$/'],
-            'type' => ['nullable', Rule::enum(ArtifactType::class)],
-            'source_dir' => ['nullable', 'string', 'max:120', 'regex:/^[a-z0-9][a-z0-9._\/-]*$/'],
-            'start_command' => ['nullable', 'string', 'max:500', 'required_if:type,app'],
-            'visibility' => ['nullable', Rule::enum(ArtifactVisibility::class)],
-        ]);
+        abort_unless($agent->server && ! $agent->server->isDocker(), 422, 'Artifact publishing requires a provisioned remote server.');
+        abort_unless($agent->harness_type === HarnessType::OpenClaw, 422, 'Artifact publishing requires an OpenClaw agent.');
+        abort_unless($this->publisher->isConfigured(), 503, 'Artifact publishing is not configured.');
 
-        abort_if(! $agent->server_id, 422, 'Agent has no server to publish from.');
-
-        $pathSlug = $data['path_slug'] ?? Str::slug($data['name']);
         $type = isset($data['type']) ? ArtifactType::from($data['type']) : ArtifactType::Static;
         $visibility = isset($data['visibility'])
             ? ArtifactVisibility::from($data['visibility'])
@@ -48,14 +42,16 @@ class ArtifactController extends Controller
 
         $artifact = $this->publisher->publish($agent, [
             'name' => $data['name'],
-            'path_slug' => $pathSlug,
+            'path_slug' => $data['path_slug'],
             'type' => $type,
-            'source_dir' => $data['source_dir'] ?? $pathSlug,
+            'source_dir' => $data['source_dir'] ?? $data['path_slug'],
             'start_command' => $data['start_command'] ?? null,
             'visibility' => $visibility,
         ]);
 
-        return response()->json($artifact, 201);
+        return (new AgentArtifactResource($artifact))
+            ->response()
+            ->setStatusCode(201);
     }
 
     public function destroy(Request $request, AgentArtifact $artifact): JsonResponse

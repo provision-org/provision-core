@@ -23,8 +23,9 @@ return new class extends Migration
             $table->string('path_slug');
             $table->string('type')->default('static'); // static | app
             $table->string('source_dir')->nullable();   // static: dir under the agent's public root
-            $table->string('start_command')->nullable(); // app: command to run
+            $table->text('start_command')->nullable(); // app: command to run
             $table->unsignedInteger('port')->nullable();  // app: reverse-proxy target port
+            $table->string('deployment_key', 32)->nullable(); // immutable staged revision / unit id
             $table->string('visibility')->default('public'); // public | gated
             $table->string('access_token')->nullable();   // gated: shared link token
             $table->string('status')->default('pending'); // pending | live | error | stopped

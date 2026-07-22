@@ -6,6 +6,7 @@ use App\Enums\TeamRole;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Settings\ProfileDeleteRequest;
 use App\Http\Requests\Settings\ProfileUpdateRequest;
+use App\Jobs\DestroyTeamJob;
 use App\Models\User;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
@@ -64,11 +65,15 @@ class ProfileController extends Controller
 
     /**
      * Clean up teams when deleting a user account.
+     *
+     * Destructive team paths run synchronously so external resources are
+     * removed before deleting the owning user can cascade the database rows.
      */
     private function cleanupTeams(User $user): void
     {
-        // Delete all personal teams (cascade deletes pivot + invitations)
-        $user->ownedTeams()->where('personal_team', true)->delete();
+        foreach ($user->ownedTeams()->where('personal_team', true)->get() as $team) {
+            DestroyTeamJob::dispatchSync($team);
+        }
 
         // For non-personal owned teams, transfer ownership or delete
         foreach ($user->ownedTeams()->where('personal_team', false)->get() as $team) {
@@ -81,7 +86,7 @@ class ProfileController extends Controller
                 $team->forceFill(['user_id' => $nextAdmin->id])->save();
                 $team->members()->detach($user);
             } else {
-                $team->delete();
+                DestroyTeamJob::dispatchSync($team);
             }
         }
 

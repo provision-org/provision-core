@@ -11,6 +11,11 @@ final class OpenClawGatewayEndpoint
 {
     public const CADDYFILE = '/etc/caddy/Caddyfile';
 
+    /**
+     * Serialize every Provision-owned mutation of the shared Caddy config.
+     */
+    public const CADDY_LOCK_FILE = '/run/lock/provision-caddy.lock';
+
     public const GATEWAY_PORT = 18789;
 
     /**
@@ -108,45 +113,99 @@ CADDY;
         $executor->exec('mkdir -p /etc/caddy/conf.d /etc/caddy/sites');
 
         $desired = self::caddyfile($server);
-        $caddyfile = escapeshellarg(self::CADDYFILE);
-        $current = $executor->exec("if [ -f {$caddyfile} ]; then cat {$caddyfile}; fi");
-
         $candidate = self::CADDYFILE.'.provision-mobile-'.bin2hex(random_bytes(8));
-        $backup = $candidate.'.backup';
         $quotedCandidate = escapeshellarg($candidate);
-        $quotedBackup = escapeshellarg($backup);
-        $replaced = false;
 
         try {
             $executor->writeFile($candidate, $desired."\n");
             $executor->exec("chmod 0644 {$quotedCandidate}");
             $executor->exec("caddy validate --config {$quotedCandidate} --adapter caddyfile");
-
-            if (rtrim($current) === rtrim($desired)) {
-                $executor->exec("chmod 0644 {$caddyfile}");
-                $executor->exec('systemctl reload caddy');
-
-                return;
-            }
-
-            $executor->exec("if [ -f {$caddyfile} ]; then cp -p {$caddyfile} {$quotedBackup}; fi");
-            $executor->exec("mv {$quotedCandidate} {$caddyfile}");
-            $replaced = true;
-            $executor->exec("chmod 0644 {$caddyfile}");
-            $executor->exec('systemctl reload caddy');
         } catch (Throwable $exception) {
-            if ($replaced) {
-                try {
-                    $executor->exec("if [ -f {$quotedBackup} ]; then mv {$quotedBackup} {$caddyfile} && chmod 0644 {$caddyfile} && systemctl reload caddy; else rm -f {$caddyfile}; fi");
-                } catch (Throwable) {
-                    // Preserve the original configuration or reload failure.
-                }
-            }
-
+            self::removeFiles($executor, $candidate);
             throw $exception;
-        } finally {
-            self::removeFiles($executor, $candidate, $backup);
         }
+
+        // Do not clean the candidate or retained recovery state when this call
+        // fails. An SSH exception can be ambiguous while the remote transaction
+        // is still running, and deleting either could make recovery impossible.
+        $executor->exec(self::replacementTransaction(self::CADDYFILE, $candidate));
+
+        self::removeFiles($executor, $candidate);
+    }
+
+    /**
+     * Build one locked remote transaction that swaps a validated candidate in,
+     * validates the complete root config, reloads Caddy, and rolls back on any
+     * failure. The prior file (or absence marker) is deliberately retained.
+     */
+    public static function replacementTransaction(string $activePath, string $candidatePath): string
+    {
+        $active = escapeshellarg($activePath);
+        $candidate = escapeshellarg($candidatePath);
+        $backup = escapeshellarg(self::backupPath($activePath));
+        $absentMarker = escapeshellarg(self::absentMarkerPath($activePath));
+        $lock = escapeshellarg(self::CADDY_LOCK_FILE);
+        $root = escapeshellarg(self::CADDYFILE);
+
+        return implode("\n", [
+            '(',
+            "    exec 9>{$lock} || exit 1",
+            '    flock -x 9 || exit 1',
+            '',
+            "    if [ -f {$active} ]; then",
+            "        rm -f {$absentMarker} || exit 1",
+            "        cp -p {$active} {$backup} || exit 1",
+            '    else',
+            "        touch {$absentMarker} || exit 1",
+            '    fi',
+            '',
+            "    if mv {$candidate} {$active} &&",
+            "        chmod 0644 {$active} &&",
+            "        caddy validate --config {$root} --adapter caddyfile &&",
+            '        systemctl reload caddy; then',
+            '        exit 0',
+            '    fi',
+            '',
+            ...self::rollbackLines($active, $backup, $absentMarker, $root),
+            '    exit 1',
+            ')',
+        ]);
+    }
+
+    /**
+     * Build one locked remote transaction that removes an active site and
+     * restores it if root validation or reload fails.
+     */
+    public static function removalTransaction(string $activePath): string
+    {
+        $active = escapeshellarg($activePath);
+        $backup = escapeshellarg(self::backupPath($activePath));
+        $absentMarker = escapeshellarg(self::absentMarkerPath($activePath));
+        $lock = escapeshellarg(self::CADDY_LOCK_FILE);
+        $root = escapeshellarg(self::CADDYFILE);
+
+        return implode("\n", [
+            '(',
+            "    exec 9>{$lock} || exit 1",
+            '    flock -x 9 || exit 1',
+            '',
+            "    if [ -f {$active} ]; then",
+            "        rm -f {$absentMarker} || exit 1",
+            "        cp -p {$active} {$backup} || exit 1",
+            '    else',
+            "        touch {$absentMarker} || exit 1",
+            '    fi',
+            '',
+            "    if rm -f {$active} &&",
+            "        caddy validate --config {$root} --adapter caddyfile &&",
+            '        systemctl reload caddy; then',
+            '        exit 0',
+            '    fi',
+            '',
+            ...self::rollbackLines($active, $backup, $absentMarker, $root),
+            '    exit 1',
+            ')',
+        ]);
     }
 
     private static function removeFiles(CommandExecutor $executor, string ...$paths): void
@@ -158,6 +217,39 @@ CADDY;
         } catch (Throwable) {
             // Cleanup must not hide the configuration or reload result.
         }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private static function rollbackLines(
+        string $active,
+        string $backup,
+        string $absentMarker,
+        string $root,
+    ): array {
+        return [
+            "    if [ -f {$absentMarker} ]; then",
+            "        rm -f {$active} || exit 1",
+            "    elif [ -f {$backup} ]; then",
+            "        cp -p {$backup} {$active} || exit 1",
+            "        chmod 0644 {$active} || exit 1",
+            '    else',
+            '        exit 1',
+            '    fi',
+            "    caddy validate --config {$root} --adapter caddyfile || exit 1",
+            '    systemctl reload caddy || exit 1',
+        ];
+    }
+
+    private static function backupPath(string $activePath): string
+    {
+        return $activePath.'.provision-previous';
+    }
+
+    private static function absentMarkerPath(string $activePath): string
+    {
+        return $activePath.'.provision-previous-absent';
     }
 
     private static function dashedIp(Server $server): string

@@ -37,6 +37,7 @@ import {
     Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { destroyArtifact } from '@/actions/App/Http/Controllers/AgentController';
 import { show as showProvisionApp } from '@/actions/App/Http/Controllers/ProvisionAppController';
 import ActivityFeed from '@/components/agents/activity-feed';
 import AgentAvatar from '@/components/agents/agent-avatar';
@@ -2871,7 +2872,7 @@ function ArtifactsTab({
                     <Globe className="size-7 text-muted-foreground" />
                 </div>
                 <h3 className="mt-5 text-lg font-semibold">
-                    No published apps yet
+                    No published artifacts yet
                 </h3>
                 <p className="mt-2 max-w-md text-sm text-muted-foreground">
                     When {agent.name} publishes a web artifact — a dashboard, a
@@ -2931,10 +2932,13 @@ function ArtifactsTab({
                     </div>
                     <DeleteConfirmDialog
                         name={artifact.name}
-                        label="app"
+                        label="artifact"
                         onConfirm={() =>
                             router.delete(
-                                `/agents/${agent.id}/artifacts/${artifact.id}`,
+                                destroyArtifact.url({
+                                    agent: agent.id,
+                                    artifact: artifact.id,
+                                }),
                             )
                         }
                         trigger={
@@ -2957,6 +2961,7 @@ export default function ShowAgent({
     teamId = '',
     browserUrl = null,
     emailDomains = [],
+    artifactsEnabled = false,
     artifacts = [],
 }: {
     agent: Agent;
@@ -2964,6 +2969,7 @@ export default function ShowAgent({
     teamId?: string;
     browserUrl?: string | null;
     emailDomains?: EmailDomainOption[];
+    artifactsEnabled?: boolean;
     artifacts?: AgentArtifact[];
 }) {
     // Real-time agent updates via Reverb (replaces polling)
@@ -2983,7 +2989,7 @@ export default function ShowAgent({
         'channels',
         'schedules',
         'workspace',
-        'apps',
+        ...(artifactsEnabled ? (['apps'] as Tab[]) : []),
         'memory',
         'browser',
         'settings',
@@ -3007,7 +3013,7 @@ export default function ShowAgent({
         { id: 'email', label: 'Email Inbox' },
         ...(!isHermes ? [{ id: 'browser' as Tab, label: 'Browser' }] : []),
         { id: 'workspace', label: 'Workspace' },
-        { id: 'apps', label: 'Apps' },
+        ...(artifactsEnabled ? [{ id: 'apps' as Tab, label: 'Apps' }] : []),
         { id: 'memory', label: 'Memory' },
         { id: 'schedules', label: 'Scheduled Tasks' },
         ...(agent.agent_mode !== 'workforce'
@@ -3261,12 +3267,13 @@ export default function ShowAgent({
                                     {activeTab === 'workspace' && (
                                         <WorkspaceTab agent={agent} />
                                     )}
-                                    {activeTab === 'apps' && (
-                                        <ArtifactsTab
-                                            agent={agent}
-                                            artifacts={artifacts}
-                                        />
-                                    )}
+                                    {artifactsEnabled &&
+                                        activeTab === 'apps' && (
+                                            <ArtifactsTab
+                                                agent={agent}
+                                                artifacts={artifacts}
+                                            />
+                                        )}
                                     {activeTab === 'memory' && (
                                         <MemoryBrowser agent={agent} />
                                     )}
