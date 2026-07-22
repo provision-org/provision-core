@@ -281,17 +281,44 @@ class DestroyTeamJob implements ShouldQueue
         /** @var LinodeService $linode */
         $linode = app(CloudServiceFactory::class)->makeFor($this->team, CloudProvider::Linode);
 
-        $linode->deleteInstance($server->provider_server_id);
-        Log::info("Deleted Linode instance {$server->provider_server_id}");
+        try {
+            $linode->deleteInstance($server->provider_server_id);
+            Log::info("Deleted Linode instance {$server->provider_server_id}");
+        } catch (RequestException $e) {
+            if ($e->response?->status() !== 404) {
+                throw $e;
+            }
+
+            Log::info("Linode instance {$server->provider_server_id} already gone (404)");
+        }
+
+        $volumeFailure = null;
 
         if ($server->provider_volume_id) {
-            $linode->detachVolume($server->provider_volume_id);
-            $linode->deleteVolume($server->provider_volume_id);
-            Log::info("Deleted Linode volume {$server->provider_volume_id}");
+            // Deleting the instance already detaches its volumes, so this call is
+            // only a fallback for the case where the instance was already gone.
+            // It must never abort teardown — otherwise the firewall and the team
+            // record are stranded behind a redundant step.
+            try {
+                $linode->detachVolume((int) $server->provider_volume_id);
+            } catch (\Throwable $e) {
+                Log::info("Linode volume {$server->provider_volume_id} detach skipped (likely already detached): {$e->getMessage()}");
+            }
+
+            // The detach settles asynchronously, so an immediate DELETE can race
+            // in while the volume still reads as attached. Retry with backoff and
+            // treat 404 as already-gone.
+            try {
+                $this->deleteLinodeVolumeWithRetry($linode, $server->provider_volume_id);
+            } catch (\Throwable $e) {
+                $volumeFailure = $e;
+            }
         }
 
         // Release the per-server Cloud Firewall created during provisioning.
-        // Without this, every destroyed Linode team leaves an orphan firewall.
+        // Without this, every destroyed Linode team leaves an orphan firewall —
+        // and enough of those exhaust the account-wide Cloud Firewall cap, after
+        // which NEW servers silently provision with no firewall at all.
         if ($server->provider_firewall_id) {
             try {
                 $linode->deleteFirewall((int) $server->provider_firewall_id);
@@ -299,6 +326,48 @@ class DestroyTeamJob implements ShouldQueue
             } catch (\Throwable $e) {
                 // Non-fatal: log and move on.
                 Log::warning("Failed to delete Linode firewall {$server->provider_firewall_id}: {$e->getMessage()}");
+            }
+        }
+
+        if ($volumeFailure) {
+            throw $volumeFailure;
+        }
+    }
+
+    private function deleteLinodeVolumeWithRetry(LinodeService $linode, string $volumeId): void
+    {
+        $delays = [2, 4, 8, 16]; // up to ~30s of patience for the detach
+        $retryCount = 0;
+
+        while (true) {
+            try {
+                $linode->deleteVolume($volumeId);
+                Log::info("Deleted Linode volume {$volumeId}".($retryCount > 0 ? " (after {$retryCount} retries)" : ''));
+
+                return;
+            } catch (RequestException $e) {
+                $status = $e->response?->status();
+
+                if ($status === 404) {
+                    Log::info("Linode volume {$volumeId} already gone (404)");
+
+                    return;
+                }
+
+                $delay = $delays[$retryCount] ?? null;
+                // Linode answers 400 (and occasionally 409) while the volume is
+                // still attached or otherwise busy.
+                $isDetachRace = in_array($status, [400, 409], true);
+
+                if (! $isDetachRace || $delay === null) {
+                    Log::warning("Failed to delete Linode volume {$volumeId} (status {$status}): {$e->getMessage()}");
+
+                    throw $e;
+                }
+
+                Log::info("Linode volume {$volumeId} still detaching; retrying in {$delay}s");
+                $retryCount++;
+                Sleep::sleep($delay);
             }
         }
     }
