@@ -7,6 +7,7 @@ use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Models\AgentApiToken;
 use App\Models\Team;
+use App\Services\AsciiBoxService;
 use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
@@ -139,6 +140,7 @@ class DestroyTeamJob implements ShouldQueue
                 CloudProvider::Hetzner => $this->destroyHetzner($server),
                 CloudProvider::DigitalOcean => $this->destroyDigitalOcean($server),
                 CloudProvider::Linode => $this->destroyLinode($server),
+                CloudProvider::Ascii => $this->destroyAscii($server),
                 CloudProvider::Aws => $this->destroyAws($server),
             };
 
@@ -274,6 +276,14 @@ class DestroyTeamJob implements ShouldQueue
                 Log::warning("Failed to delete AWS security group {$server->provider_firewall_id}: {$e->getMessage()}");
             }
         }
+    }
+
+    private function destroyAscii($server): void
+    {
+        /** @var AsciiBoxService $ascii */
+        $ascii = app(CloudServiceFactory::class)->makeFor($this->team, CloudProvider::Ascii);
+        $ascii->archiveBox($server->provider_server_id);
+        Log::info("Archived ASCII Box {$server->provider_server_id}");
     }
 
     private function destroyLinode($server): void

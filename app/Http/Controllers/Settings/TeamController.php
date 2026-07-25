@@ -16,6 +16,7 @@ use App\Mail\TeamCreatedMail;
 use App\Models\AgentApiToken;
 use App\Models\ServerEvent;
 use App\Models\Team;
+use App\Services\AsciiBoxService;
 use App\Services\Aws\AwsCredentials;
 use App\Services\Aws\BedrockCatalogService;
 use App\Services\Aws\MantleCatalogService;
@@ -57,6 +58,10 @@ class TeamController extends Controller
             if (config('cloud.linode.api_token')) {
                 $availableProviders[] = ['value' => 'linode', 'label' => 'Linode', 'description' => 'Deploy to Linode instances.'];
             }
+
+            if (config('cloud.ascii.api_token') && ! app()->bound(BillingProvider::class)) {
+                $availableProviders[] = ['value' => 'ascii', 'label' => 'ASCII Box (experimental)', 'description' => 'Deploy to a snapshot-backed ASCII Box in Europe.'];
+            }
         } elseif ($byoCloudEnabled) {
             // Global provider selection is off (hosted default), but a BYO-cloud
             // user still chooses per team between the managed default and their
@@ -86,6 +91,7 @@ class TeamController extends Controller
     public function store(CreateTeamRequest $request): RedirectResponse
     {
         $isAwsTeam = $request->cloud_provider === CloudProvider::Aws->value;
+        $isAsciiTeam = $request->cloud_provider === CloudProvider::Ascii->value;
 
         // The server is the source of truth on BYO-AWS credentials: verify
         // them against AWS before any team/server/api-key row exists, even
@@ -98,6 +104,30 @@ class TeamController extends Controller
             } catch (RuntimeException $e) {
                 return back()->withErrors([
                     'aws_key_id' => "We could not verify these AWS credentials: {$e->getMessage()}",
+                ]);
+            }
+        }
+
+        if ($isAsciiTeam) {
+            try {
+                $limits = (new AsciiBoxService)->getLimits();
+            } catch (\Throwable $e) {
+                Log::warning("ASCII Box readiness check failed: {$e->getMessage()}");
+
+                return back()->withErrors([
+                    'cloud_provider' => 'We could not verify that the ASCII Box account is ready.',
+                ]);
+            }
+
+            if (! ($limits['canStart'] ?? false)) {
+                $reason = $limits['startBlockedReason']
+                    ?? $limits['blockedReason']
+                    ?? $limits['billingStatus']
+                    ?? 'account unavailable';
+                $reason = is_string($reason) ? mb_substr($reason, 0, 100) : 'account unavailable';
+
+                return back()->withErrors([
+                    'cloud_provider' => "ASCII Box cannot start a machine right now ({$reason}).",
                 ]);
             }
         }

@@ -11,6 +11,7 @@ use App\Models\AgentEmailConnection;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\AsciiBoxService;
 use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
@@ -423,6 +424,35 @@ it('releases the Linode Cloud Firewall when destroying a team that has one', fun
     app()->instance(CloudServiceFactory::class, $cloudFactory);
 
     DestroyTeamJob::dispatchSync($team);
+});
+
+it('archives an ascii box before deleting its team record', function () {
+    $team = Team::factory()->ascii()->subscribed()->create();
+    $server = Server::factory()->ascii()->create([
+        'team_id' => $team->id,
+        'provider_server_id' => 'bx_23456789',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $ascii = Mockery::mock(AsciiBoxService::class);
+    $ascii->shouldReceive('archiveBox')->with('bx_23456789')->once();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')
+        ->with(Mockery::on(fn ($candidate) => $candidate->id === $team->id), CloudProvider::Ascii)
+        ->once()
+        ->andReturn($ascii);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+
+    expect(Team::find($team->id))->toBeNull()
+        ->and(Server::find($server->id))->toBeNull();
 });
 
 it('still deletes the Linode volume, firewall and team when the redundant detach fails', function () {

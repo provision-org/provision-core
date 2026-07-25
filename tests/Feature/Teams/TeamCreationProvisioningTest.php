@@ -1,5 +1,7 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
+use App\Jobs\ProvisionAsciiBoxServerJob;
 use App\Jobs\ProvisionAwsServerJob;
 use App\Jobs\ProvisionDigitalOceanServerJob;
 use App\Jobs\ProvisionHetznerServerJob;
@@ -8,6 +10,7 @@ use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
@@ -196,6 +199,103 @@ test('server.region uses provider-specific code for Hetzner', function () {
     $team = $user->fresh()->currentTeam;
     expect($team->server->cloud_provider->value)->toBe('hetzner')
         ->and($team->server->region)->toBe('ash');
+});
+
+test('ascii box is offered when its managed api key is configured', function () {
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    config()->set('cloud.digitalocean.api_token');
+    config()->set('cloud.hetzner.api_token');
+    config()->set('cloud.linode.api_token');
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $response = $this->actingAs($user)->get(route('teams.create'));
+
+    $response->assertInertia(fn ($page) => $page
+        ->component('settings/teams/create')
+        ->where('cloudProviderSelectionEnabled', true)
+        ->has('availableProviders', 2)
+        ->where('availableProviders.1.value', 'ascii')
+        ->where('availableProviders.1.label', 'ASCII Box (experimental)'));
+});
+
+test('an ascii team gets box metadata and dispatches box provisioning', function () {
+    Bus::fake();
+    Http::fake([
+        'ascii.dev/api/box/v1/limits' => Http::response([
+            'ok' => true,
+            'canStart' => true,
+            'billingStatus' => 'active',
+        ]),
+    ]);
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'ASCII Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'ascii',
+    ]);
+
+    $team = $user->fresh()->currentTeam;
+
+    expect($team->server->cloud_provider->value)->toBe('ascii')
+        ->and($team->server->region)->toBe('eu')
+        ->and($team->server->server_type)->toBe('box-4vcpu-8gb');
+    Bus::assertDispatched(ProvisionAsciiBoxServerJob::class);
+});
+
+test('an ascii team is not created when the account cannot start a box', function () {
+    Bus::fake();
+    Http::fake([
+        'ascii.dev/api/box/v1/limits' => Http::response([
+            'ok' => true,
+            'canStart' => false,
+            'billingStatus' => 'subscription_required',
+        ]),
+    ]);
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $response = $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'Blocked ASCII Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'ascii',
+        'company_name' => '',
+        'company_url' => '',
+        'company_description' => '',
+        'target_market' => '',
+        'aws_key_id' => '',
+        'aws_secret' => '',
+        'aws_region' => 'us-east-1',
+        'aws_instance_profile' => '',
+        'aws_bedrock_model' => '',
+    ]);
+
+    $response->assertSessionHasErrors('cloud_provider');
+    expect($user->fresh()->currentTeam)->toBeNull()
+        ->and($user->ownedTeams()->count())->toBe(0);
+    Bus::assertNotDispatched(ProvisionAsciiBoxServerJob::class);
+});
+
+test('ascii provisioning is rejected while managed billing is active', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    app()->instance(BillingProvider::class, Mockery::mock(BillingProvider::class));
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $response = $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'Managed ASCII Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'ascii',
+    ]);
+
+    $response->assertSessionHasErrors('cloud_provider');
+    expect($user->fresh()->currentTeam)->toBeNull();
+    Bus::assertNotDispatched(ProvisionAsciiBoxServerJob::class);
 });
 
 test('a byo_cloud_enabled user gets the managed default plus their own AWS in the provider step', function () {

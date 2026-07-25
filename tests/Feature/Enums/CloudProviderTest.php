@@ -14,6 +14,12 @@ test('defaultProviderRegion returns Linode code', function () {
     expect(CloudProvider::Linode->defaultProviderRegion())->toBe('us-east');
 });
 
+test('ASCII Box uses its current European placement', function () {
+    expect(CloudProvider::Ascii->label())->toBe('ASCII Box')
+        ->and(CloudProvider::Ascii->defaultRegion())->toBe('europe')
+        ->and(CloudProvider::Ascii->defaultProviderRegion())->toBe('eu');
+});
+
 test('defaultProviderRegion returns "local" for Docker', function () {
     expect(CloudProvider::Docker->defaultProviderRegion())->toBe('local');
 });
@@ -37,8 +43,10 @@ test('defaultProviderRegion falls back to per-provider default when config missi
     config()->set('cloud.regions.us-east.digitalocean', null);
     config()->set('cloud.regions.us-east.hetzner', null);
     config()->set('cloud.regions.us-east.linode', null);
+    config()->set('cloud.regions.europe.ascii', null);
 
     expect(CloudProvider::DigitalOcean->defaultProviderRegion())->toBe('nyc1')
         ->and(CloudProvider::Hetzner->defaultProviderRegion())->toBe('ash')
-        ->and(CloudProvider::Linode->defaultProviderRegion())->toBe('us-east');
+        ->and(CloudProvider::Linode->defaultProviderRegion())->toBe('us-east')
+        ->and(CloudProvider::Ascii->defaultProviderRegion())->toBe('eu');
 });

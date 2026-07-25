@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Enums\AgentStatus;
 use App\Enums\ChatMessageRole;
+use App\Enums\CloudProvider;
 use App\Enums\HarnessType;
+use App\Enums\ServerStatus;
 use App\Events\ChatMessageErrorEvent;
 use App\Events\ChatMessageReceivedEvent;
 use App\Http\Requests\SendChatMessageRequest;
@@ -48,13 +50,19 @@ class ChatController extends Controller
             ]);
 
         $server = $agent->server;
-        $browserAvailable = (bool) ($server?->isDocker()
+        $hasBoxDesktop = $server?->cloud_provider === CloudProvider::Ascii
+            && $server->status === ServerStatus::Running
+            && is_string($server->provider_server_id)
+            && $server->provider_server_id !== '';
+        $browserAvailable = (bool) ($hasBoxDesktop
+            || $server?->isDocker()
             || ($server?->ipv4_address && $server?->vnc_password));
 
         return Inertia::render('agents/chat', [
             'agent' => $agent,
             'conversations' => $conversations,
             'browserAvailable' => $browserAvailable,
+            'desktopUrl' => $hasBoxDesktop ? route('agents.desktop', $agent) : null,
         ]);
     }
 

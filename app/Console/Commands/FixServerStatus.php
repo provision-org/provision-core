@@ -66,6 +66,7 @@ class FixServerStatus extends Command
                 'name' => "provision-{$team->id}",
                 'cloud_provider' => $cloudProvider,
                 'region' => $cloudProvider->defaultProviderRegion(),
+                'server_type' => $team->serverType(),
             ]);
 
             ServerProvisioningDispatcher::dispatch($newServer);

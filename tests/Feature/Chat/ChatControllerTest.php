@@ -12,6 +12,7 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
@@ -55,6 +56,30 @@ test('user can view the chat page', function () {
             ->missing('agent.api_server_key')
             ->missing('agent.config_snapshot')
             ->missing('agent.default_password'));
+});
+
+test('chat exposes the local desktop route for an ascii box', function () {
+    config()->set('inertia.ssr.enabled', false);
+    Http::preventStrayRequests();
+
+    $user = chatUser();
+    $server = Server::query()->where('team_id', $user->currentTeam->id)->firstOrFail();
+    $server->update([
+        'cloud_provider' => 'ascii',
+        'provider_server_id' => 'bx_23456789',
+        'vnc_password' => null,
+    ]);
+    $agent = chatAgent($user->currentTeam);
+
+    $response = $this->actingAs($user)->get(route('agents.chat', $agent));
+
+    $response->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->where('browserAvailable', true)
+            ->where('desktopUrl', route('agents.desktop', $agent))
+        );
+
+    Http::assertNothingSent();
 });
 
 test('chat page lists conversations for the authenticated user', function () {

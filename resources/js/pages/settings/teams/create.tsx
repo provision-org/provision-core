@@ -224,35 +224,39 @@ export default function CreateTeam({
     // When the server redirects back with validation errors (e.g. store-time
     // AWS verification failure), the wizard remounts on step one and the
     // errors would never be seen. Open on the earliest step that has one.
-    function stepForServerErrors(): Step {
-        if (pageErrors.name) {
+    function stepForServerErrors(
+        errors: Record<string, string | undefined>,
+    ): Step {
+        if (errors.name) {
             return 'name';
         }
-        if (pageErrors.harness_type && harnessSelectionEnabled) {
+        if (errors.harness_type && harnessSelectionEnabled) {
             return 'harness';
         }
         if (
-            pageErrors.company_name ||
-            pageErrors.company_url ||
-            pageErrors.company_description ||
-            pageErrors.target_market
+            errors.company_name ||
+            errors.company_url ||
+            errors.company_description ||
+            errors.target_market
         ) {
             return 'business';
         }
-        if (pageErrors.cloud_provider && cloudProviderSelectionEnabled) {
+        if (errors.cloud_provider && cloudProviderSelectionEnabled) {
             return 'provider';
         }
         if (
             cloudProviderSelectionEnabled &&
             byoCloudEnabled &&
-            Object.keys(pageErrors).some((key) => key.startsWith('aws_'))
+            Object.keys(errors).some((key) => key.startsWith('aws_'))
         ) {
             return 'aws';
         }
         return 'name';
     }
 
-    const [step, setStep] = useState<Step>(stepForServerErrors);
+    const [step, setStep] = useState<Step>(() =>
+        stepForServerErrors(pageErrors),
+    );
 
     const form = useForm({
         name: '',
@@ -275,17 +279,22 @@ export default function CreateTeam({
 
     // Seed server-flashed errors into the form once, so InputError renders
     // them even after a fresh mount (useForm starts with empty errors).
-    const seededServerErrors = useRef(false);
+    const seededServerErrors = useRef<string | null>(null);
+    const serverErrorsKey = JSON.stringify(pageErrors);
     const setFormError = form.setError;
     useEffect(() => {
-        if (seededServerErrors.current) {
+        if (seededServerErrors.current === serverErrorsKey) {
             return;
         }
-        seededServerErrors.current = true;
-        if (Object.keys(pageErrors).length > 0) {
-            setFormError(pageErrors as Record<string, string>);
+        seededServerErrors.current = serverErrorsKey;
+        const errorsToSeed = JSON.parse(serverErrorsKey) as Record<
+            string,
+            string
+        >;
+        if (Object.keys(errorsToSeed).length > 0) {
+            setFormError(errorsToSeed);
         }
-    });
+    }, [serverErrorsKey, setFormError]);
 
     const selectedProvider =
         'cloud_provider' in form.data
@@ -478,7 +487,12 @@ export default function CreateTeam({
 
     function handleSubmit(e: React.FormEvent) {
         e.preventDefault();
-        form.post('/settings/teams');
+        form.post('/settings/teams', {
+            onError: (errors) => {
+                form.setError(errors);
+                setStep(stepForServerErrors(errors));
+            },
+        });
     }
 
     function nextStep() {

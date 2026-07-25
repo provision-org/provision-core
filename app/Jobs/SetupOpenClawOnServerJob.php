@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Models\Server;
+use App\Services\AsciiBoxService;
 use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
@@ -129,6 +130,7 @@ class SetupOpenClawOnServerJob implements ShouldQueue
         $ip = match ($this->server->cloud_provider) {
             CloudProvider::DigitalOcean => $this->fetchDigitalOceanIp(),
             CloudProvider::Linode => $this->fetchLinodeIp(),
+            CloudProvider::Ascii => $this->fetchAsciiIp(),
             CloudProvider::Aws => $this->fetchAwsIp(),
             default => $this->fetchHetznerIp(),
         };
@@ -176,6 +178,15 @@ class SetupOpenClawOnServerJob implements ShouldQueue
         $instance = $awsService->getInstance($this->server->provider_server_id);
 
         return $awsService->extractIpAddress($instance);
+    }
+
+    private function fetchAsciiIp(): ?string
+    {
+        /** @var AsciiBoxService $ascii */
+        $ascii = app(CloudServiceFactory::class)->makeFor($this->server->team, CloudProvider::Ascii);
+        $box = $ascii->getBox($this->server->provider_server_id);
+
+        return $ascii->extractIpAddress($box);
     }
 
     private function captureOpenClawVersion(SshService $sshService): void

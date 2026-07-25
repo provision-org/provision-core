@@ -9,10 +9,10 @@ return [
     'ssh_private_key_path' => env('SSH_PRIVATE_KEY_PATH'),
 
     'regions' => [
-        'us-east' => ['label' => 'US East', 'hetzner' => 'ash', 'digitalocean' => 'nyc1', 'linode' => 'us-east', 'aws' => 'us-east-1'],
-        'us-west' => ['label' => 'US West', 'hetzner' => 'hil', 'digitalocean' => 'sfo3', 'linode' => 'us-west', 'aws' => 'us-west-2'],
-        'europe' => ['label' => 'Europe', 'hetzner' => 'fsn1', 'digitalocean' => 'fra1', 'linode' => 'eu-west', 'aws' => 'eu-central-1'],
-        'asia-pacific' => ['label' => 'Asia Pacific', 'hetzner' => null, 'digitalocean' => 'sgp1', 'linode' => 'ap-south', 'aws' => 'ap-southeast-1'],
+        'us-east' => ['label' => 'US East', 'hetzner' => 'ash', 'digitalocean' => 'nyc1', 'linode' => 'us-east', 'ascii' => null, 'aws' => 'us-east-1'],
+        'us-west' => ['label' => 'US West', 'hetzner' => 'hil', 'digitalocean' => 'sfo3', 'linode' => 'us-west', 'ascii' => null, 'aws' => 'us-west-2'],
+        'europe' => ['label' => 'Europe', 'hetzner' => 'fsn1', 'digitalocean' => 'fra1', 'linode' => 'eu-west', 'ascii' => 'eu', 'aws' => 'eu-central-1'],
+        'asia-pacific' => ['label' => 'Asia Pacific', 'hetzner' => null, 'digitalocean' => 'sgp1', 'linode' => 'ap-south', 'ascii' => null, 'aws' => 'ap-southeast-1'],
     ],
 
     'hetzner' => [
@@ -31,6 +31,12 @@ return [
         'api_token' => env('LINODE_API_KEY'),
         'ssh_public_key_path' => env('SSH_PUBLIC_KEY_PATH', env('SSH_PRIVATE_KEY_PATH') ? env('SSH_PRIVATE_KEY_PATH').'.pub' : null),
         'default_image' => 'linode/ubuntu24.04',
+    ],
+
+    'ascii' => [
+        'api_token' => env('ASCII_BOX_API_KEY'),
+        'base_url' => env('ASCII_BOX_API_URL', 'https://ascii.dev/api/box/v1'),
+        'ssh_public_key_path' => env('SSH_PUBLIC_KEY_PATH', env('SSH_PRIVATE_KEY_PATH') ? env('SSH_PRIVATE_KEY_PATH').'.pub' : null),
     ],
 
     'aws' => [

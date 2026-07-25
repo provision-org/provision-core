@@ -74,6 +74,17 @@ class ServerFactory extends Factory
         ]);
     }
 
+    public function ascii(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'cloud_provider' => CloudProvider::Ascii,
+            'server_type' => 'box-4vcpu-8gb',
+            'region' => 'eu',
+            'provider_volume_id' => null,
+            'provider_firewall_id' => null,
+        ]);
+    }
+
     public function error(): static
     {
         return $this->state(fn (array $attributes) => [

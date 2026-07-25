@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Server;
+use App\Services\AsciiBoxService;
+use App\Services\CloudServiceFactory;
 use App\Services\SignedScriptUrlService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -18,8 +21,11 @@ class ServerSetupCallbackController extends Controller
      * The setup script fires progress callbacks at each major step,
      * and a final 'ready' or 'error' callback when done.
      */
-    public function __invoke(Request $request, SignedScriptUrlService $urlService): JsonResponse
-    {
+    public function __invoke(
+        Request $request,
+        SignedScriptUrlService $urlService,
+        CloudServiceFactory $cloudFactory,
+    ): JsonResponse {
         $request->validate([
             'server_id' => ['required', 'string', 'ulid'],
             'status' => ['required', 'string', 'in:ready,error,progress'],
@@ -44,7 +50,7 @@ class ServerSetupCallbackController extends Controller
 
         match ($request->input('status')) {
             'progress' => $this->handleProgress($server, $request),
-            'ready' => $this->handleReady($server, $request),
+            'ready' => $this->handleReady($server, $request, $cloudFactory),
             'error' => $this->handleError($server, $request),
         };
 
@@ -66,8 +72,14 @@ class ServerSetupCallbackController extends Controller
         }
     }
 
-    private function handleReady(Server $server, Request $request): void
+    private function handleReady(Server $server, Request $request, CloudServiceFactory $cloudFactory): void
     {
+        if ($server->cloud_provider === CloudProvider::Ascii && $server->provider_server_id) {
+            /** @var AsciiBoxService $ascii */
+            $ascii = $cloudFactory->makeFor($server->team, CloudProvider::Ascii);
+            $ascii->disableAutoStop($server->provider_server_id);
+        }
+
         $server->update([
             'status' => ServerStatus::Running,
             'provisioned_at' => now(),

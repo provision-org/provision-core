@@ -3,6 +3,7 @@
 use App\Enums\CloudProvider;
 use App\Models\Team;
 use App\Models\TeamApiKey;
+use App\Services\AsciiBoxService;
 use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
@@ -34,6 +35,15 @@ it('returns linode service for a linode team', function () {
     $service = app(CloudServiceFactory::class)->make($team);
 
     expect($service)->toBeInstanceOf(LinodeService::class);
+});
+
+it('returns ascii box service for an ascii team', function () {
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    $team = Team::factory()->ascii()->create();
+
+    $service = app(CloudServiceFactory::class)->make($team);
+
+    expect($service)->toBeInstanceOf(AsciiBoxService::class);
 });
 
 it('uses team cloud api key when available', function () {
