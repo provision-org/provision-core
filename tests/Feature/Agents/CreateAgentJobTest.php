@@ -4,11 +4,13 @@ use App\Contracts\CommandExecutor;
 use App\Contracts\HarnessDriver;
 use App\Enums\AgentStatus;
 use App\Jobs\CreateAgentOnServerJob;
+use App\Jobs\UpdateEnvOnServerJob;
 use App\Models\Agent;
 use App\Models\Server;
 use App\Models\Team;
 use App\Services\HarnessManager;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Bus;
 
 uses(RefreshDatabase::class);
 
@@ -135,4 +137,59 @@ test('it sets agent to error on failure', function () {
     (new CreateAgentOnServerJob($agent))->failed(new RuntimeException('SSH failed'));
 
     expect($agent->fresh()->status)->toBe(AgentStatus::Error);
+});
+
+test('creating a Bedrock agent re-applies the server env so the provider config lands', function () {
+    // Regression: the provider block (amazon-bedrock/-mantle) is written by
+    // UpdateEnvOnServerJob, which no-ops at server setup (no agents yet). Adding
+    // the first Bedrock agent to a running server must re-run it, or the agent
+    // fails with "Unknown model".
+    Bus::fake([UpdateEnvOnServerJob::class]);
+
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->deploying()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'auth_provider' => 'bedrock',
+    ]);
+
+    $executor = Mockery::mock(CommandExecutor::class);
+    $driver = Mockery::mock(HarnessDriver::class);
+    $driver->shouldReceive('createAgent')->once()
+        ->andReturnUsing(fn (Agent $a) => $a->update(['status' => AgentStatus::Active]));
+    $harnessManager = Mockery::mock(HarnessManager::class);
+    $harnessManager->shouldReceive('resolveExecutor')->andReturn($executor);
+    $harnessManager->shouldReceive('forAgent')->andReturn($driver);
+
+    (new CreateAgentOnServerJob($agent))->handle($harnessManager);
+
+    Bus::assertDispatched(
+        UpdateEnvOnServerJob::class,
+        fn ($job) => $job->server->id === $server->id,
+    );
+});
+
+test('creating a non-Bedrock agent does not re-apply the server env', function () {
+    Bus::fake([UpdateEnvOnServerJob::class]);
+
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+    $agent = Agent::factory()->deploying()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'auth_provider' => 'openrouter',
+    ]);
+
+    $executor = Mockery::mock(CommandExecutor::class);
+    $driver = Mockery::mock(HarnessDriver::class);
+    $driver->shouldReceive('createAgent')->once()
+        ->andReturnUsing(fn (Agent $a) => $a->update(['status' => AgentStatus::Active]));
+    $harnessManager = Mockery::mock(HarnessManager::class);
+    $harnessManager->shouldReceive('resolveExecutor')->andReturn($executor);
+    $harnessManager->shouldReceive('forAgent')->andReturn($driver);
+
+    (new CreateAgentOnServerJob($agent))->handle($harnessManager);
+
+    Bus::assertNotDispatched(UpdateEnvOnServerJob::class);
 });
