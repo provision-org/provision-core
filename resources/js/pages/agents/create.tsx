@@ -1,8 +1,10 @@
 import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import { ArrowLeft, Check, Cloud, X } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
@@ -621,8 +623,14 @@ export default function CreateAgent({
     const form = useForm({
         name: '',
         agent_mode: 'channel' as 'channel' | 'workforce',
+        email_mode: (emailDomain ? 'mailboxkit' : 'gmail') as
+            | 'mailboxkit'
+            | 'gmail'
+            | 'none',
         email_prefix: '',
         email_domain: emailDomain ?? '',
+        gmail_address: '',
+        gmail_app_password: '',
         role: 'custom',
         job_description: '',
         model_tier: defaultTier,
@@ -686,14 +694,14 @@ export default function CreateAgent({
     const allSteps = useMemo(
         () =>
             ALL_STEPS.filter((s) => {
-                // No email step unless the team has an agent email domain.
-                if (s === 'email' && !emailDomain) return false;
+                // The email step always shows now — even without a Provision
+                // email domain the agent can use its own Gmail, or no email.
                 // The agent-type (Chat vs Task) step is hidden while task agents
                 // are gated — every agent is created as a Chat agent.
                 if (s === 'mode' && !taskAgentsEnabled) return false;
                 return true;
             }),
-        [emailDomain, taskAgentsEnabled],
+        [taskAgentsEnabled],
     );
 
     const stepIndex = allSteps.indexOf(step);
@@ -723,8 +731,10 @@ export default function CreateAgent({
             return;
         }
 
-        // Validate email prefix before advancing past email step
-        if (step === 'email') {
+        // Validate the Provision email prefix before advancing past the email
+        // step; Gmail / none don't use it (Gmail fields are checked client-side
+        // by the Continue button and server-side by required_if).
+        if (step === 'email' && form.data.email_mode === 'mailboxkit') {
             form.validate({
                 only: ['email_prefix'],
                 onSuccess: () => {
@@ -951,128 +961,302 @@ export default function CreateAgent({
                                     <div className="flex flex-col items-center gap-6">
                                         <div className="text-center">
                                             <h1 className="text-2xl font-bold tracking-tight">
-                                                {form.data.name}'s email address
+                                                {form.data.name}'s email
                                             </h1>
                                             <p className="mt-2 text-sm text-muted-foreground">
-                                                Your agent will receive and send
-                                                emails from this address.
+                                                How should this agent send and
+                                                receive email?
                                             </p>
                                         </div>
 
-                                        <div className="w-full">
-                                            <div className="flex items-center gap-0">
-                                                <Input
-                                                    value={
-                                                        form.data.email_prefix
-                                                    }
-                                                    onChange={(e) => {
-                                                        const val =
-                                                            e.target.value
-                                                                .toLowerCase()
-                                                                .replace(
-                                                                    /[^a-z0-9._-]/g,
-                                                                    '',
-                                                                );
+                                        {/* Email source */}
+                                        <div className="grid w-full gap-2">
+                                            {(
+                                                [
+                                                    emailDomain && {
+                                                        mode: 'mailboxkit' as const,
+                                                        title: 'Provision email',
+                                                        desc: `A managed inbox at @${emailDomain}`,
+                                                    },
+                                                    {
+                                                        mode: 'gmail' as const,
+                                                        title: 'Connect Gmail',
+                                                        desc: 'Use your own Gmail account via an App Password',
+                                                    },
+                                                    {
+                                                        mode: 'none' as const,
+                                                        title: 'No email',
+                                                        desc: 'This agent has no mailbox',
+                                                    },
+                                                ].filter(Boolean) as {
+                                                    mode:
+                                                        | 'mailboxkit'
+                                                        | 'gmail'
+                                                        | 'none';
+                                                    title: string;
+                                                    desc: string;
+                                                }[]
+                                            ).map((opt) => (
+                                                <button
+                                                    key={opt.mode}
+                                                    type="button"
+                                                    onClick={() =>
                                                         form.setData(
-                                                            'email_prefix',
-                                                            val,
-                                                        );
-                                                        form.validate(
-                                                            'email_prefix',
-                                                        );
-                                                    }}
-                                                    className="h-12 rounded-r-none border-r-0 text-right text-base"
-                                                    placeholder="luna_acme"
-                                                    autoFocus
-                                                />
-                                                {emailDomains.length > 1 ? (
-                                                    <select
-                                                        value={
-                                                            form.data
-                                                                .email_domain
-                                                        }
-                                                        onChange={(e) => {
-                                                            form.setData(
-                                                                'email_domain',
-                                                                e.target.value,
-                                                            );
-                                                            // Availability is per-domain.
-                                                            form.validate(
-                                                                'email_prefix',
-                                                            );
-                                                        }}
-                                                        className="h-12 rounded-r-lg border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground"
-                                                    >
-                                                        {emailDomains
-                                                            .filter(
-                                                                (d) =>
-                                                                    d.is_verified,
-                                                            )
-                                                            .map((d) => (
-                                                                <option
-                                                                    key={d.name}
-                                                                    value={
-                                                                        d.name
-                                                                    }
-                                                                >
-                                                                    @{d.name}
-                                                                </option>
-                                                            ))}
-                                                    </select>
-                                                ) : (
-                                                    <div className="flex h-12 items-center rounded-r-lg border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground">
-                                                        @{emailDomain}
+                                                            'email_mode',
+                                                            opt.mode,
+                                                        )
+                                                    }
+                                                    className={`rounded-lg border p-3 text-left transition ${
+                                                        form.data.email_mode ===
+                                                        opt.mode
+                                                            ? 'border-primary bg-primary/5'
+                                                            : 'border-input hover:border-muted-foreground/40'
+                                                    }`}
+                                                >
+                                                    <div className="text-sm font-medium">
+                                                        {opt.title}
                                                     </div>
-                                                )}
-                                            </div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        {opt.desc}
+                                                    </div>
+                                                </button>
+                                            ))}
+                                        </div>
 
-                                            {emailDomains.length <= 1 && (
-                                                <p className="mt-2 text-xs text-muted-foreground">
-                                                    Want agents on your own
-                                                    domain?{' '}
-                                                    <a
-                                                        href={`/settings/teams/${auth.user.current_team_id}/email-domain`}
-                                                        className="underline hover:text-foreground"
-                                                    >
-                                                        Set up a custom domain
-                                                    </a>
-                                                </p>
+                                        {form.data.email_mode ===
+                                            'mailboxkit' &&
+                                            emailDomain && (
+                                                <div className="w-full">
+                                                    <div className="flex items-center gap-0">
+                                                        <Input
+                                                            value={
+                                                                form.data
+                                                                    .email_prefix
+                                                            }
+                                                            onChange={(e) => {
+                                                                const val =
+                                                                    e.target.value
+                                                                        .toLowerCase()
+                                                                        .replace(
+                                                                            /[^a-z0-9._-]/g,
+                                                                            '',
+                                                                        );
+                                                                form.setData(
+                                                                    'email_prefix',
+                                                                    val,
+                                                                );
+                                                                form.validate(
+                                                                    'email_prefix',
+                                                                );
+                                                            }}
+                                                            className="h-12 rounded-r-none border-r-0 text-right text-base"
+                                                            placeholder="luna_acme"
+                                                            autoFocus
+                                                        />
+                                                        {emailDomains.length >
+                                                        1 ? (
+                                                            <select
+                                                                value={
+                                                                    form.data
+                                                                        .email_domain
+                                                                }
+                                                                onChange={(
+                                                                    e,
+                                                                ) => {
+                                                                    form.setData(
+                                                                        'email_domain',
+                                                                        e.target
+                                                                            .value,
+                                                                    );
+                                                                    // Availability is per-domain.
+                                                                    form.validate(
+                                                                        'email_prefix',
+                                                                    );
+                                                                }}
+                                                                className="h-12 rounded-r-lg border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground"
+                                                            >
+                                                                {emailDomains
+                                                                    .filter(
+                                                                        (d) =>
+                                                                            d.is_verified,
+                                                                    )
+                                                                    .map(
+                                                                        (d) => (
+                                                                            <option
+                                                                                key={
+                                                                                    d.name
+                                                                                }
+                                                                                value={
+                                                                                    d.name
+                                                                                }
+                                                                            >
+                                                                                @
+                                                                                {
+                                                                                    d.name
+                                                                                }
+                                                                            </option>
+                                                                        ),
+                                                                    )}
+                                                            </select>
+                                                        ) : (
+                                                            <div className="flex h-12 items-center rounded-r-lg border border-l-0 border-input bg-muted px-3 text-sm text-muted-foreground">
+                                                                @{emailDomain}
+                                                            </div>
+                                                        )}
+                                                    </div>
+
+                                                    {emailDomains.length <=
+                                                        1 && (
+                                                        <p className="mt-2 text-xs text-muted-foreground">
+                                                            Want agents on your
+                                                            own domain?{' '}
+                                                            <a
+                                                                href={`/settings/teams/${auth.user.current_team_id}/email-domain`}
+                                                                className="underline hover:text-foreground"
+                                                            >
+                                                                Set up a custom
+                                                                domain
+                                                            </a>
+                                                        </p>
+                                                    )}
+
+                                                    {/* Availability indicator */}
+                                                    <div className="mt-2 flex items-center gap-1.5 text-sm">
+                                                        {form.validating && (
+                                                            <span className="text-muted-foreground">
+                                                                Checking
+                                                                availability...
+                                                            </span>
+                                                        )}
+                                                        {!form.validating &&
+                                                            form.valid(
+                                                                'email_prefix',
+                                                            ) && (
+                                                                <>
+                                                                    <Check className="size-3.5 text-green-600" />
+                                                                    <span className="text-green-600">
+                                                                        Available
+                                                                    </span>
+                                                                </>
+                                                            )}
+                                                        {!form.validating &&
+                                                            form.invalid(
+                                                                'email_prefix',
+                                                            ) && (
+                                                                <>
+                                                                    <X className="size-3.5 text-destructive" />
+                                                                    <span className="text-destructive">
+                                                                        {
+                                                                            form
+                                                                                .errors
+                                                                                .email_prefix
+                                                                        }
+                                                                    </span>
+                                                                </>
+                                                            )}
+                                                    </div>
+                                                </div>
                                             )}
 
-                                            {/* Availability indicator */}
-                                            <div className="mt-2 flex items-center gap-1.5 text-sm">
-                                                {form.validating && (
-                                                    <span className="text-muted-foreground">
-                                                        Checking availability...
-                                                    </span>
-                                                )}
-                                                {!form.validating &&
-                                                    form.valid(
-                                                        'email_prefix',
-                                                    ) && (
-                                                        <>
-                                                            <Check className="size-3.5 text-green-600" />
-                                                            <span className="text-green-600">
-                                                                Available
+                                        {form.data.email_mode === 'gmail' && (
+                                            <div className="grid w-full gap-3">
+                                                <div className="rounded-lg border border-input bg-muted/40 p-3 text-xs text-muted-foreground">
+                                                    <p className="mb-1 font-medium text-foreground">
+                                                        Create a Gmail App
+                                                        Password
+                                                    </p>
+                                                    <ol className="list-decimal space-y-0.5 pl-4">
+                                                        <li>
+                                                            Turn on 2-Step
+                                                            Verification on the
+                                                            Google account.
+                                                        </li>
+                                                        <li>
+                                                            Open{' '}
+                                                            <span className="font-mono">
+                                                                myaccount.google.com/apppasswords
                                                             </span>
-                                                        </>
-                                                    )}
-                                                {!form.validating &&
-                                                    form.invalid(
-                                                        'email_prefix',
-                                                    ) && (
-                                                        <>
-                                                            <X className="size-3.5 text-destructive" />
-                                                            <span className="text-destructive">
-                                                                {
-                                                                    form.errors
-                                                                        .email_prefix
-                                                                }
-                                                            </span>
-                                                        </>
-                                                    )}
+                                                            , name it
+                                                            "Provision", and
+                                                            Create.
+                                                        </li>
+                                                        <li>
+                                                            Paste the
+                                                            16-character
+                                                            password below.
+                                                        </li>
+                                                    </ol>
+                                                </div>
+                                                <div className="grid gap-1.5">
+                                                    <Label htmlFor="gmail_address">
+                                                        Gmail address
+                                                    </Label>
+                                                    <Input
+                                                        id="gmail_address"
+                                                        type="email"
+                                                        autoComplete="off"
+                                                        placeholder="agent@yourcompany.com"
+                                                        value={
+                                                            form.data
+                                                                .gmail_address
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'gmail_address',
+                                                                e.target.value.trim(),
+                                                            )
+                                                        }
+                                                    />
+                                                    <InputError
+                                                        message={
+                                                            form.errors
+                                                                .gmail_address
+                                                        }
+                                                    />
+                                                </div>
+                                                <div className="grid gap-1.5">
+                                                    <Label htmlFor="gmail_app_password">
+                                                        App Password
+                                                    </Label>
+                                                    <Input
+                                                        id="gmail_app_password"
+                                                        type="password"
+                                                        autoComplete="new-password"
+                                                        placeholder="16-character app password"
+                                                        value={
+                                                            form.data
+                                                                .gmail_app_password
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'gmail_app_password',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                    />
+                                                    <InputError
+                                                        message={
+                                                            form.errors
+                                                                .gmail_app_password
+                                                        }
+                                                    />
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Stored encrypted, used
+                                                        only by this agent.
+                                                        Never your main Google
+                                                        password.
+                                                    </p>
+                                                </div>
                                             </div>
-                                        </div>
+                                        )}
+
+                                        {form.data.email_mode === 'none' && (
+                                            <p className="w-full text-center text-sm text-muted-foreground">
+                                                This agent won't have an email
+                                                inbox. You can connect one
+                                                later.
+                                            </p>
+                                        )}
 
                                         <div className="flex w-full items-center justify-between">
                                             <Button
@@ -1084,11 +1268,20 @@ export default function CreateAgent({
                                             <Button
                                                 onClick={next}
                                                 disabled={
-                                                    !form.data.email_prefix ||
-                                                    form.invalid(
-                                                        'email_prefix',
-                                                    ) ||
-                                                    form.validating
+                                                    (form.data.email_mode ===
+                                                        'mailboxkit' &&
+                                                        (!form.data
+                                                            .email_prefix ||
+                                                            form.invalid(
+                                                                'email_prefix',
+                                                            ) ||
+                                                            form.validating)) ||
+                                                    (form.data.email_mode ===
+                                                        'gmail' &&
+                                                        (!form.data
+                                                            .gmail_address ||
+                                                            !form.data
+                                                                .gmail_app_password))
                                                 }
                                             >
                                                 Continue
@@ -2189,8 +2382,20 @@ export default function CreateAgent({
                                 ? String(form.data.harness_type)
                                 : ''
                         }
-                        emailPrefix={form.data.email_prefix}
-                        emailDomain={form.data.email_domain || emailDomain}
+                        emailPrefix={
+                            form.data.email_mode === 'gmail'
+                                ? form.data.gmail_address.split('@')[0] || ''
+                                : form.data.email_mode === 'none'
+                                  ? ''
+                                  : form.data.email_prefix
+                        }
+                        emailDomain={
+                            form.data.email_mode === 'gmail'
+                                ? form.data.gmail_address.split('@')[1] || ''
+                                : form.data.email_mode === 'none'
+                                  ? ''
+                                  : form.data.email_domain || emailDomain
+                        }
                         stepIndex={stepIndex}
                     />
                 </div>
