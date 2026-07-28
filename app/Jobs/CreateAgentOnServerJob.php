@@ -48,5 +48,17 @@ class CreateAgentOnServerJob implements ShouldQueue
                 $executor->disconnect();
             }
         }
+
+        // A Bedrock agent needs the amazon-bedrock(-mantle) provider block in the
+        // gateway's openclaw.json to resolve its model. That block is produced by
+        // UpdateEnvOnServerJob (applyBedrockPluginConfig), which at server setup
+        // ran before any agent existed and therefore no-op'd (serverHasBedrockAgent
+        // was false). Nothing re-wrote it when this agent was added, so the first
+        // Bedrock agent on a running server failed with "Unknown model". Re-run it
+        // now that the agent exists — it also restarts the gateway. Dispatched
+        // after createAgent completes so the two never race on openclaw.json.
+        if ($this->agent->auth_provider === 'bedrock') {
+            UpdateEnvOnServerJob::dispatch($this->agent->server);
+        }
     }
 }
