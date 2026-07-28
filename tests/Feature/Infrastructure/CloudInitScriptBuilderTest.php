@@ -97,3 +97,24 @@ it('uses snapshot-backed root storage without formatting a device', function () 
         ->and($script)->not->toContain('mkfs.ext4')
         ->and($script)->not->toContain('/etc/fstab');
 });
+
+it('rewrites the flaky EC2 regional apt mirror to the canonical mirror', function () {
+    $builder = new CloudInitScriptBuilder;
+    $script = $builder->build(
+        'https://example.com/api/webhooks/server-ready?server_id=abc&signature=xyz',
+        '/dev/nvme0n1p1',
+        'UTC',
+    );
+
+    // The rewrite (and apt retry hardening) MUST come before the first apt-get,
+    // or the flaky *.ec2.archive.ubuntu.com mirror can stall installs and drag
+    // the provision past its callback/timeout windows into `error`.
+    expect($script)->toContain('.ec2\.archive\.ubuntu\.com/ubuntu#http://archive.ubuntu.com/ubuntu')
+        ->and($script)->toContain('Acquire::Retries "5"');
+
+    $mirrorPos = strpos($script, 's#https?://[a-z0-9-]+\.ec2\.archive\.ubuntu\.com');
+    $firstApt = strpos($script, 'apt-get');
+    expect($mirrorPos)->not->toBeFalse()
+        ->and($firstApt)->not->toBeFalse()
+        ->and($mirrorPos)->toBeLessThan($firstApt);
+});

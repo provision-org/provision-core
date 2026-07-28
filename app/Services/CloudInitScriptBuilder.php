@@ -53,6 +53,19 @@ class CloudInitScriptBuilder
 
         {$storageSetup}
 
+        # Point apt at the canonical Ubuntu mirror instead of the regional EC2
+        # mirror (*.ec2.archive.ubuntu.com). That mirror has intermittently
+        # stalled bulk downloads — small requests succeed, large package fetches
+        # hang — which silently drags a provision past its callback/timeout
+        # windows and strands the server in `error`. archive.ubuntu.com is
+        # reliable from EC2 (measured ~80MB/s vs the EC2 mirror timing out).
+        # No-op on non-AWS providers, whose sources don't use that host.
+        sed -i -E 's#https?://[a-z0-9-]+\\.ec2\\.archive\\.ubuntu\\.com/ubuntu#http://archive.ubuntu.com/ubuntu#g' \
+          /etc/apt/sources.list /etc/apt/sources.list.d/*.sources 2>/dev/null || true
+        # Survive transient mirror hiccups instead of failing the whole run.
+        printf 'Acquire::Retries "5";\\nAcquire::http::Timeout "30";\\nAcquire::https::Timeout "30";\\n' \
+          > /etc/apt/apt.conf.d/80-provision-retries
+
         # Update and install system packages
         ping_progress "installing_packages"
         export DEBIAN_FRONTEND=noninteractive

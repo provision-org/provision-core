@@ -21,9 +21,13 @@ Artisan::command('inspire', function () {
 Schedule::job(new CheckServerHealthJob)->everyFiveMinutes();
 
 Schedule::call(function () {
+    // A full provision (base packages -> Chrome -> OpenClaw/agent-runtime) runs
+    // ~12-15 min on AWS even on a healthy mirror, so a 10-minute cutoff
+    // false-errored healthy boxes mid-install. 30 min leaves headroom without
+    // letting a genuinely dead provision linger too long.
     Server::query()
         ->where('status', ServerStatus::Provisioning)
-        ->where('created_at', '<', now()->subMinutes(10))
+        ->where('created_at', '<', now()->subMinutes(30))
         ->each(function (Server $server) {
             $server->update(['status' => ServerStatus::Error->value]);
             $server->events()->create([
