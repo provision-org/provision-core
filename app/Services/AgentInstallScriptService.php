@@ -110,13 +110,18 @@ class AgentInstallScriptService
             $lines[] = '';
         }
 
-        // 3. Install MailboxKit email skill if agent has email connection and module is active
+        // 3. Install the email skill for the agent's connection: MailboxKit
+        // (Provision email), or the customer's own Gmail via App Password + a
+        // per-agent IMAP IDLE watcher.
         $emailConnection = $agent->emailConnection;
         $hasEmailModule = app()->bound(AgentEmailProvider::class);
         if ($hasEmailModule && $emailConnection?->mailboxkit_inbox_id) {
             $lines[] = '# Install MailboxKit email skill';
             $lines[] = $this->buildMailboxKitSkillDeployScript($agent);
             $lines[] = $this->buildMailboxKitSkillPatchScript($configFile);
+            $lines[] = '';
+        } elseif ($emailConnection?->isGmail()) {
+            array_push($lines, ...self::buildGmailSkillLines($agentId, $agentDir, $this->buildHeredoc(...)));
             $lines[] = '';
         }
 
@@ -1084,6 +1089,57 @@ class AgentInstallScriptService
      * @param  callable(string, string): string  $buildHeredoc
      * @return list<string>
      */
+    /**
+     * Deploy the Gmail skill (SKILL.md + gmail_cli.py) and a per-agent IMAP IDLE
+     * watcher run as its own systemd user service. Shared by the install and
+     * update scripts. The watcher reads the account from the agent's .env and
+     * wakes the agent via the local gateway on new mail — no public endpoint.
+     * One service per agent, so many agents on one server each watch their own
+     * inbox. The App Password never appears in the unit file (EnvironmentFile).
+     *
+     * @return list<string>
+     */
+    public static function buildGmailSkillLines(string $agentId, string $agentDir, callable $buildHeredoc): array
+    {
+        $skillDir = "{$agentDir}/skills/gmail";
+        $service = "gmail-watcher-{$agentId}.service";
+
+        $unit = implode("\n", [
+            '[Unit]',
+            "Description=Gmail IMAP IDLE watcher for agent {$agentId}",
+            'After=openclaw-gateway.service',
+            '',
+            '[Service]',
+            'Type=simple',
+            "EnvironmentFile={$agentDir}/.env",
+            "Environment=AGENT_ID={$agentId}",
+            'Environment=GATEWAY_PORT=18789',
+            'Environment=OPENCLAW_CONFIG=/root/.openclaw/openclaw.json',
+            "ExecStart=/usr/bin/python3 {$agentDir}/gmail_idle_watcher.py",
+            'Restart=always',
+            'RestartSec=10',
+            '',
+            '[Install]',
+            'WantedBy=default.target',
+        ]);
+
+        $lines = [];
+        $lines[] = '# --- Deploy gmail skill + IMAP IDLE watcher ---';
+        $lines[] = "mkdir -p {$skillDir}";
+        $lines[] = $buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/gmail/SKILL.md')));
+        $lines[] = $buildHeredoc("{$skillDir}/gmail_cli.py", file_get_contents(resource_path('skills/gmail/gmail_cli.py')));
+        $lines[] = "chmod +x {$skillDir}/gmail_cli.py";
+        $lines[] = $buildHeredoc("{$agentDir}/gmail_idle_watcher.py", file_get_contents(resource_path('skills/gmail/gmail_idle_watcher.py')));
+        $lines[] = 'mkdir -p /root/.config/systemd/user';
+        $lines[] = $buildHeredoc("/root/.config/systemd/user/{$service}", $unit);
+        $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
+        $lines[] = 'systemctl --user daemon-reload';
+        $lines[] = "systemctl --user enable --now {$service} 2>&1 || true";
+        $lines[] = "systemctl --user restart {$service} 2>&1 || true";
+
+        return $lines;
+    }
+
     public static function buildProvisionTasksSkillLines(string $agentDir, string $plainToken, callable $buildHeredoc): array
     {
         $lines = [];
@@ -1230,6 +1286,15 @@ class AgentInstallScriptService
             $lines[] = 'MAILBOXKIT_API_KEY='.config('mailboxkit.api_key');
             $lines[] = "MAILBOXKIT_INBOX_ID={$emailConnection->mailboxkit_inbox_id}";
             $lines[] = "MAILBOXKIT_EMAIL={$emailConnection->email_address}";
+        }
+
+        // Gmail (BYO account via App Password) — per-agent, so multiple agents on
+        // one server each watch their own inbox. GMAIL_CLI points the skill at the
+        // installed helper; the App Password is decrypted only here and never logged.
+        if ($emailConnection?->isGmail()) {
+            $lines[] = "GMAIL_ADDRESS={$emailConnection->email_address}";
+            $lines[] = 'GMAIL_APP_PASSWORD='.$emailConnection->app_password;
+            $lines[] = "GMAIL_CLI={$agentDir}/skills/gmail/gmail_cli.py";
         }
 
         return implode("\n", $lines);

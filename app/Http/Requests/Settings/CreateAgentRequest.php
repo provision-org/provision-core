@@ -64,6 +64,9 @@ class CreateAgentRequest extends FormRequest
                 'required', 'string', 'max:255',
                 Rule::unique('agents', 'name')->where('team_id', $team->id),
             ],
+            // How this agent gets email: our provisioned mailbox, the customer's
+            // own Gmail (via App Password), or none.
+            'email_mode' => ['nullable', Rule::in(['mailboxkit', 'gmail', 'none'])],
             'email_domain' => [
                 'nullable', 'string',
                 Rule::in(array_column($allowedDomains, 'name')),
@@ -79,6 +82,12 @@ class CreateAgentRequest extends FormRequest
                         $fail('This email address is already taken.');
                     }
                 },
+            ],
+            'gmail_address' => [
+                'nullable', 'required_if:email_mode,gmail', 'email', 'max:255',
+            ],
+            'gmail_app_password' => [
+                'nullable', 'required_if:email_mode,gmail', 'string', 'max:64',
             ],
             'role' => ['required', Rule::enum(AgentRole::class)],
             'job_description' => ['nullable', 'string', 'max:5000'],
