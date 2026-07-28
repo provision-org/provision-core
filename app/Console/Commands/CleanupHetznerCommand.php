@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\CloudProvider;
 use App\Models\Server;
 use App\Services\HetznerService;
 use Illuminate\Console\Command;
@@ -15,6 +16,7 @@ class CleanupHetznerCommand extends Command
     public function handle(HetznerService $hetzner): int
     {
         $servers = Server::query()
+            ->where('cloud_provider', CloudProvider::Hetzner)
             ->whereNotNull('provider_server_id')
             ->get();
 

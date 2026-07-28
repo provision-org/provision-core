@@ -3,10 +3,13 @@
 namespace App\Console\Commands;
 
 use App\Enums\AgentStatus;
+use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Models\Agent;
 use App\Models\AgentApiToken;
 use App\Models\Server;
+use App\Services\AsciiBoxService;
+use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\PublishArtifactService;
 use Illuminate\Console\Command;
@@ -21,7 +24,7 @@ class ResetProduction extends Command
 
     protected $description = 'Delete all teams, agents, servers, subscriptions, and cloud resources for a clean test';
 
-    public function handle(PublishArtifactService $artifacts): int
+    public function handle(PublishArtifactService $artifacts, CloudServiceFactory $cloudFactory): int
     {
         try {
             // Revoke agent-originated writes and remove every managed hostname
@@ -65,7 +68,24 @@ class ResetProduction extends Command
             }
 
             // 2. Clean up cloud servers and volumes
-            $servers = Server::all();
+            $asciiServers = Server::query()
+                ->where('cloud_provider', CloudProvider::Ascii)
+                ->whereNotNull('provider_server_id')
+                ->with('team.apiKeys')
+                ->get();
+
+            if ($asciiServers->isNotEmpty()) {
+                foreach ($asciiServers as $server) {
+                    /** @var AsciiBoxService $ascii */
+                    $ascii = $cloudFactory->makeFor($server->team, CloudProvider::Ascii);
+                    $ascii->archiveBox($server->provider_server_id);
+                    $this->info("Archived ASCII Box {$server->provider_server_id}");
+                }
+            }
+
+            $servers = Server::query()
+                ->where('cloud_provider', CloudProvider::DigitalOcean)
+                ->get();
             $do = new DigitalOceanService;
 
             foreach ($servers as $server) {

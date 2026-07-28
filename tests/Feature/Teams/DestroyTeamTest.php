@@ -11,6 +11,7 @@ use App\Models\AgentEmailConnection;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
+use App\Services\AsciiBoxService;
 use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
@@ -414,7 +415,7 @@ it('releases the Linode Cloud Firewall when destroying a team that has one', fun
 
     $linode = Mockery::mock(LinodeService::class);
     $linode->shouldReceive('deleteInstance')->with('55501')->once();
-    $linode->shouldReceive('detachVolume')->with('9001')->once();
+    $linode->shouldReceive('detachVolume')->with(9001)->once();
     $linode->shouldReceive('deleteVolume')->with('9001')->once();
     $linode->shouldReceive('deleteFirewall')->with(4242)->once();
 
@@ -423,6 +424,122 @@ it('releases the Linode Cloud Firewall when destroying a team that has one', fun
     app()->instance(CloudServiceFactory::class, $cloudFactory);
 
     DestroyTeamJob::dispatchSync($team);
+});
+
+it('archives an ascii box before deleting its team record', function () {
+    $team = Team::factory()->ascii()->subscribed()->create();
+    $server = Server::factory()->ascii()->create([
+        'team_id' => $team->id,
+        'provider_server_id' => 'bx_23456789',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $ascii = Mockery::mock(AsciiBoxService::class);
+    $ascii->shouldReceive('archiveBox')->with('bx_23456789')->once();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')
+        ->with(Mockery::on(fn ($candidate) => $candidate->id === $team->id), CloudProvider::Ascii)
+        ->once()
+        ->andReturn($ascii);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+
+    expect(Team::find($team->id))->toBeNull()
+        ->and(Server::find($server->id))->toBeNull();
+});
+
+it('still deletes the Linode volume, firewall and team when the redundant detach fails', function () {
+    // Deleting the instance already detaches the volume, so a failing detach
+    // must never abort teardown. Previously a 400 here stranded the volume, the
+    // firewall AND the team record.
+    $team = Team::factory()->subscribed()->create();
+    $server = Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::Linode,
+        'provider_server_id' => '55501',
+        'provider_volume_id' => '9001',
+        'provider_firewall_id' => '4242',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $invalidJson = new RequestException(new Response(new Psr7Response(400, [], json_encode([
+        'errors' => [['reason' => 'Invalid JSON']],
+    ], JSON_THROW_ON_ERROR))));
+
+    $linode = Mockery::mock(LinodeService::class);
+    $linode->shouldReceive('deleteInstance')->with('55501')->once();
+    $linode->shouldReceive('detachVolume')->with(9001)->once()->andThrow($invalidJson);
+    $linode->shouldReceive('deleteVolume')->with('9001')->once();
+    $linode->shouldReceive('deleteFirewall')->with(4242)->once();
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->andReturn($linode);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+
+    expect(Team::find($team->id))->toBeNull()
+        ->and(Server::find($server->id))->toBeNull();
+});
+
+it('retries the Linode volume delete while it is still detaching', function () {
+    Sleep::fake();
+
+    $team = Team::factory()->subscribed()->create();
+    Server::factory()->create([
+        'team_id' => $team->id,
+        'cloud_provider' => CloudProvider::Linode,
+        'provider_server_id' => '55501',
+        'provider_volume_id' => '9001',
+    ]);
+
+    if (class_exists(MailboxKitService::class)) {
+        app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
+    }
+    app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
+    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
+
+    $stillAttached = new RequestException(new Response(new Psr7Response(400, [], json_encode([
+        'errors' => [['reason' => 'Volume is still attached']],
+    ], JSON_THROW_ON_ERROR))));
+    $attempts = 0;
+
+    $linode = Mockery::mock(LinodeService::class);
+    $linode->shouldReceive('deleteInstance')->with('55501')->once();
+    $linode->shouldReceive('detachVolume')->with(9001)->once();
+    $linode->shouldReceive('deleteVolume')
+        ->with('9001')
+        ->times(3)
+        ->andReturnUsing(function () use (&$attempts, $stillAttached): void {
+            $attempts++;
+
+            if ($attempts < 3) {
+                throw $stillAttached;
+            }
+        });
+
+    $cloudFactory = Mockery::mock(CloudServiceFactory::class);
+    $cloudFactory->shouldReceive('makeFor')->andReturn($linode);
+    app()->instance(CloudServiceFactory::class, $cloudFactory);
+
+    DestroyTeamJob::dispatchSync($team);
+
+    Sleep::assertSequence([
+        Sleep::for(2)->seconds(),
+        Sleep::for(4)->seconds(),
+    ]);
 });
 
 it('continues cleanup even if external api calls fail', function () {

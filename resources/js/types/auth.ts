@@ -103,6 +103,7 @@ export type CloudProvider =
     | 'hetzner'
     | 'digitalocean'
     | 'linode'
+    | 'ascii'
     | 'docker'
     | 'aws';
 

@@ -12,12 +12,12 @@ use Illuminate\Http\Client\Factory as HttpFactory;
 
 class CloudServiceFactory
 {
-    public function make(Team $team): HetznerService|DigitalOceanService|LinodeService|AwsService
+    public function make(Team $team): HetznerService|DigitalOceanService|LinodeService|AsciiBoxService|AwsService
     {
         return $this->makeFor($team, $team->cloudProvider());
     }
 
-    public function makeFor(Team $team, CloudProvider $provider): HetznerService|DigitalOceanService|LinodeService|AwsService
+    public function makeFor(Team $team, CloudProvider $provider): HetznerService|DigitalOceanService|LinodeService|AsciiBoxService|AwsService
     {
         $apiToken = $this->resolveApiToken($team, $provider);
 
@@ -25,6 +25,7 @@ class CloudServiceFactory
             CloudProvider::Hetzner => new HetznerService($apiToken),
             CloudProvider::DigitalOcean => new DigitalOceanService($apiToken),
             CloudProvider::Linode => new LinodeService($apiToken),
+            CloudProvider::Ascii => new AsciiBoxService($apiToken),
             CloudProvider::Aws => new AwsService($this->resolveAwsCredentials($apiToken)),
         };
     }
@@ -75,6 +76,7 @@ class CloudServiceFactory
             CloudProvider::Hetzner => config('cloud.hetzner.api_token'),
             CloudProvider::DigitalOcean => config('cloud.digitalocean.api_token'),
             CloudProvider::Linode => config('cloud.linode.api_token'),
+            CloudProvider::Ascii => config('cloud.ascii.api_token'),
             CloudProvider::Aws => null,
         };
     }

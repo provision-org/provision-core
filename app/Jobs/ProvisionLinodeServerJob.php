@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
 
@@ -71,9 +72,24 @@ class ProvisionLinodeServerJob implements ShouldQueue
         // Create firewall for defense-in-depth (UFW also configured in cloud-init)
         // and record its id so team teardown can release it — otherwise every
         // destroyed Linode team leaks an orphan Cloud Firewall.
-        $firewall = $linodeService->createFirewall('fw-'.substr($this->server->id, 0, 29), (int) $instance['id']);
-        if (! empty($firewall['id'])) {
-            $this->server->update(['provider_firewall_id' => (string) $firewall['id']]);
+        //
+        // This must not abort provisioning. The instance already exists and will
+        // self-register through its cloud-init callback, so an exception here
+        // just skips the rest of this job — leaving a live, running server whose
+        // only trace of the failure is a missing `provisioning_started` event.
+        // That is exactly how an exhausted account-wide Linode firewall cap left
+        // later servers silently unprotected. Record it loudly instead.
+        try {
+            $firewall = $linodeService->createFirewall('fw-'.substr($this->server->id, 0, 29), (int) $instance['id']);
+            if (! empty($firewall['id'])) {
+                $this->server->update(['provider_firewall_id' => (string) $firewall['id']]);
+            }
+        } catch (Throwable $e) {
+            Log::error("Linode firewall creation failed for server {$this->server->id}: {$e->getMessage()}");
+            $this->server->events()->create([
+                'event' => 'firewall_creation_failed',
+                'payload' => ['provider' => 'linode', 'error' => $e->getMessage()],
+            ]);
         }
 
         $this->server->events()->create([

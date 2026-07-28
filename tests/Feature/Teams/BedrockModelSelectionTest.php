@@ -18,6 +18,7 @@ function mockStsAws(): AwsService
         'account_id' => '123456789012',
         'arn' => 'arn:aws:iam::123456789012:user/provision',
     ]);
+    $aws->shouldReceive('verifyLaunchNetwork')->andReturnNull();
 
     return $aws;
 }

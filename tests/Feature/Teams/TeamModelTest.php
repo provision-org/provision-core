@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\CloudProvider;
 use App\Enums\TeamRole;
 use App\Models\Team;
 use App\Models\TeamInvitation;
@@ -115,4 +116,10 @@ it('casts invitation role to TeamRole enum', function () {
     $invitation = TeamInvitation::factory()->create(['role' => TeamRole::Admin]);
 
     expect($invitation->role)->toBe(TeamRole::Admin);
+});
+
+it('reports the fixed ascii box machine size', function () {
+    $team = Team::factory()->create(['cloud_provider' => CloudProvider::Ascii]);
+
+    expect($team->serverType())->toBe('box-4vcpu-8gb');
 });

@@ -36,8 +36,10 @@ use App\Models\Team;
 use App\Models\TeamPack;
 use App\Services\AgentInstallScriptService;
 use App\Services\AgentTemplateService;
+use App\Services\AsciiBoxService;
 use App\Services\Aws\AwsCredentials;
 use App\Services\ChatGPTAuthService;
+use App\Services\CloudServiceFactory;
 use App\Services\Harness\HermesDriver;
 use App\Services\ModuleRegistry;
 use App\Services\PublishArtifactService;
@@ -534,7 +536,9 @@ class AgentController extends Controller
                 'created_at' => $a->created_at->toISOString(),
             ]);
 
-        $browserUrl = $this->resolveBrowserUrl($agent);
+        $hasBoxDesktop = $this->hasBoxDesktop($agent);
+        $browserUrl = $hasBoxDesktop ? null : $this->resolveBrowserUrl($agent);
+        $desktopUrl = $hasBoxDesktop ? route('agents.desktop', $agent) : null;
 
         $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
 
@@ -553,6 +557,7 @@ class AgentController extends Controller
             'activities' => $activities,
             'teamId' => $team->id,
             'browserUrl' => $browserUrl,
+            'desktopUrl' => $desktopUrl,
             // Verified domains the agent's email can be moved to (for the Email tab).
             'emailDomains' => $emailProvider ? $emailProvider->availableDomains($team) : [],
             'artifactsEnabled' => $artifactsEnabled,
@@ -943,16 +948,16 @@ class AgentController extends Controller
     }
 
     /**
-     * Serve the noVNC browser view via a signed URL.
-     * The VNC password never reaches the frontend — it's injected server-side.
-     */
-    /**
      * Resolve a (freshly signed) URL to the agent's live browser view, or null
      * when no browser surface is available (server not ready / no VNC).
      */
     private function resolveBrowserUrl(Agent $agent): ?string
     {
         $server = $agent->server;
+        if ($server?->cloud_provider === CloudProvider::Ascii) {
+            return null;
+        }
+
         if ($server?->isDocker()) {
             // Docker mode: shared VNC display at port 6080 (no password).
             return 'http://localhost:6080/vnc.html?autoconnect=true&resize=scale';
@@ -962,6 +967,16 @@ class AgentController extends Controller
         }
 
         return null;
+    }
+
+    private function hasBoxDesktop(Agent $agent): bool
+    {
+        $server = $agent->server;
+
+        return $server?->cloud_provider === CloudProvider::Ascii
+            && $server->status === ServerStatus::Running
+            && is_string($server->provider_server_id)
+            && $server->provider_server_id !== '';
     }
 
     /**
@@ -977,6 +992,49 @@ class AgentController extends Controller
         return response()->json(['url' => $this->resolveBrowserUrl($agent)]);
     }
 
+    /**
+     * Resolve a fresh Box desktop credential server-side, then immediately
+     * redirect the authorized user without persisting or logging the URL.
+     */
+    public function desktop(
+        Request $request,
+        Agent $agent,
+        CloudServiceFactory $cloudServiceFactory,
+    ): RedirectResponse {
+        $team = $request->user()->currentTeam;
+        abort_unless($team && $agent->team_id === $team->id, 404);
+
+        $server = $agent->server;
+        abort_unless(
+            $this->hasBoxDesktop($agent)
+                && $server?->team_id === $team->id
+                && $agent->server_id === $server->id,
+            404,
+        );
+
+        try {
+            /** @var AsciiBoxService $ascii */
+            $ascii = $cloudServiceFactory->makeFor($team, CloudProvider::Ascii);
+            $desktopUrl = $ascii->getDesktopUrl($server->provider_server_id);
+        } catch (\Throwable $exception) {
+            Log::warning('Failed to open ASCII Box desktop.', [
+                'agent_id' => $agent->id,
+                'server_id' => $server->id,
+                'exception' => $exception::class,
+            ]);
+
+            abort(503, 'The Box desktop is temporarily unavailable.');
+        }
+
+        return redirect()->away($desktopUrl, 302, [
+            'Cache-Control' => 'private, no-store, max-age=0',
+        ]);
+    }
+
+    /**
+     * Serve the noVNC browser view via a signed URL.
+     * The VNC password never reaches the frontend — it's injected server-side.
+     */
     public function browser(Request $request, Agent $agent): \Illuminate\Http\Response
     {
         $team = $request->user()->currentTeam;
@@ -1266,6 +1324,7 @@ class AgentController extends Controller
             // Region reflects the actual provider, not the migration's
             // Hetzner-centric default. See issue #30.
             'region' => $cloudProvider->defaultProviderRegion(),
+            'server_type' => $team->serverType(),
         ]);
 
         ServerProvisioningDispatcher::dispatch($server);

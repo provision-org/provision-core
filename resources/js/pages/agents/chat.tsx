@@ -61,6 +61,7 @@ type Props = {
     agent: Agent;
     conversations: ChatConversation[];
     browserAvailable?: boolean;
+    desktopUrl?: string | null;
 };
 
 type ChatConnectionState =
@@ -223,6 +224,7 @@ export default function Chat({
     agent,
     conversations: initialConversations,
     browserAvailable = false,
+    desktopUrl = null,
 }: Props) {
     const activeConversationStorageKey = `provision-chat-active:${agent.id}`;
 
@@ -1601,21 +1603,39 @@ export default function Chat({
                                         Stop
                                     </Button>
                                 )}
-                            {browserAvailable && (
-                                <Button
-                                    variant={
-                                        browserOpen ? 'secondary' : 'ghost'
-                                    }
-                                    size="sm"
-                                    className="hidden gap-2 lg:inline-flex"
-                                    onClick={toggleBrowser}
-                                    aria-pressed={browserOpen}
-                                    title="Show the agent's live browser alongside chat"
-                                >
-                                    <Monitor className="size-4" />
-                                    Browser
-                                </Button>
-                            )}
+                            {browserAvailable &&
+                                (desktopUrl ? (
+                                    <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="gap-2"
+                                        asChild
+                                    >
+                                        <a
+                                            href={desktopUrl}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            title="Open the Box desktop in a new tab"
+                                        >
+                                            <Monitor className="size-4" />
+                                            Desktop
+                                        </a>
+                                    </Button>
+                                ) : (
+                                    <Button
+                                        variant={
+                                            browserOpen ? 'secondary' : 'ghost'
+                                        }
+                                        size="sm"
+                                        className="hidden gap-2 lg:inline-flex"
+                                        onClick={toggleBrowser}
+                                        aria-pressed={browserOpen}
+                                        title="Show the agent's live browser alongside chat"
+                                    >
+                                        <Monitor className="size-4" />
+                                        Browser
+                                    </Button>
+                                ))}
                         </div>
                     </div>
 
@@ -1656,20 +1676,22 @@ export default function Chat({
                 </div>
 
                 {/* Live browser side panel — collapsible on lg+ */}
-                <div
-                    className={`hidden shrink-0 overflow-hidden border-l transition-[width] duration-200 ease-out lg:flex lg:flex-col ${
-                        browserOpen
-                            ? 'w-[40vw] min-w-[420px]'
-                            : 'w-0 border-l-0'
-                    }`}
-                >
-                    <BrowserPanel
-                        url={browserUrl}
-                        loading={browserLoading}
-                        onRefresh={loadBrowserUrl}
-                        onClose={() => setBrowserOpen(false)}
-                    />
-                </div>
+                {!desktopUrl && (
+                    <div
+                        className={`hidden shrink-0 overflow-hidden border-l transition-[width] duration-200 ease-out lg:flex lg:flex-col ${
+                            browserOpen
+                                ? 'w-[40vw] min-w-[420px]'
+                                : 'w-0 border-l-0'
+                        }`}
+                    >
+                        <BrowserPanel
+                            url={browserUrl}
+                            loading={browserLoading}
+                            onRefresh={loadBrowserUrl}
+                            onClose={() => setBrowserOpen(false)}
+                        />
+                    </div>
+                )}
             </div>
         </AppLayout>
     );
@@ -1877,6 +1899,7 @@ function AgentSectionMenu({
     const base = `/agents/${agent.id}`;
     const isHermes = agent.harness_type === 'hermes';
     const isWorkforce = agent.agent_mode === 'workforce';
+    const hasBoxDesktop = agent.server?.cloud_provider === 'ascii';
 
     const sections = [
         { label: 'Overview', href: base, icon: LayoutGrid, show: true },
@@ -1899,10 +1922,10 @@ function AgentSectionMenu({
             show: true,
         },
         {
-            label: 'Browser',
+            label: hasBoxDesktop ? 'Desktop' : 'Browser',
             href: `${base}#browser`,
             icon: Monitor,
-            show: !isHermes,
+            show: hasBoxDesktop || !isHermes,
         },
         {
             label: 'Channels',

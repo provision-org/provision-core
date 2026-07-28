@@ -3,6 +3,7 @@
 namespace App\Http\Requests\Settings;
 
 use App\Concerns\TeamValidationRules;
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\CloudProvider;
 use App\Enums\HarnessType;
 use Closure;
@@ -34,11 +35,13 @@ class CreateTeamRequest extends FormRequest
                 'string',
                 Rule::in(array_column(CloudProvider::cases(), 'value')),
                 $this->byoCloudEligibilityRule(),
+                $this->asciiAvailabilityRule(),
             ],
             'aws_key_id' => ['required_if:cloud_provider,aws', 'nullable', 'string', 'max:128'],
             'aws_secret' => ['required_if:cloud_provider,aws', 'nullable', 'string', 'max:128'],
             'aws_region' => ['nullable', 'string', 'max:32'],
-            'aws_instance_profile' => ['required_if:cloud_provider,aws', 'string', 'max:128'],
+            'aws_instance_profile' => ['required_if:cloud_provider,aws', 'nullable', 'string', 'max:128'],
+            'aws_subnet_id' => ['nullable', 'string', 'max:64'],
             'aws_bedrock_model' => ['nullable', 'string', 'max:255'],
         ];
     }
@@ -53,6 +56,27 @@ class CreateTeamRequest extends FormRequest
         return function (string $attribute, mixed $value, Closure $fail): void {
             if ($value === CloudProvider::Aws->value && ! $this->user()?->byo_cloud_enabled) {
                 $fail('You are not eligible to bring your own AWS account.');
+            }
+        };
+    }
+
+    /**
+     * ASCII remains an experimental direct-provisioning path until the
+     * billing module and warm pool are provider-aware.
+     */
+    private function asciiAvailabilityRule(): Closure
+    {
+        return function (string $attribute, mixed $value, Closure $fail): void {
+            if ($value !== CloudProvider::Ascii->value) {
+                return;
+            }
+
+            if (! config('cloud.ascii.api_token')) {
+                $fail('ASCII Box is not configured.');
+            }
+
+            if (app()->bound(BillingProvider::class)) {
+                $fail('ASCII Box is not available with managed billing yet.');
             }
         };
     }

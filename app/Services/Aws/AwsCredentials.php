@@ -25,6 +25,12 @@ readonly class AwsCredentials
         // Present only for temporary (STS/role) credentials; static IAM-user
         // keys have none. Passed through to the Mantle bearer-token signer.
         public ?string $sessionToken = null,
+        // Optional explicit subnet to launch into. Left null for the common
+        // case (AWS uses the account's default VPC). Required for accounts that
+        // have no default VPC — e.g. Control Tower / landing-zone accounts that
+        // delete it by policy — where RunInstances would otherwise fail with
+        // VPCIdNotSpecified.
+        public ?string $subnetId = null,
     ) {}
 
     /**
@@ -47,6 +53,7 @@ readonly class AwsCredentials
             instanceProfile: $data['instance_profile'] ?? null,
             defaultBedrockModel: $data['default_bedrock_model'] ?? null,
             sessionToken: $data['session_token'] ?? null,
+            subnetId: $data['subnet_id'] ?? null,
         );
     }
 
@@ -69,6 +76,7 @@ readonly class AwsCredentials
             instanceProfile: $config['instance_profile'] ?? null,
             defaultBedrockModel: $config['default_bedrock_model'] ?? null,
             sessionToken: $config['session_token'] ?? null,
+            subnetId: $config['subnet_id'] ?? null,
         );
     }
 

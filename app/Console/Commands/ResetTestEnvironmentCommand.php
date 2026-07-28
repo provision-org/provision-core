@@ -8,6 +8,8 @@ use App\Enums\ServerStatus;
 use App\Models\Agent;
 use App\Models\AgentApiToken;
 use App\Models\Server;
+use App\Services\AsciiBoxService;
+use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\HetznerService;
 use App\Services\PublishArtifactService;
@@ -21,12 +23,13 @@ class ResetTestEnvironmentCommand extends Command
 {
     protected $signature = 'app:reset-test-env {--force : Skip confirmation}';
 
-    protected $description = 'Reset all external resources (Hetzner, DigitalOcean, MailboxKit, OpenRouter) and the local database';
+    protected $description = 'Reset all external resources (Hetzner, DigitalOcean, ASCII Box, MailboxKit, OpenRouter) and the local database';
 
     public function handle(
         HetznerService $hetzner,
         DigitalOceanService $digitalOcean,
         PublishArtifactService $artifacts,
+        CloudServiceFactory $cloudFactory,
     ): int {
         if (app()->isProduction()) {
             $this->error('This command cannot be run in production.');
@@ -57,6 +60,10 @@ class ResetTestEnvironmentCommand extends Command
         $this->deleteHetznerResources($hetzner);
         $this->deleteDigitalOceanResources($digitalOcean);
 
+        if (! $this->archiveAsciiBoxes($cloudFactory)) {
+            return self::FAILURE;
+        }
+
         if (class_exists(MailboxKitService::class)) {
             $this->deleteMailboxKitInboxes(app(MailboxKitService::class));
         }
@@ -77,7 +84,10 @@ class ResetTestEnvironmentCommand extends Command
     {
         $this->components->info('Cleaning up Hetzner servers and volumes...');
 
-        $servers = Server::query()->whereNotNull('provider_server_id')->get();
+        $servers = Server::query()
+            ->where('cloud_provider', CloudProvider::Hetzner)
+            ->whereNotNull('provider_server_id')
+            ->get();
 
         if ($servers->isEmpty()) {
             $this->line('  No Hetzner servers found.');
@@ -146,6 +156,36 @@ class ResetTestEnvironmentCommand extends Command
                 }
             }
         }
+    }
+
+    private function archiveAsciiBoxes(CloudServiceFactory $cloudFactory): bool
+    {
+        $servers = Server::query()
+            ->where('cloud_provider', CloudProvider::Ascii)
+            ->whereNotNull('provider_server_id')
+            ->with('team.apiKeys')
+            ->get();
+
+        if ($servers->isEmpty()) {
+            return true;
+        }
+
+        $this->components->info('Archiving ASCII Boxes...');
+
+        foreach ($servers as $server) {
+            try {
+                /** @var AsciiBoxService $ascii */
+                $ascii = $cloudFactory->makeFor($server->team, CloudProvider::Ascii);
+                $ascii->archiveBox($server->provider_server_id);
+                $this->line("  Archived Box {$server->provider_server_id} ({$server->name})");
+            } catch (\Throwable $e) {
+                $this->error("Failed to archive Box {$server->provider_server_id}; reset aborted: {$e->getMessage()}");
+
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function deleteMailboxKitInboxes(MailboxKitService $mailboxKit): void

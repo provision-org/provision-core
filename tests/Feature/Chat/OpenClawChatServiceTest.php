@@ -89,6 +89,334 @@ test('native OpenClaw chat sends idempotently and reads the canonical reply from
         ->and($message->fresh()->upstream_run_id)->toBe('run-native-1');
 });
 
+test('native OpenClaw chat waits for tool runs and returns the final assistant response', function () {
+    [$conversation, $message, $server] = nativeChatFixture();
+    $executor = Mockery::mock(CommandExecutor::class);
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")))
+        ->andReturn(json_encode(['runId' => 'run-tool-1', 'status' => 'started']));
+
+    $progress = [
+        'role' => 'assistant',
+        'content' => [['type' => 'text', 'text' => 'Executing now']],
+        '__openclaw' => ['id' => 'reply-progress'],
+    ];
+
+    $executor->shouldReceive('exec')
+        ->twice()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.history'")))
+        ->andReturn(
+            json_encode([
+                'messages' => [
+                    [
+                        'role' => 'user',
+                        'idempotencyKey' => 'provision-chat:'.$message->id.':user',
+                    ],
+                    $progress,
+                ],
+                'sessionInfo' => [
+                    'hasActiveRun' => true,
+                    'activeRunIds' => ['run-tool-1'],
+                    'status' => 'running',
+                ],
+            ]),
+            json_encode([
+                'messages' => [
+                    [
+                        'role' => 'user',
+                        'idempotencyKey' => 'provision-chat:'.$message->id.':user',
+                    ],
+                    $progress,
+                    [
+                        'role' => 'toolResult',
+                        'content' => [['type' => 'text', 'text' => 'browser complete']],
+                    ],
+                    [
+                        'role' => 'assistant',
+                        'content' => [['type' => 'text', 'text' => 'Final browser result']],
+                        '__openclaw' => ['id' => 'reply-final'],
+                    ],
+                ],
+                'sessionInfo' => [
+                    'hasActiveRun' => false,
+                    'activeRunIds' => [],
+                    'status' => 'done',
+                ],
+            ]),
+        );
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')
+        ->once()
+        ->withArgs(fn (Server $value) => $value->is($server))
+        ->andReturn($executor);
+
+    $result = (new OpenClawChatService($manager))->sendAndWait(
+        $conversation,
+        $message,
+        timeoutSeconds: 1,
+        pollIntervalMilliseconds: 0,
+    );
+
+    expect($result)->toBe([
+        'run_id' => 'run-tool-1',
+        'upstream_id' => 'openclaw:reply-final',
+        'content' => [['type' => 'text', 'text' => 'Final browser result']],
+    ]);
+});
+
+test('native OpenClaw chat imports agent-scoped media directives', function () {
+    Storage::fake('local');
+    [$conversation, $message, $server] = nativeChatFixture();
+    $executor = Mockery::mock(CommandExecutor::class);
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")))
+        ->andReturn(json_encode(['runId' => 'run-media-resolution', 'status' => 'started']));
+
+    $userMessage = [
+        'role' => 'user',
+        'idempotencyKey' => 'provision-chat:'.$message->id.':user',
+    ];
+    $rawMediaReply = [
+        'role' => 'assistant',
+        'content' => [[
+            'type' => 'text',
+            'text' => "Browser complete\nMEDIA:/root/.openclaw/media/agent-native-test/result.png",
+        ]],
+        '__openclaw' => ['id' => 'reply-raw-media'],
+    ];
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.history'")))
+        ->andReturn(json_encode([
+            'messages' => [$userMessage, $rawMediaReply],
+            'sessionInfo' => ['hasActiveRun' => false, 'status' => 'done'],
+        ]));
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, 'node -e')
+            && str_contains($command, '/root/.openclaw/media/agent-native-test/result.png')
+            && str_contains($command, 'realpathSync')
+            && ! str_contains($command, 'Authorization')
+            && ! str_contains($command, 'gateway-token-secret')))
+        ->andReturn(base64_encode('png-bytes'));
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')
+        ->once()
+        ->withArgs(fn (Server $value) => $value->is($server))
+        ->andReturn($executor);
+
+    $result = (new OpenClawChatService($manager))->sendAndWait(
+        $conversation,
+        $message,
+        timeoutSeconds: 1,
+        pollIntervalMilliseconds: 0,
+    );
+
+    expect($result)->toBe([
+        'run_id' => 'run-media-resolution',
+        'upstream_id' => 'openclaw:reply-raw-media',
+        'content' => [
+            ['type' => 'text', 'text' => 'Browser complete'],
+            $result['content'][1],
+        ],
+    ])->and($result['content'][1])->toMatchArray([
+        'type' => 'image',
+        'disk' => 'local',
+        'fileName' => 'result.png',
+        'mimeType' => 'image/png',
+    ]);
+
+    Storage::disk('local')->assertExists($result['content'][1]['path']);
+    expect(Storage::disk('local')->get($result['content'][1]['path']))->toBe('png-bytes');
+});
+
+test('native OpenClaw chat rejects media directives from another agent workspace', function () {
+    [$conversation, $message, $server] = nativeChatFixture();
+    $executor = Mockery::mock(CommandExecutor::class);
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")))
+        ->andReturn(json_encode(['runId' => 'run-cross-agent-media', 'status' => 'started']));
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.history'")))
+        ->andReturn(json_encode([
+            'messages' => [
+                [
+                    'role' => 'user',
+                    'idempotencyKey' => 'provision-chat:'.$message->id.':user',
+                ],
+                [
+                    'role' => 'assistant',
+                    'content' => [[
+                        'type' => 'text',
+                        'text' => "Not allowed\nMEDIA:/root/.openclaw/media/another-agent/result.png",
+                    ]],
+                    '__openclaw' => ['id' => 'reply-cross-agent-media'],
+                ],
+            ],
+            'sessionInfo' => ['hasActiveRun' => false, 'status' => 'done'],
+        ]));
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')
+        ->once()
+        ->withArgs(fn (Server $value) => $value->is($server))
+        ->andReturn($executor);
+
+    expect(fn () => (new OpenClawChatService($manager))->sendAndWait(
+        $conversation,
+        $message,
+        timeoutSeconds: 1,
+        pollIntervalMilliseconds: 0,
+    ))->toThrow(RuntimeException::class, 'The agent media could not be retrieved.');
+});
+
+test('native OpenClaw chat imports authenticated gateway media URLs', function () {
+    Storage::fake('local');
+    [$conversation, $message, $server] = nativeChatFixture();
+    $executor = Mockery::mock(CommandExecutor::class);
+    $sessionKey = "agent:agent-native-test:dashboard:{$conversation->id}";
+    $mediaUrl = '/api/chat/media/outgoing/'.rawurlencode($sessionKey)
+        .'/e00fb11c-ae44-4893-8c87-1d47880cc038/full';
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")))
+        ->andReturn(json_encode(['runId' => 'run-gateway-media', 'status' => 'started']));
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.history'")))
+        ->andReturn(json_encode([
+            'messages' => [
+                [
+                    'role' => 'user',
+                    'idempotencyKey' => 'provision-chat:'.$message->id.':user',
+                ],
+                [
+                    'role' => 'assistant',
+                    'content' => [
+                        ['type' => 'text', 'text' => 'Browser complete'],
+                        [
+                            'type' => 'image',
+                            'url' => $mediaUrl,
+                            'alt' => 'result.png',
+                            'mimeType' => 'image/png',
+                        ],
+                    ],
+                    '__openclaw' => ['id' => 'reply-gateway-media'],
+                ],
+            ],
+            'sessionInfo' => ['hasActiveRun' => false, 'status' => 'done'],
+        ]));
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, 'node -e')
+            && str_contains($command, '/root/.openclaw/openclaw.json')
+            && str_contains($command, '/api/chat/media/')
+            && str_contains($command, 'Authorization')
+            && ! str_contains($command, 'gateway-token-secret')))
+        ->andReturn(base64_encode('gateway-png-bytes'));
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')
+        ->once()
+        ->withArgs(fn (Server $value) => $value->is($server))
+        ->andReturn($executor);
+
+    $result = (new OpenClawChatService($manager))->sendAndWait(
+        $conversation,
+        $message,
+        timeoutSeconds: 1,
+        pollIntervalMilliseconds: 0,
+    );
+
+    expect($result['upstream_id'])->toBe('openclaw:reply-gateway-media')
+        ->and($result['content'])->toHaveCount(2)
+        ->and($result['content'][1])->toMatchArray([
+            'type' => 'image',
+            'disk' => 'local',
+            'fileName' => 'result.png',
+            'mimeType' => 'image/png',
+        ]);
+
+    Storage::disk('local')->assertExists($result['content'][1]['path']);
+    expect(Storage::disk('local')->get($result['content'][1]['path']))->toBe('gateway-png-bytes');
+});
+
+test('native OpenClaw chat rejects unscoped gateway media URLs', function (string $invalidMediaUrl) {
+    [$conversation, $message, $server] = nativeChatFixture();
+    $executor = Mockery::mock(CommandExecutor::class);
+    $mediaUrl = str_replace('{conversation}', $conversation->id, $invalidMediaUrl);
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")))
+        ->andReturn(json_encode(['runId' => 'run-invalid-gateway-media', 'status' => 'started']));
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.history'")))
+        ->andReturn(json_encode([
+            'messages' => [
+                [
+                    'role' => 'user',
+                    'idempotencyKey' => 'provision-chat:'.$message->id.':user',
+                ],
+                [
+                    'role' => 'assistant',
+                    'content' => [
+                        ['type' => 'text', 'text' => 'Not allowed'],
+                        [
+                            'type' => 'image',
+                            'url' => $mediaUrl,
+                            'alt' => 'result.png',
+                            'mimeType' => 'image/png',
+                        ],
+                    ],
+                    '__openclaw' => ['id' => 'reply-invalid-gateway-media'],
+                ],
+            ],
+            'sessionInfo' => ['hasActiveRun' => false, 'status' => 'done'],
+        ]));
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')
+        ->once()
+        ->withArgs(fn (Server $value) => $value->is($server))
+        ->andReturn($executor);
+
+    expect(fn () => (new OpenClawChatService($manager))->sendAndWait(
+        $conversation,
+        $message,
+        timeoutSeconds: 1,
+        pollIntervalMilliseconds: 0,
+    ))->toThrow(RuntimeException::class, 'The agent media could not be retrieved.');
+})->with([
+    'another conversation session' => [
+        '/api/chat/media/outgoing/'
+            .'agent%3Aagent-native-test%3Adashboard%3A01j00000000000000000000000'
+            .'/e00fb11c-ae44-4893-8c87-1d47880cc038/full',
+    ],
+    'path traversal' => [
+        '/api/chat/media/outgoing/'
+            .'agent%3Aagent-native-test%3Adashboard%3A{conversation}'
+            .'/../../owner/full',
+    ],
+]);
+
 test('native OpenClaw chat stages every file in the agent workspace', function () {
     Storage::fake('local');
     [$conversation, $message, $server] = nativeChatFixture();

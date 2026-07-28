@@ -1,5 +1,7 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
+use App\Jobs\ProvisionAsciiBoxServerJob;
 use App\Jobs\ProvisionAwsServerJob;
 use App\Jobs\ProvisionDigitalOceanServerJob;
 use App\Jobs\ProvisionHetznerServerJob;
@@ -8,6 +10,7 @@ use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Bus;
+use Illuminate\Support\Facades\Http;
 
 uses(RefreshDatabase::class);
 
@@ -30,6 +33,11 @@ function mockAwsCredentialVerification(bool $succeeds = true): void
             new RuntimeException('AWS GetCallerIdentity failed: The security token included in the request is invalid.'),
         );
     }
+
+    // The launch-network preflight runs after credential verification; default
+    // it to a usable account (has a default VPC / valid subnet) unless a test
+    // overrides it.
+    $aws->shouldReceive('verifyLaunchNetwork')->andReturnNull();
 
     test()->mock(CloudServiceFactory::class, function ($mock) use ($aws): void {
         $mock->shouldReceive('makeAwsForCredentials')->andReturn($aws);
@@ -198,6 +206,103 @@ test('server.region uses provider-specific code for Hetzner', function () {
         ->and($team->server->region)->toBe('ash');
 });
 
+test('ascii box is offered when its managed api key is configured', function () {
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    config()->set('cloud.digitalocean.api_token');
+    config()->set('cloud.hetzner.api_token');
+    config()->set('cloud.linode.api_token');
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $response = $this->actingAs($user)->get(route('teams.create'));
+
+    $response->assertInertia(fn ($page) => $page
+        ->component('settings/teams/create')
+        ->where('cloudProviderSelectionEnabled', true)
+        ->has('availableProviders', 2)
+        ->where('availableProviders.1.value', 'ascii')
+        ->where('availableProviders.1.label', 'ASCII Box (experimental)'));
+});
+
+test('an ascii team gets box metadata and dispatches box provisioning', function () {
+    Bus::fake();
+    Http::fake([
+        'ascii.dev/api/box/v1/limits' => Http::response([
+            'ok' => true,
+            'canStart' => true,
+            'billingStatus' => 'active',
+        ]),
+    ]);
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'ASCII Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'ascii',
+    ]);
+
+    $team = $user->fresh()->currentTeam;
+
+    expect($team->server->cloud_provider->value)->toBe('ascii')
+        ->and($team->server->region)->toBe('eu')
+        ->and($team->server->server_type)->toBe('box-4vcpu-8gb');
+    Bus::assertDispatched(ProvisionAsciiBoxServerJob::class);
+});
+
+test('an ascii team is not created when the account cannot start a box', function () {
+    Bus::fake();
+    Http::fake([
+        'ascii.dev/api/box/v1/limits' => Http::response([
+            'ok' => true,
+            'canStart' => false,
+            'billingStatus' => 'subscription_required',
+        ]),
+    ]);
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $response = $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'Blocked ASCII Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'ascii',
+        'company_name' => '',
+        'company_url' => '',
+        'company_description' => '',
+        'target_market' => '',
+        'aws_key_id' => '',
+        'aws_secret' => '',
+        'aws_region' => 'us-east-1',
+        'aws_instance_profile' => '',
+        'aws_bedrock_model' => '',
+    ]);
+
+    $response->assertSessionHasErrors('cloud_provider');
+    expect($user->fresh()->currentTeam)->toBeNull()
+        ->and($user->ownedTeams()->count())->toBe(0);
+    Bus::assertNotDispatched(ProvisionAsciiBoxServerJob::class);
+});
+
+test('ascii provisioning is rejected while managed billing is active', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', true);
+    config()->set('cloud.ascii.api_token', 'test-ascii-token');
+    app()->instance(BillingProvider::class, Mockery::mock(BillingProvider::class));
+    $user = User::factory()->withCompletedProfile()->create();
+
+    $response = $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'Managed ASCII Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'ascii',
+    ]);
+
+    $response->assertSessionHasErrors('cloud_provider');
+    expect($user->fresh()->currentTeam)->toBeNull();
+    Bus::assertNotDispatched(ProvisionAsciiBoxServerJob::class);
+});
+
 test('a byo_cloud_enabled user gets the managed default plus their own AWS in the provider step', function () {
     config()->set('cloud.provider_selection_enabled', false);
     config()->set('cloud.default_provider', 'digitalocean');
@@ -310,6 +415,52 @@ test('verify-aws returns 422 with a readable message when AWS rejects the creden
         'verified' => false,
         'message' => 'AWS GetCallerIdentity failed: The security token included in the request is invalid.',
     ]);
+});
+
+test('verify-aws returns 422 when the account has no default VPC and no subnet', function () {
+    $aws = Mockery::mock(AwsService::class);
+    $aws->shouldReceive('verifyCredentials')->andReturn([
+        'account_id' => '123456789012',
+        'arn' => 'arn:aws:iam::123456789012:user/provision',
+    ]);
+    $aws->shouldReceive('verifyLaunchNetwork')->andThrow(
+        new RuntimeException('This AWS account has no default VPC in us-east-1. Create one, or specify a public subnet ID to launch into.'),
+    );
+    test()->mock(CloudServiceFactory::class, function ($mock) use ($aws): void {
+        $mock->shouldReceive('makeAwsForCredentials')->andReturn($aws);
+    });
+
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $response = $this->actingAs($user)->postJson(route('teams.verify-aws'), [
+        'aws_key_id' => 'AKIAEXAMPLE000000000',
+        'aws_secret' => 'super-secret',
+        'aws_region' => 'us-east-1',
+    ]);
+
+    $response->assertStatus(422)->assertJson(['verified' => false]);
+    expect($response->json('message'))->toContain('no default VPC');
+});
+
+test('creating an AWS team persists an explicit subnet id in the cloud key', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', true);
+    mockAwsCredentialVerification();
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'Enterprise VPC Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'aws',
+        'aws_key_id' => 'AKIAEXAMPLE000000000',
+        'aws_secret' => 'super-secret',
+        'aws_region' => 'us-east-1',
+        'aws_instance_profile' => 'provision-bedrock',
+        'aws_subnet_id' => 'subnet-0abc123def456',
+    ]);
+
+    $key = $user->fresh()->currentTeam->cloudApiKeys()->where('provider', 'aws')->firstOrFail();
+    expect(json_decode($key->api_key, true)['subnet_id'])->toBe('subnet-0abc123def456');
 });
 
 test('a user without byo_cloud_enabled sees no provider step when global selection is disabled', function () {

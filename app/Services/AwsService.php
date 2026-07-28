@@ -55,6 +55,52 @@ class AwsService
     }
 
     /**
+     * Confirm the account has a usable network to launch into for this region.
+     *
+     * When a subnet was explicitly configured, verify it exists and is
+     * available. Otherwise the launch relies on the account's default VPC —
+     * confirm one exists, because RunInstances with no subnet fails with
+     * VPCIdNotSpecified when it doesn't (common on Control Tower / landing-zone
+     * accounts that delete default VPCs by policy). Throws a RuntimeException
+     * with an actionable message when neither is usable.
+     */
+    public function verifyLaunchNetwork(): void
+    {
+        if ($this->credentials->subnetId) {
+            $result = $this->execute('DescribeSubnets', fn (): mixed => $this->client->describeSubnets([
+                'SubnetIds' => [$this->credentials->subnetId],
+            ]));
+
+            $subnet = $result['Subnets'][0] ?? null;
+            if (! $subnet) {
+                throw new RuntimeException("Subnet {$this->credentials->subnetId} was not found in region {$this->credentials->region}.");
+            }
+
+            return;
+        }
+
+        if (! $this->hasDefaultVpc()) {
+            throw new RuntimeException(
+                "This AWS account has no default VPC in {$this->credentials->region}. ".
+                'Create one (EC2 console → Actions → Create default VPC, or `aws ec2 create-default-vpc`), '.
+                'or specify a public subnet ID to launch into.'
+            );
+        }
+    }
+
+    /**
+     * Whether the account has a default VPC in the credentials' region.
+     */
+    public function hasDefaultVpc(): bool
+    {
+        $result = $this->execute('DescribeVpcs', fn (): mixed => $this->client->describeVpcs([
+            'Filters' => [['Name' => 'isDefault', 'Values' => ['true']]],
+        ]));
+
+        return ! empty($result['Vpcs']);
+    }
+
+    /**
      * Launch an EC2 instance running the given cloud-init script. Uses a
      * single 80GB gp3 root volume — no external volume like the other
      * providers. Returns the Instance array from RunInstances.
@@ -99,6 +145,23 @@ class AwsService
                 ['ResourceType' => 'instance', 'Tags' => $tags],
             ],
         ];
+
+        // Launch into an explicit subnet when the team provided one (accounts
+        // with no default VPC). A non-default subnet may not auto-assign a
+        // public IP, so force one via a network interface — otherwise the box
+        // is unreachable and SetupOpenClawOnServerJob can never SSH in. When no
+        // subnet is set, AWS places the instance in the account's default VPC
+        // with an auto-assigned public IP (the common case, unchanged).
+        if ($this->credentials->subnetId) {
+            $payload['NetworkInterfaces'] = [
+                [
+                    'DeviceIndex' => 0,
+                    'SubnetId' => $this->credentials->subnetId,
+                    'AssociatePublicIpAddress' => true,
+                    'DeleteOnTermination' => true,
+                ],
+            ];
+        }
 
         $keyName = $this->credentials->sshKeyName ?? config('cloud.aws.ssh_key_name');
         if ($keyName) {
@@ -193,9 +256,19 @@ class AwsService
 
     public function terminateInstance(string $instanceId): void
     {
-        $this->execute('TerminateInstances', fn (): mixed => $this->client->terminateInstances([
-            'InstanceIds' => [$instanceId],
-        ]));
+        try {
+            $this->execute('TerminateInstances', fn (): mixed => $this->client->terminateInstances([
+                'InstanceIds' => [$instanceId],
+            ]));
+        } catch (RuntimeException $e) {
+            $previous = $e->getPrevious();
+
+            if ($previous instanceof AwsException && $previous->getAwsErrorCode() === 'InvalidInstanceID.NotFound') {
+                return;
+            }
+
+            throw $e;
+        }
     }
 
     /**

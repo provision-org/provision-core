@@ -2684,7 +2684,55 @@ function EnvironmentTab({ agent }: { agent: Agent }) {
     );
 }
 
-function BrowserTab({ browserUrl }: { browserUrl?: string | null }) {
+function BrowserTab({
+    browserUrl,
+    desktopUrl,
+    isBoxDesktop,
+}: {
+    browserUrl?: string | null;
+    desktopUrl?: string | null;
+    isBoxDesktop: boolean;
+}) {
+    if (isBoxDesktop) {
+        if (!desktopUrl) {
+            return (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                    <Monitor className="size-10 text-muted-foreground/50" />
+                    <h3 className="mt-3 text-sm font-medium">
+                        Desktop not available
+                    </h3>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                        The Box desktop will be available once the server is
+                        fully provisioned.
+                    </p>
+                </div>
+            );
+        }
+
+        return (
+            <div className="flex min-h-[50vh] flex-col items-center justify-center rounded-xl border bg-muted/20 px-6 text-center">
+                <div className="flex size-12 items-center justify-center rounded-xl border bg-background shadow-sm">
+                    <Monitor className="size-5 text-muted-foreground" />
+                </div>
+                <h3 className="mt-4 text-sm font-medium">Box Desktop</h3>
+                <p className="mt-1 max-w-md text-xs leading-5 text-muted-foreground">
+                    View and control the Box&apos;s shared Linux desktop. A
+                    fresh, secure desktop session opens in a new tab.
+                </p>
+                <Button className="mt-5" size="sm" asChild>
+                    <a
+                        href={desktopUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                    >
+                        <ExternalLink className="mr-1.5 size-3.5" />
+                        Open desktop
+                    </a>
+                </Button>
+            </div>
+        );
+    }
+
     if (!browserUrl) {
         return (
             <div className="flex flex-col items-center justify-center py-16 text-center">
@@ -2960,6 +3008,7 @@ export default function ShowAgent({
     activities = [],
     teamId = '',
     browserUrl = null,
+    desktopUrl = null,
     emailDomains = [],
     artifactsEnabled = false,
     artifacts = [],
@@ -2968,6 +3017,7 @@ export default function ShowAgent({
     activities?: AgentActivity[];
     teamId?: string;
     browserUrl?: string | null;
+    desktopUrl?: string | null;
     emailDomains?: EmailDomainOption[];
     artifactsEnabled?: boolean;
     artifacts?: AgentArtifact[];
@@ -2983,6 +3033,10 @@ export default function ShowAgent({
         },
     );
 
+    const isHermes = agent.harness_type === 'hermes';
+    const isBoxDesktop = agent.server?.cloud_provider === 'ascii';
+    const canViewDisplay = isBoxDesktop || !isHermes;
+
     const validTabs: Tab[] = [
         'overview',
         'email',
@@ -2991,7 +3045,7 @@ export default function ShowAgent({
         'workspace',
         ...(artifactsEnabled ? (['apps'] as Tab[]) : []),
         'memory',
-        'browser',
+        ...(canViewDisplay ? (['browser'] as Tab[]) : []),
         'settings',
     ];
     const initialTab = (() => {
@@ -3006,12 +3060,17 @@ export default function ShowAgent({
         window.history.replaceState(null, '', `#${tab}`);
     }
 
-    const isHermes = agent.harness_type === 'hermes';
-
     const tabs: { id: Tab; label: string }[] = [
         { id: 'overview', label: 'Overview' },
         { id: 'email', label: 'Email Inbox' },
-        ...(!isHermes ? [{ id: 'browser' as Tab, label: 'Browser' }] : []),
+        ...(canViewDisplay
+            ? [
+                  {
+                      id: 'browser' as Tab,
+                      label: isBoxDesktop ? 'Desktop' : 'Browser',
+                  },
+              ]
+            : []),
         { id: 'workspace', label: 'Workspace' },
         ...(artifactsEnabled ? [{ id: 'apps' as Tab, label: 'Apps' }] : []),
         { id: 'memory', label: 'Memory' },
@@ -3234,7 +3293,11 @@ export default function ShowAgent({
                     ) : (
                         <div className="px-4 py-6 sm:px-6">
                             {activeTab === 'browser' ? (
-                                <BrowserTab browserUrl={browserUrl} />
+                                <BrowserTab
+                                    browserUrl={browserUrl}
+                                    desktopUrl={desktopUrl}
+                                    isBoxDesktop={isBoxDesktop}
+                                />
                             ) : (
                                 <div className="mx-auto max-w-3xl">
                                     {activeTab === 'overview' && (

@@ -1,6 +1,7 @@
 <?php
 
 use App\Enums\CloudProvider;
+use App\Jobs\ProvisionAsciiBoxServerJob;
 use App\Jobs\ProvisionAwsServerJob;
 use App\Jobs\ProvisionDigitalOceanServerJob;
 use App\Jobs\ProvisionHetznerServerJob;
@@ -56,4 +57,16 @@ it('dispatches aws job for aws servers', function () {
     Bus::assertDispatched(ProvisionAwsServerJob::class);
     Bus::assertNotDispatched(ProvisionDigitalOceanServerJob::class);
     Bus::assertNotDispatched(ProvisionHetznerServerJob::class);
+});
+
+it('dispatches ascii box job for ascii servers', function () {
+    Bus::fake();
+
+    $server = Server::factory()->ascii()->create();
+
+    ServerProvisioningDispatcher::dispatch($server);
+
+    Bus::assertDispatched(ProvisionAsciiBoxServerJob::class);
+    Bus::assertNotDispatched(ProvisionLinodeServerJob::class);
+    Bus::assertNotDispatched(ProvisionDigitalOceanServerJob::class);
 });

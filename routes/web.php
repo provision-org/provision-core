@@ -109,6 +109,7 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::delete('agents/{agent}', [AgentController::class, 'destroy'])->name('agents.destroy');
         Route::get('agents/{agent}/browser', [AgentController::class, 'browser'])->name('agents.browser')->middleware('signed');
         Route::get('agents/{agent}/browser-url', [AgentController::class, 'browserUrl'])->name('agents.browser-url');
+        Route::get('agents/{agent}/desktop', [AgentController::class, 'desktop'])->name('agents.desktop')->middleware('throttle:10,1');
         Route::get('agents/{agent}/logs', [AgentController::class, 'logs'])->name('agents.logs');
         Route::get('agents/{agent}/usage-chart', [AgentController::class, 'usageChart'])->name('agents.usage-chart');
         Route::get('agents/{agent}/inbox', [AgentController::class, 'inbox'])->name('agents.inbox');

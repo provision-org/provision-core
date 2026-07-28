@@ -45,6 +45,13 @@ class TeamFactory extends Factory
         ]);
     }
 
+    public function ascii(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'cloud_provider' => 'ascii',
+        ]);
+    }
+
     public function withCompanyDetails(): static
     {
         return $this->state(fn (array $attributes) => [

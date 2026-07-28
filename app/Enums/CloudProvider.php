@@ -7,6 +7,7 @@ enum CloudProvider: string
     case Hetzner = 'hetzner';
     case DigitalOcean = 'digitalocean';
     case Linode = 'linode';
+    case Ascii = 'ascii';
     case Docker = 'docker';
     case Aws = 'aws';
 
@@ -16,6 +17,7 @@ enum CloudProvider: string
             self::Hetzner => 'Hetzner',
             self::DigitalOcean => 'DigitalOcean',
             self::Linode => 'Linode',
+            self::Ascii => 'ASCII Box',
             self::Docker => 'Docker',
             self::Aws => 'AWS (your account)',
         };
@@ -27,6 +29,7 @@ enum CloudProvider: string
             self::Hetzner => 'us-east',
             self::DigitalOcean => 'us-east',
             self::Linode => 'us-east',
+            self::Ascii => 'europe',
             self::Aws => 'us-east',
             self::Docker => 'local',
         };
@@ -53,6 +56,7 @@ enum CloudProvider: string
                 self::Hetzner => 'ash',
                 self::DigitalOcean => 'nyc1',
                 self::Linode => 'us-east',
+                self::Ascii => 'eu',
                 self::Aws => 'us-east-1',
                 self::Docker => 'local',
             };

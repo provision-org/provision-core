@@ -1,10 +1,13 @@
 <?php
 
 use App\Contracts\CommandExecutor;
+use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
 use App\Jobs\SetupOpenClawOnServerJob;
 use App\Jobs\UpdateEnvOnServerJob;
 use App\Models\Server;
+use App\Services\AsciiBoxService;
+use App\Services\CloudServiceFactory;
 use App\Services\HarnessManager;
 use App\Services\Scripts\ServerSetupScriptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -99,4 +102,30 @@ it('dispatches UpdateEnvOnServerJob after setup', function () {
     (new SetupOpenClawOnServerJob($server))->handle(mockHarnessManagerForSetup(), mockScriptService());
 
     Bus::assertDispatched(UpdateEnvOnServerJob::class, fn ($job) => $job->server->id === $server->id);
+});
+
+it('fetches a missing ascii box ip without falling through to hetzner', function () {
+    $server = Server::factory()->ascii()->create([
+        'provider_server_id' => 'bx_23456789',
+        'ipv4_address' => null,
+        'status' => ServerStatus::Running,
+    ]);
+
+    $ascii = Mockery::mock(AsciiBoxService::class);
+    $ascii->shouldReceive('getBox')
+        ->once()
+        ->with('bx_23456789')
+        ->andReturn(['id' => 'bx_23456789', 'state' => 'idle', 'ip' => '203.0.113.10']);
+    $ascii->shouldReceive('extractIpAddress')->once()->andReturn('203.0.113.10');
+
+    $factory = Mockery::mock(CloudServiceFactory::class);
+    $factory->shouldReceive('makeFor')
+        ->once()
+        ->with(Mockery::on(fn ($team) => $team->id === $server->team_id), CloudProvider::Ascii)
+        ->andReturn($ascii);
+    app()->instance(CloudServiceFactory::class, $factory);
+
+    (new SetupOpenClawOnServerJob($server))->handle(mockHarnessManagerForSetup(), mockScriptService());
+
+    expect($server->fresh()->ipv4_address)->toBe('203.0.113.10');
 });
