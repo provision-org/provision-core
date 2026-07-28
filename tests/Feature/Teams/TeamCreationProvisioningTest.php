@@ -34,6 +34,11 @@ function mockAwsCredentialVerification(bool $succeeds = true): void
         );
     }
 
+    // The launch-network preflight runs after credential verification; default
+    // it to a usable account (has a default VPC / valid subnet) unless a test
+    // overrides it.
+    $aws->shouldReceive('verifyLaunchNetwork')->andReturnNull();
+
     test()->mock(CloudServiceFactory::class, function ($mock) use ($aws): void {
         $mock->shouldReceive('makeAwsForCredentials')->andReturn($aws);
     });
@@ -410,6 +415,52 @@ test('verify-aws returns 422 with a readable message when AWS rejects the creden
         'verified' => false,
         'message' => 'AWS GetCallerIdentity failed: The security token included in the request is invalid.',
     ]);
+});
+
+test('verify-aws returns 422 when the account has no default VPC and no subnet', function () {
+    $aws = Mockery::mock(AwsService::class);
+    $aws->shouldReceive('verifyCredentials')->andReturn([
+        'account_id' => '123456789012',
+        'arn' => 'arn:aws:iam::123456789012:user/provision',
+    ]);
+    $aws->shouldReceive('verifyLaunchNetwork')->andThrow(
+        new RuntimeException('This AWS account has no default VPC in us-east-1. Create one, or specify a public subnet ID to launch into.'),
+    );
+    test()->mock(CloudServiceFactory::class, function ($mock) use ($aws): void {
+        $mock->shouldReceive('makeAwsForCredentials')->andReturn($aws);
+    });
+
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $response = $this->actingAs($user)->postJson(route('teams.verify-aws'), [
+        'aws_key_id' => 'AKIAEXAMPLE000000000',
+        'aws_secret' => 'super-secret',
+        'aws_region' => 'us-east-1',
+    ]);
+
+    $response->assertStatus(422)->assertJson(['verified' => false]);
+    expect($response->json('message'))->toContain('no default VPC');
+});
+
+test('creating an AWS team persists an explicit subnet id in the cloud key', function () {
+    Bus::fake();
+    config()->set('cloud.provider_selection_enabled', true);
+    mockAwsCredentialVerification();
+    $user = User::factory()->withCompletedProfile()->byoCloud()->create();
+
+    $this->actingAs($user)->post(route('teams.store'), [
+        'name' => 'Enterprise VPC Team',
+        'harness_type' => 'openclaw',
+        'cloud_provider' => 'aws',
+        'aws_key_id' => 'AKIAEXAMPLE000000000',
+        'aws_secret' => 'super-secret',
+        'aws_region' => 'us-east-1',
+        'aws_instance_profile' => 'provision-bedrock',
+        'aws_subnet_id' => 'subnet-0abc123def456',
+    ]);
+
+    $key = $user->fresh()->currentTeam->cloudApiKeys()->where('provider', 'aws')->firstOrFail();
+    expect(json_decode($key->api_key, true)['subnet_id'])->toBe('subnet-0abc123def456');
 });
 
 test('a user without byo_cloud_enabled sees no provider step when global selection is disabled', function () {

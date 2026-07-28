@@ -272,6 +272,7 @@ export default function CreateTeam({
                   aws_secret: '',
                   aws_region: 'us-east-1',
                   aws_instance_profile: '',
+                  aws_subnet_id: '',
                   aws_bedrock_model: '',
               }
             : {}),
@@ -308,6 +309,8 @@ export default function CreateTeam({
         ('aws_secret' in form.data ? form.data.aws_secret : '') ?? '';
     const awsRegion =
         ('aws_region' in form.data ? form.data.aws_region : '') || 'us-east-1';
+    const awsSubnetId =
+        ('aws_subnet_id' in form.data ? form.data.aws_subnet_id : '') ?? '';
 
     const [awsVerify, setAwsVerify] = useState<AwsVerifyState>({
         status: 'idle',
@@ -339,6 +342,7 @@ export default function CreateTeam({
                     aws_key_id: awsKeyId,
                     aws_secret: awsSecret,
                     aws_region: awsRegion,
+                    aws_subnet_id: awsSubnetId,
                 }),
             });
             const data = await response.json();
@@ -1035,6 +1039,38 @@ export default function CreateTeam({
                                         message={
                                             formErrors.aws_instance_profile
                                         }
+                                    />
+                                </div>
+
+                                <div className="grid gap-2">
+                                    <Label htmlFor="aws_subnet_id">
+                                        Subnet ID{' '}
+                                        <span className="text-muted-foreground">
+                                            (advanced)
+                                        </span>
+                                    </Label>
+                                    <Input
+                                        id="aws_subnet_id"
+                                        value={awsSubnetId}
+                                        onChange={(e) => {
+                                            form.setData(
+                                                'aws_subnet_id',
+                                                e.target.value,
+                                            );
+                                            setAwsVerify({ status: 'idle' });
+                                        }}
+                                        placeholder="subnet-… (leave blank to use your default VPC)"
+                                        autoComplete="off"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Leave blank for most accounts &mdash;
+                                        we&rsquo;ll use your default VPC. If your
+                                        account has no default VPC (e.g. Control
+                                        Tower / landing-zone accounts), enter a
+                                        public subnet ID with an internet route.
+                                    </p>
+                                    <InputError
+                                        message={formErrors.aws_subnet_id}
                                     />
                                 </div>
 

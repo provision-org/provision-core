@@ -98,12 +98,23 @@ class TeamController extends Controller
         // though the wizard already ran the same check client-side.
         if ($isAwsTeam) {
             try {
-                app(CloudServiceFactory::class)
-                    ->makeAwsForCredentials($this->awsCredentialsFromRequest($request))
-                    ->verifyCredentials();
+                $aws = app(CloudServiceFactory::class)
+                    ->makeAwsForCredentials($this->awsCredentialsFromRequest($request));
+                $aws->verifyCredentials();
             } catch (RuntimeException $e) {
                 return back()->withErrors([
                     'aws_key_id' => "We could not verify these AWS credentials: {$e->getMessage()}",
+                ]);
+            }
+
+            // A valid key still can't provision without a network to launch into.
+            // Fail here with an actionable message instead of letting the async
+            // job die on VPCIdNotSpecified and strand an `error` server.
+            try {
+                $aws->verifyLaunchNetwork();
+            } catch (RuntimeException $e) {
+                return back()->withErrors([
+                    'aws_subnet_id' => $e->getMessage(),
                 ]);
             }
         }
@@ -159,6 +170,11 @@ class TeamController extends Controller
             // (agents authenticate via the role, no API keys on the server).
             if ($request->filled('aws_instance_profile')) {
                 $credentials['instance_profile'] = $request->aws_instance_profile;
+            }
+
+            // Optional explicit subnet — for accounts with no default VPC.
+            if ($request->filled('aws_subnet_id')) {
+                $credentials['subnet_id'] = trim((string) $request->aws_subnet_id);
             }
 
             // Team-wide default Bedrock model the customer picked in the wizard.
@@ -217,12 +233,15 @@ class TeamController extends Controller
             'aws_key_id' => ['required', 'string', 'max:128'],
             'aws_secret' => ['required', 'string', 'max:128'],
             'aws_region' => ['required', 'string', 'max:32'],
+            'aws_subnet_id' => ['nullable', 'string', 'max:64'],
         ]);
 
         try {
-            $identity = $factory
-                ->makeAwsForCredentials($this->awsCredentialsFromRequest($request))
-                ->verifyCredentials();
+            $aws = $factory->makeAwsForCredentials($this->awsCredentialsFromRequest($request));
+            $identity = $aws->verifyCredentials();
+            // Surface a missing default VPC (or bad subnet) here, while the user
+            // is still on the wizard step and can fix it.
+            $aws->verifyLaunchNetwork();
         } catch (RuntimeException $e) {
             return response()->json([
                 'verified' => false,
@@ -363,6 +382,7 @@ class TeamController extends Controller
             secret: (string) $request->input('aws_secret'),
             region: (string) ($request->input('aws_region') ?: config('cloud.aws.default_region', 'us-east-1')),
             instanceProfile: $request->filled('aws_instance_profile') ? $request->input('aws_instance_profile') : null,
+            subnetId: $request->filled('aws_subnet_id') ? trim((string) $request->input('aws_subnet_id')) : null,
         );
     }
 

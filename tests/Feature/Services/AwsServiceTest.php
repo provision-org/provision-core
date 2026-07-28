@@ -94,6 +94,94 @@ it('waits for instance propagation before describing it', function () {
         ->toMatchArray(['InstanceId' => 'i-0abc123', 'VpcId' => 'vpc-9']);
 });
 
+it('reports a default VPC as a usable launch network', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    $client->shouldReceive('describeVpcs')
+        ->once()
+        ->with(Mockery::on(fn (array $a): bool => $a['Filters'][0]['Name'] === 'isDefault'))
+        ->andReturn(new Result(['Vpcs' => [['VpcId' => 'vpc-default']]]));
+
+    $service = new AwsService(new AwsCredentials('AKIA0000000000000000', 'secret', 'us-east-1'), $client);
+
+    expect(fn () => $service->verifyLaunchNetwork())->not->toThrow(Exception::class);
+});
+
+it('rejects launch when the account has no default VPC and no subnet was given', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    $client->shouldReceive('describeVpcs')->once()->andReturn(new Result(['Vpcs' => []]));
+
+    $service = new AwsService(new AwsCredentials('AKIA0000000000000000', 'secret', 'us-east-1'), $client);
+
+    expect(fn () => $service->verifyLaunchNetwork())
+        ->toThrow(RuntimeException::class, 'no default VPC');
+});
+
+it('validates an explicit subnet instead of requiring a default VPC', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    // With a subnet set, it must check the subnet — never DescribeVpcs.
+    $client->shouldReceive('describeVpcs')->never();
+    $client->shouldReceive('describeSubnets')
+        ->once()
+        ->with(['SubnetIds' => ['subnet-abc123']])
+        ->andReturn(new Result(['Subnets' => [['SubnetId' => 'subnet-abc123', 'State' => 'available']]]));
+
+    $service = new AwsService(
+        new AwsCredentials('AKIA0000000000000000', 'secret', 'us-east-1', subnetId: 'subnet-abc123'),
+        $client,
+    );
+
+    expect(fn () => $service->verifyLaunchNetwork())->not->toThrow(Exception::class);
+});
+
+it('rejects an unknown subnet', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    $client->shouldReceive('describeSubnets')->once()->andReturn(new Result(['Subnets' => []]));
+
+    $service = new AwsService(
+        new AwsCredentials('AKIA0000000000000000', 'secret', 'us-east-1', subnetId: 'subnet-missing'),
+        $client,
+    );
+
+    expect(fn () => $service->verifyLaunchNetwork())
+        ->toThrow(RuntimeException::class, 'subnet-missing was not found');
+});
+
+it('launches into an explicit subnet with a forced public IP', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    $client->shouldReceive('runInstances')
+        ->once()
+        ->with(Mockery::on(function (array $p): bool {
+            // Uses a network interface (not top-level SubnetId) so the box always
+            // gets a public IP even on a subnet with MapPublicIpOnLaunch=false.
+            $ni = $p['NetworkInterfaces'][0] ?? null;
+
+            return $ni !== null
+                && $ni['SubnetId'] === 'subnet-abc123'
+                && $ni['AssociatePublicIpAddress'] === true
+                && ! isset($p['SubnetId']);
+        }))
+        ->andReturn(['Instances' => [['InstanceId' => 'i-0net']]]);
+
+    $service = new AwsService(
+        new AwsCredentials('AKIA0000000000000000', 'secret', 'us-east-1', subnetId: 'subnet-abc123'),
+        $client,
+    );
+
+    expect($service->createInstance(null, '#!/bin/bash')['InstanceId'])->toBe('i-0net');
+});
+
+it('omits the network interface when no subnet is configured (default VPC path)', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    $client->shouldReceive('runInstances')
+        ->once()
+        ->with(Mockery::on(fn (array $p): bool => ! isset($p['NetworkInterfaces'])))
+        ->andReturn(['Instances' => [['InstanceId' => 'i-0def']]]);
+
+    $service = new AwsService(new AwsCredentials('AKIA0000000000000000', 'secret', 'us-east-1'), $client);
+
+    expect($service->createInstance(null, '#!/bin/bash')['InstanceId'])->toBe('i-0def');
+});
+
 it('waits for the InstanceTerminated state', function () {
     $client = Mockery::mock(Ec2Client::class);
     $client->shouldReceive('waitUntil')
@@ -104,6 +192,20 @@ it('waits for the InstanceTerminated state', function () {
     $service = new AwsService($credentials, $client);
 
     $service->waitForInstanceTerminated('i-0abc123');
+});
+
+it('treats an already-reaped instance as already terminated', function () {
+    $client = Mockery::mock(Ec2Client::class);
+    $client->shouldReceive('terminateInstances')
+        ->once()
+        ->andThrow(new AwsException('InvalidInstanceID.NotFound: gone', new Command('TerminateInstances'), [
+            'code' => 'InvalidInstanceID.NotFound',
+        ]));
+
+    $credentials = new AwsCredentials('AKIATEAM000000000000', 'team-secret', 'us-east-1');
+    $service = new AwsService($credentials, $client);
+
+    expect(fn () => $service->terminateInstance('i-0abc123'))->not->toThrow(Exception::class);
 });
 
 it('treats an already-reaped instance as terminated', function () {

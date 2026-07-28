@@ -41,6 +41,7 @@ class CreateTeamRequest extends FormRequest
             'aws_secret' => ['required_if:cloud_provider,aws', 'nullable', 'string', 'max:128'],
             'aws_region' => ['nullable', 'string', 'max:32'],
             'aws_instance_profile' => ['required_if:cloud_provider,aws', 'nullable', 'string', 'max:128'],
+            'aws_subnet_id' => ['nullable', 'string', 'max:64'],
             'aws_bedrock_model' => ['nullable', 'string', 'max:255'],
         ];
     }
