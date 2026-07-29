@@ -27,6 +27,15 @@ class TeamEnvVar extends Model
     /**
      * @return array<string, string>
      */
+    /**
+     * The decrypted value must never serialize — the UI uses valuePreview().
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'value',
+    ];
+
     protected function casts(): array
     {
         return [

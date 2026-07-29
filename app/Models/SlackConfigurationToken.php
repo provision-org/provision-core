@@ -26,6 +26,16 @@ class SlackConfigurationToken extends Model
     /**
      * @return array<string, string>
      */
+    /**
+     * The decrypted OAuth tokens must never serialize into a response payload.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'access_token',
+        'refresh_token',
+    ];
+
     protected function casts(): array
     {
         return [

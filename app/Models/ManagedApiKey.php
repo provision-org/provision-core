@@ -30,6 +30,15 @@ class ManagedApiKey extends Model
     /**
      * @return array<string, string>
      */
+    /**
+     * The decrypted API key must never serialize into a response payload.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'api_key',
+    ];
+
     protected function casts(): array
     {
         return [
