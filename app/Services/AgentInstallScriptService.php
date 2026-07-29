@@ -261,6 +261,10 @@ class AgentInstallScriptService
         array_push($lines, ...self::buildProvisionArtifactsSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
         $lines[] = '';
 
+        // 4e. Deploy totp (2FA authenticator) skill (core, always deployed)
+        array_push($lines, ...self::buildTotpSkillLines($agentDir, $this->buildHeredoc(...)));
+        $lines[] = '';
+
         // 5. Write .env file
         $lines[] = '# Write environment variables';
         $lines[] = $this->buildEnvScript($agent);
@@ -1140,6 +1144,32 @@ class AgentInstallScriptService
         return $lines;
     }
 
+    /**
+     * Deploy the totp (two-factor authenticator) skill. Core, always installed:
+     * every agent can complete authenticator-app 2FA on its own. The secret store
+     * lives in a 0700 dir and is written only at enrollment (via the CLI) — it is
+     * deliberately never placed in the agent .env, so the credential stays out of
+     * the model's context; only the throwaway 6-digit code is ever surfaced.
+     *
+     * @return list<string>
+     */
+    public static function buildTotpSkillLines(string $agentDir, callable $buildHeredoc): array
+    {
+        $skillDir = "{$agentDir}/skills/totp";
+
+        $lines = [];
+        $lines[] = '# --- Deploy totp (2FA authenticator) skill ---';
+        $lines[] = "mkdir -p {$skillDir}";
+        $lines[] = $buildHeredoc("{$skillDir}/SKILL.md", file_get_contents(resource_path('skills/totp/SKILL.md')));
+        $lines[] = $buildHeredoc("{$skillDir}/totp_cli.py", file_get_contents(resource_path('skills/totp/totp_cli.py')));
+        $lines[] = "chmod +x {$skillDir}/totp_cli.py";
+        // Secret store dir — locked down; the CLI writes secrets here at 0600.
+        $lines[] = "mkdir -p {$agentDir}/secrets";
+        $lines[] = "chmod 700 {$agentDir}/secrets";
+
+        return $lines;
+    }
+
     public static function buildProvisionTasksSkillLines(string $agentDir, string $plainToken, callable $buildHeredoc): array
     {
         $lines = [];
@@ -1278,6 +1308,12 @@ class AgentInstallScriptService
         // Git/GitHub credential isolation
         $lines[] = "GH_CONFIG_DIR={$agentDir}/.gh";
         $lines[] = "GIT_CONFIG_GLOBAL={$agentDir}/.gitconfig";
+
+        // TOTP (2FA authenticator) — only paths here, never a secret. The CLI
+        // reads/writes the store itself at enrollment time; keeping the secret out
+        // of the env keeps it out of the agent's context.
+        $lines[] = "TOTP_CLI={$agentDir}/skills/totp/totp_cli.py";
+        $lines[] = "TOTP_STORE={$agentDir}/secrets/totp.json";
 
         // MailboxKit credentials
         $agent->loadMissing('emailConnection');
