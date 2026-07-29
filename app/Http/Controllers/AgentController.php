@@ -802,6 +802,61 @@ class AgentController extends Controller
         return back()->with('status', "Email moved to {$newEmail}. The agent is re-syncing.");
     }
 
+    /**
+     * Update the customer's own-Gmail settings (address and/or App Password) for
+     * an already-connected agent, then re-provision so the box picks up the new
+     * credentials.
+     *
+     * The App Password only enters through this secure field; a blank value keeps
+     * the existing one. The raw secret is never returned to the client.
+     */
+    public function updateGmailSettings(Request $request, Agent $agent): RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+
+        $connection = $agent->emailConnection;
+        abort_unless($connection?->isGmail(), 422, 'This agent is not using a Gmail account.');
+
+        $validated = $request->validate([
+            'gmail_address' => ['required', 'email', 'max:255'],
+            'gmail_app_password' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        $attributes = [
+            'email_address' => $validated['gmail_address'],
+            'status' => 'active',
+        ];
+
+        // Blank password field means "leave the current one" — only overwrite
+        // when a new value was actually entered.
+        if (filled($validated['gmail_app_password'] ?? null)) {
+            $attributes['app_password'] = preg_replace('/\s+/', '', $validated['gmail_app_password']);
+        }
+
+        $connection->update($attributes);
+
+        if ($agent->server_id) {
+            $agent->update(['is_syncing' => true]);
+
+            try {
+                broadcast(new AgentUpdatedEvent($agent));
+            } catch (\Throwable $e) {
+                Log::warning('Failed to broadcast AgentUpdatedEvent', ['agent_id' => $agent->id, 'error' => $e->getMessage()]);
+            }
+
+            // Rewrite the per-agent .env (new GMAIL_* values) + restart the IDLE
+            // watcher, then restart the gateway so the agent's gmail_cli.py calls
+            // inherit the refreshed environment too.
+            UpdateAgentOnServerJob::dispatch($agent);
+            RestartGatewayJob::dispatch($agent->server);
+        }
+
+        return back()->with('status', 'Gmail settings updated. The agent is re-syncing.');
+    }
+
     public function retry(Request $request, Agent $agent): RedirectResponse
     {
         $team = $request->user()->currentTeam;
