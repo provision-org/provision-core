@@ -18,10 +18,12 @@ class AgentEmailConnection extends Model
      */
     protected $fillable = [
         'agent_id',
+        'provider',
         'email_address',
         'mailboxkit_inbox_id',
         'mailboxkit_webhook_id',
         'mailboxkit_webhook_secret',
+        'app_password',
         'status',
     ];
 
@@ -32,7 +34,13 @@ class AgentEmailConnection extends Model
     {
         return [
             'mailboxkit_webhook_secret' => 'encrypted',
+            'app_password' => 'encrypted',
         ];
+    }
+
+    public function isGmail(): bool
+    {
+        return $this->provider === 'gmail';
     }
 
     /**

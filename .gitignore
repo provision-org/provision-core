@@ -38,3 +38,4 @@ yarn-error.log
 storage/framework/views/*.php
 storage/logs/*.log
 packages/provisiond/node_modules/
+resources/skills/gmail/__pycache__/

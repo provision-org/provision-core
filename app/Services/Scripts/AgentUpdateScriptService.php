@@ -359,13 +359,18 @@ class AgentUpdateScriptService
         array_push($lines, ...AgentInstallScriptService::buildProvisionArtifactsSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
         $lines[] = '';
 
-        // 6. Deploy MailboxKit skill + email check script (if email connected)
+        // 6. Deploy email integration (if connected): MailboxKit, or the
+        // customer's own Gmail via App Password + a per-agent IDLE watcher.
         $emailConnection = $agent->emailConnection;
         if ($emailConnection?->mailboxkit_inbox_id) {
-            $lines[] = '# --- Step 6: Email Integration ---';
+            $lines[] = '# --- Step 6: Email Integration (MailboxKit) ---';
             $lines[] = $this->buildMailboxKitSkillSection($agent, $agentDir);
             $lines[] = '';
             $lines[] = $this->buildEmailCheckSection($agent, $agentDir);
+            $lines[] = '';
+        } elseif ($emailConnection?->isGmail()) {
+            $lines[] = '# --- Step 6: Email Integration (Gmail) ---';
+            $lines[] = $this->buildGmailSkillSection($agent, $agentDir);
             $lines[] = '';
         }
 
@@ -1183,6 +1188,22 @@ class AgentUpdateScriptService
         $lines[] = $this->buildHeredoc("{$skillDir}/SKILL.md", $skillContent);
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * Deploy the Gmail skill (SKILL.md + gmail_cli.py) and a per-agent IMAP IDLE
+     * watcher run as its own systemd user service. The watcher reads the account
+     * from the agent's .env (GMAIL_ADDRESS/GMAIL_APP_PASSWORD) and wakes the agent
+     * via the local gateway on new mail — no public endpoint. One service per
+     * agent, so many agents on one server each watch their own inbox.
+     */
+    private function buildGmailSkillSection(Agent $agent, string $baseDir): string
+    {
+        return implode("\n", AgentInstallScriptService::buildGmailSkillLines(
+            $agent->harness_agent_id,
+            $baseDir,
+            $this->buildHeredoc(...),
+        ));
     }
 
     /**

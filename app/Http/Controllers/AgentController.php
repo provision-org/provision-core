@@ -275,11 +275,22 @@ class AgentController extends Controller
             $data['tools_config'] = "# {$name} — Tools & Capabilities\n\n## Your Job\n\n{$data['job_description']}\n\n## How to Work\n\n- Use `exec` to run shell commands, curl API calls, and scripts.\n- Use your browser to research, navigate websites, and extract data.\n- Use your email to communicate externally when needed.\n- Save all output files to your workspace directory.";
         }
 
+        // Email choice: 'mailboxkit' (Provision email, default), 'gmail' (the
+        // customer's own account via App Password), or 'none'.
+        $emailMode = $data['email_mode'] ?? 'mailboxkit';
+        unset($data['email_mode']);
+
         $emailPrefix = $data['email_prefix'] ?? null;
         unset($data['email_prefix']);
 
         $emailDomain = $data['email_domain'] ?? null;
         unset($data['email_domain']);
+
+        $gmailAddress = $data['gmail_address'] ?? null;
+        unset($data['gmail_address']);
+
+        $gmailAppPassword = $data['gmail_app_password'] ?? null;
+        unset($data['gmail_app_password']);
 
         $tools = $data['tools'] ?? [];
         unset($data['tools']);
@@ -305,22 +316,39 @@ class AgentController extends Controller
             ]);
         }
 
-        $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
-        if ($emailProvider) {
-            $email = $emailProvider->provisionEmail($agent, $team, $emailPrefix, $emailDomain);
-            if ($email) {
-                $agent->update([
-                    'identity' => $templateService->generateIdentity(
-                        name: $agent->name,
-                        role: $agent->role,
-                        email: $email,
-                        emoji: $data['emoji'] ?? '',
-                        personality: $data['personality'] ?? '',
-                        style: $data['communication_style'] ?? '',
-                        backstory: $data['backstory'] ?? '',
-                    ),
-                ]);
+        $email = null;
+        if ($emailMode === 'gmail' && $gmailAddress && $gmailAppPassword) {
+            // Store the customer's Gmail as the agent's mailbox. Google displays
+            // App Passwords with spaces for readability but they're entered
+            // without them — strip whitespace so IMAP/SMTP login works. The
+            // password is encrypted at rest (model cast).
+            $agent->emailConnection()->create([
+                'provider' => 'gmail',
+                'email_address' => $gmailAddress,
+                'app_password' => preg_replace('/\s+/', '', $gmailAppPassword),
+                'status' => 'active',
+            ]);
+            $email = $gmailAddress;
+        } elseif ($emailMode === 'mailboxkit') {
+            $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
+            if ($emailProvider) {
+                $email = $emailProvider->provisionEmail($agent, $team, $emailPrefix, $emailDomain);
             }
+        }
+        // 'none' → no email connection; agent runs without a mailbox.
+
+        if ($email) {
+            $agent->update([
+                'identity' => $templateService->generateIdentity(
+                    name: $agent->name,
+                    role: $agent->role,
+                    email: $email,
+                    emoji: $data['emoji'] ?? '',
+                    personality: $data['personality'] ?? '',
+                    style: $data['communication_style'] ?? '',
+                    backstory: $data['backstory'] ?? '',
+                ),
+            ]);
         }
 
         GenerateAgentAvatarJob::dispatch($agent);
