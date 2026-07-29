@@ -88,7 +88,13 @@ class HetznerService
 
     public function deleteVolume(string $volumeId): void
     {
-        $this->http->delete("/volumes/{$volumeId}")->throw();
+        $response = $this->http->delete("/volumes/{$volumeId}");
+
+        if ($response->status() === 404) {
+            return;
+        }
+
+        $response->throw();
     }
 
     public function updateServerName(string $hetznerServerId, string $name): void
@@ -100,7 +106,13 @@ class HetznerService
 
     public function deleteServer(string $hetznerServerId): void
     {
-        $this->http->delete("/servers/{$hetznerServerId}")->throw();
+        $response = $this->http->delete("/servers/{$hetznerServerId}");
+
+        if ($response->status() === 404) {
+            return;
+        }
+
+        $response->throw();
     }
 
     /**

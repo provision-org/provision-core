@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\AgentStatus;
 use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
@@ -30,7 +31,7 @@ class DestroyTeamJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 1;
+    public int $tries = 5;
 
     // Teardown waits for the cloud instance to fully terminate before releasing
     // its firewall/security group (the network interface only detaches at
@@ -42,6 +43,7 @@ class DestroyTeamJob implements ShouldQueue
     public function handle(
         SlackAppCleanupService $slackCleanup,
         PublishArtifactService $artifacts,
+        OpenRouterKeyService $openRouterKeys,
     ): void {
         $team = $this->team;
 
@@ -52,6 +54,29 @@ class DestroyTeamJob implements ShouldQueue
         $team->server?->update(['status' => ServerStatus::Destroying]);
         $team->agents()->update(['status' => AgentStatus::Paused->value]);
         AgentApiToken::query()->where('team_id', $team->id)->delete();
+
+        $billingFailure = null;
+        $openRouterFailure = null;
+
+        try {
+            $this->cleanupBillingResources($team);
+        } catch (\Throwable $e) {
+            $billingFailure = $e;
+        }
+
+        try {
+            $this->revokeManagedOpenRouterKey($team, $openRouterKeys);
+        } catch (\Throwable $e) {
+            $openRouterFailure = $e;
+        }
+
+        if ($billingFailure) {
+            throw $billingFailure;
+        }
+
+        if ($openRouterFailure) {
+            throw $openRouterFailure;
+        }
 
         // Resolve MailboxKitService only when the module is installed
         $mailboxKitService = class_exists(MailboxKitService::class)
@@ -79,18 +104,6 @@ class DestroyTeamJob implements ShouldQueue
             throw new \RuntimeException('Artifact DNS cleanup failed; team retained for retry.', previous: $artifactCleanupFailures[0]);
         }
 
-        // Revoke OpenRouter managed key
-        $managedKey = $team->managedApiKey;
-        if ($managedKey?->openrouter_key_hash) {
-            try {
-                app(OpenRouterKeyService::class)->deleteKey($managedKey->openrouter_key_hash);
-                $managedKey->delete();
-                Log::info("Revoked OpenRouter key for team {$team->id}");
-            } catch (\Throwable $e) {
-                Log::warning("Failed to revoke OpenRouter key for team {$team->id}: {$e->getMessage()}");
-            }
-        }
-
         // Destroy cloud server and volume
         $server = $team->server;
         if ($server?->provider_server_id) {
@@ -103,6 +116,61 @@ class DestroyTeamJob implements ShouldQueue
         $team->delete();
 
         Log::info("Team {$team->id} destroyed");
+    }
+
+    /**
+     * @return list<int>
+     */
+    public function backoff(): array
+    {
+        return [10, 30, 60, 120];
+    }
+
+    private function cleanupBillingResources(Team $team): void
+    {
+        if (! app()->bound(BillingProvider::class)) {
+            if (filled($team->getAttribute('stripe_id'))) {
+                throw new \RuntimeException(
+                    'Billing cleanup is unavailable for a Stripe-backed team; team retained for retry.',
+                );
+            }
+
+            return;
+        }
+
+        try {
+            app(BillingProvider::class)->cleanupTeam($team);
+            Log::info("Cleaned up billing resources for team {$team->id}");
+        } catch (\Throwable $e) {
+            Log::warning("Failed to clean up billing resources for team {$team->id}: {$e->getMessage()}");
+
+            throw new \RuntimeException(
+                'Billing cleanup failed; team retained for retry.',
+                previous: $e,
+            );
+        }
+    }
+
+    private function revokeManagedOpenRouterKey(Team $team, OpenRouterKeyService $openRouterKeys): void
+    {
+        $managedKey = $team->managedApiKey;
+
+        if (! $managedKey?->openrouter_key_hash) {
+            return;
+        }
+
+        try {
+            $openRouterKeys->deleteKey($managedKey->openrouter_key_hash);
+            $managedKey->delete();
+            Log::info("Revoked OpenRouter key for team {$team->id}");
+        } catch (\Throwable $e) {
+            Log::warning("Failed to revoke OpenRouter key for team {$team->id}: {$e->getMessage()}");
+
+            throw new \RuntimeException(
+                'OpenRouter key cleanup failed; team retained for retry.',
+                previous: $e,
+            );
+        }
     }
 
     private function cleanupAgent($agent, ?object $mailboxKitService, SlackAppCleanupService $slackCleanup): void
