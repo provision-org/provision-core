@@ -39,3 +39,4 @@ storage/framework/views/*.php
 storage/logs/*.log
 packages/provisiond/node_modules/
 resources/skills/gmail/__pycache__/
+resources/skills/totp/__pycache__/

@@ -359,6 +359,10 @@ class AgentUpdateScriptService
         array_push($lines, ...AgentInstallScriptService::buildProvisionArtifactsSkillLines($agentDir, $plainToken, $this->buildHeredoc(...)));
         $lines[] = '';
 
+        // Deploy totp (2FA authenticator) skill (core, always deployed)
+        array_push($lines, ...AgentInstallScriptService::buildTotpSkillLines($agentDir, $this->buildHeredoc(...)));
+        $lines[] = '';
+
         // 6. Deploy email integration (if connected): MailboxKit, or the
         // customer's own Gmail via App Password + a per-agent IDLE watcher.
         $emailConnection = $agent->emailConnection;
@@ -637,6 +641,7 @@ class AgentUpdateScriptService
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
         $config['skills']['entries']['provision-publish'] = ['enabled' => true];
         $config['skills']['entries']['provision-artifacts'] = ['enabled' => true];
+        $config['skills']['entries']['totp'] = ['enabled' => true];
 
         // openclaw 2026.5.2+ requires a meta block; without it the gateway
         // detects "missing-meta-vs-last-good" and rolls back to the prior backup.

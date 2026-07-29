@@ -175,6 +175,7 @@ class OpenClawDriver implements HarnessDriver
         $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
         $config['skills']['entries']['provision-publish'] = ['enabled' => true];
         $config['skills']['entries']['provision-artifacts'] = ['enabled' => true];
+        $config['skills']['entries']['totp'] = ['enabled' => true];
 
         // Write updated config
         $executor->writeFile($configPath, OpenClawConfig::toJson($config));
