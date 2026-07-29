@@ -210,7 +210,9 @@ export type SlackConfigurationToken = {
 export type AgentEmailConnection = {
     id: string;
     agent_id: string;
+    provider: string;
     email_address: string | null;
+    has_app_password: boolean;
     status: string;
     created_at: string;
     updated_at: string;

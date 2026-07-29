@@ -37,6 +37,7 @@ import {
     Upload,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import type { FormEvent } from 'react';
 import { destroyArtifact } from '@/actions/App/Http/Controllers/AgentController';
 import { show as showProvisionApp } from '@/actions/App/Http/Controllers/ProvisionAppController';
 import ActivityFeed from '@/components/agents/activity-feed';
@@ -51,6 +52,7 @@ import MemoryBrowser from '@/components/agents/memory-browser';
 import StatusBadge from '@/components/agents/status-badge';
 import UsageChart from '@/components/agents/usage-chart';
 import DeleteConfirmDialog from '@/components/delete-confirm-dialog';
+import InputError from '@/components/input-error';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -282,6 +284,100 @@ function senderInitial(msg: {
     return name.charAt(0).toUpperCase();
 }
 
+// ─── Gmail settings (bring-your-own account) ─────────────────────
+
+function GmailSettings({ agent }: { agent: Agent }) {
+    const connection = agent.email_connection;
+    const hasPassword = connection?.has_app_password ?? false;
+
+    const form = useForm({
+        gmail_address: connection?.email_address ?? '',
+        gmail_app_password: '',
+    });
+
+    const submit = (e: FormEvent) => {
+        e.preventDefault();
+        form.patch(`/agents/${agent.id}/email/gmail`, {
+            preserveScroll: true,
+            onSuccess: () => form.reset('gmail_app_password'),
+        });
+    };
+
+    return (
+        <div className="mx-auto w-full max-w-xl px-4 py-8">
+            <div className="flex items-center gap-2">
+                <Mail className="size-4 text-muted-foreground" />
+                <h3 className="text-sm font-medium">Gmail settings</h3>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">
+                This agent sends and receives mail through its own Gmail account
+                (via an App Password). Its inbox lives in Gmail — the agent reads
+                and sends directly, and is woken the moment new mail arrives.
+            </p>
+
+            <form onSubmit={submit} className="mt-6 space-y-5">
+                <div className="space-y-2">
+                    <Label htmlFor="gmail_address">Gmail address</Label>
+                    <Input
+                        id="gmail_address"
+                        type="email"
+                        autoComplete="off"
+                        value={form.data.gmail_address}
+                        onChange={(e) =>
+                            form.setData('gmail_address', e.target.value)
+                        }
+                        placeholder="agent@yourcompany.com"
+                    />
+                    <InputError message={form.errors.gmail_address} />
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="gmail_app_password">App Password</Label>
+                    <Input
+                        id="gmail_app_password"
+                        type="password"
+                        autoComplete="new-password"
+                        value={form.data.gmail_app_password}
+                        onChange={(e) =>
+                            form.setData('gmail_app_password', e.target.value)
+                        }
+                        placeholder={
+                            hasPassword
+                                ? 'Leave blank to keep current password'
+                                : 'Paste the 16-character App Password'
+                        }
+                    />
+                    <InputError message={form.errors.gmail_app_password} />
+                    <p className="text-xs text-muted-foreground">
+                        Create one at{' '}
+                        <a
+                            href="https://myaccount.google.com/apppasswords"
+                            target="_blank"
+                            rel="noreferrer"
+                            className="underline underline-offset-2"
+                        >
+                            myaccount.google.com/apppasswords
+                        </a>
+                        . Spaces are fine — we strip them. The password is stored
+                        encrypted and never shown again.
+                    </p>
+                </div>
+
+                <div className="flex items-center gap-3">
+                    <Button type="submit" disabled={form.processing}>
+                        {form.processing ? 'Saving…' : 'Save changes'}
+                    </Button>
+                    {form.recentlySuccessful && (
+                        <span className="text-sm text-muted-foreground">
+                            Saved — the agent is re-syncing.
+                        </span>
+                    )}
+                </div>
+            </form>
+        </div>
+    );
+}
+
 // ─── Email Tab (two-column layout) ───────────────────────────────
 
 type EmailFilter = 'all' | 'received' | 'sent';
@@ -299,6 +395,7 @@ function EmailTab({
     agent: Agent;
     emailDomains?: EmailDomainOption[];
 }) {
+    const isGmail = agent.email_connection?.provider === 'gmail';
     const emailAddress = agent.email_connection?.email_address;
     const currentDomain = emailAddress?.split('@')[1] ?? '';
     // Verified domains this email could move to, excluding its current one.
@@ -373,10 +470,12 @@ function EmailTab({
     );
 
     useEffect(() => {
-        if (emailAddress) {
+        // The server-side inbox is MailboxKit-only; a Gmail agent's mail lives in
+        // Gmail, so we show its settings panel instead of fetching /inbox.
+        if (emailAddress && !isGmail) {
             fetchMessages(1);
         }
-    }, [emailAddress, fetchMessages]);
+    }, [emailAddress, isGmail, fetchMessages]);
 
     // Real-time email updates via Reverb
     useEcho<{ agent_id: string }>(
@@ -388,6 +487,10 @@ function EmailTab({
             }
         },
     );
+
+    if (isGmail) {
+        return <GmailSettings agent={agent} />;
+    }
 
     if (!emailAddress) {
         return (
