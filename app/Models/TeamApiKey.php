@@ -29,6 +29,15 @@ class TeamApiKey extends Model
     /**
      * @return array<string, string>
      */
+    /**
+     * The decrypted key must never serialize — the UI uses maskedKey() instead.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'api_key',
+    ];
+
     protected function casts(): array
     {
         return [

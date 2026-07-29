@@ -29,6 +29,16 @@ class AgentApiToken extends Model
     /**
      * @return array<string, string>
      */
+    /**
+     * The decrypted token must never serialize; the plaintext is returned once
+     * at creation and never again.
+     *
+     * @var list<string>
+     */
+    protected $hidden = [
+        'token_encrypted',
+    ];
+
     protected function casts(): array
     {
         return [
