@@ -1,5 +1,6 @@
 <?php
 
+use App\Contracts\Modules\BillingProvider;
 use App\Enums\AgentStatus;
 use App\Enums\CloudProvider;
 use App\Enums\ServerStatus;
@@ -8,6 +9,7 @@ use App\Jobs\DestroyTeamJob;
 use App\Models\Agent;
 use App\Models\AgentApiToken;
 use App\Models\AgentEmailConnection;
+use App\Models\ManagedApiKey;
 use App\Models\Server;
 use App\Models\Team;
 use App\Models\User;
@@ -16,6 +18,7 @@ use App\Services\AwsService;
 use App\Services\CloudServiceFactory;
 use App\Services\DigitalOceanService;
 use App\Services\LinodeService;
+use App\Services\OpenRouterKeyService;
 use App\Services\PublishArtifactService;
 use App\Services\SlackAppCleanupService;
 use GuzzleHttp\Psr7\Response as Psr7Response;
@@ -24,8 +27,6 @@ use Illuminate\Http\Client\RequestException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Sleep;
-use Provision\Billing\Models\ManagedOpenRouterKey;
-use Provision\Billing\Services\OpenRouterProvisioningService;
 use Provision\MailboxKit\Services\MailboxKitService;
 
 uses(RefreshDatabase::class);
@@ -58,6 +59,101 @@ it('dispatches DestroyTeamJob when team owner deletes team', function () {
         ->and(AgentApiToken::find($apiToken->id))->toBeNull();
 });
 
+it('cancels billing subscriptions before deleting the team', function () {
+    $team = Team::factory()->create();
+
+    $billing = Mockery::mock(BillingProvider::class);
+    $billing->shouldReceive('cleanupTeam')
+        ->withArgs(fn (Team $candidate) => $candidate->is($team))
+        ->once();
+    app()->instance(BillingProvider::class, $billing);
+
+    DestroyTeamJob::dispatchSync($team);
+
+    expect(Team::find($team->id))->toBeNull();
+});
+
+it('retains the team and retries when billing cleanup fails', function () {
+    $team = Team::factory()->create();
+    $attempts = 0;
+
+    $billing = Mockery::mock(BillingProvider::class);
+    $billing->shouldReceive('cleanupTeam')
+        ->withArgs(fn (Team $candidate) => $candidate->id === $team->id)
+        ->twice()
+        ->andReturnUsing(function () use (&$attempts): void {
+            $attempts++;
+
+            if ($attempts === 1) {
+                throw new RuntimeException('Stripe unavailable');
+            }
+        });
+    app()->instance(BillingProvider::class, $billing);
+
+    expect(fn () => DestroyTeamJob::dispatchSync($team))
+        ->toThrow(RuntimeException::class, 'Billing cleanup failed; team retained for retry.');
+
+    expect(Team::find($team->id))->not->toBeNull();
+
+    DestroyTeamJob::dispatchSync($team->fresh());
+
+    expect(Team::find($team->id))->toBeNull()
+        ->and($attempts)->toBe(2);
+});
+
+it('still revokes the managed key when billing cleanup fails', function () {
+    $team = Team::factory()->create();
+    $managedKey = ManagedApiKey::query()->create([
+        'team_id' => $team->id,
+        'openrouter_key_hash' => 'independent-cleanup-hash',
+        'api_key' => 'sk-or-test',
+        'name' => 'Provision independent cleanup key',
+    ]);
+
+    $billing = Mockery::mock(BillingProvider::class);
+    $billing->shouldReceive('cleanupTeam')
+        ->once()
+        ->andThrow(new RuntimeException('Stripe unavailable'));
+    app()->instance(BillingProvider::class, $billing);
+
+    $openRouter = Mockery::mock(OpenRouterKeyService::class);
+    $openRouter->shouldReceive('deleteKey')
+        ->with('independent-cleanup-hash')
+        ->once();
+    app()->instance(OpenRouterKeyService::class, $openRouter);
+
+    expect(fn () => DestroyTeamJob::dispatchSync($team))
+        ->toThrow(RuntimeException::class, 'Billing cleanup failed; team retained for retry.');
+
+    expect(Team::find($team->id))->not->toBeNull()
+        ->and(ManagedApiKey::find($managedKey->id))->toBeNull();
+});
+
+it('retains a stripe-backed team when the billing module is unavailable', function () {
+    $team = Team::factory()->create();
+    $team->setAttribute('stripe_id', 'cus_cleanup_required');
+    $job = new DestroyTeamJob($team);
+
+    expect(fn () => $job->handle(
+        app(SlackAppCleanupService::class),
+        app(PublishArtifactService::class),
+        app(OpenRouterKeyService::class),
+    ))
+        ->toThrow(
+            RuntimeException::class,
+            'Billing cleanup is unavailable for a Stripe-backed team; team retained for retry.',
+        );
+
+    expect(Team::find($team->id))->not->toBeNull();
+});
+
+it('configures retries with backoff for transient cleanup failures', function () {
+    $job = new DestroyTeamJob(Team::factory()->create());
+
+    expect($job->tries)->toBe(5)
+        ->and($job->backoff())->toBe([10, 30, 60, 120]);
+});
+
 it('cleans up mailboxkit inboxes and webhooks when destroying team', function () {
     if (! class_exists(MailboxKitService::class)) {
         $this->markTestSkipped('MailboxKit module not installed');
@@ -80,9 +176,6 @@ it('cleans up mailboxkit inboxes and webhooks when destroying team', function ()
     $slackCleanup->shouldReceive('cleanup')->once();
     app()->instance(SlackAppCleanupService::class, $slackCleanup);
 
-    $openRouter = Mockery::mock(OpenRouterProvisioningService::class);
-    app()->instance(OpenRouterProvisioningService::class, $openRouter);
-
     DestroyTeamJob::dispatchSync($team);
 
     expect(Team::find($team->id))->toBeNull();
@@ -90,14 +183,12 @@ it('cleans up mailboxkit inboxes and webhooks when destroying team', function ()
 });
 
 it('revokes openrouter managed key when destroying team', function () {
-    if (! class_exists('Provision\Billing\Models\ManagedOpenRouterKey')) {
-        $this->markTestSkipped('Requires billing module');
-    }
-
-    $team = Team::factory()->subscribed()->create();
-    $managedKey = ManagedOpenRouterKey::factory()->create([
+    $team = Team::factory()->create();
+    $managedKey = ManagedApiKey::query()->create([
         'team_id' => $team->id,
         'openrouter_key_hash' => 'test-hash-123',
+        'api_key' => 'sk-or-test',
+        'name' => 'Provision test key',
     ]);
 
     if (class_exists(MailboxKitService::class)) {
@@ -108,14 +199,14 @@ it('revokes openrouter managed key when destroying team', function () {
     $slackCleanup = Mockery::mock(SlackAppCleanupService::class);
     app()->instance(SlackAppCleanupService::class, $slackCleanup);
 
-    $openRouter = Mockery::mock(OpenRouterProvisioningService::class);
+    $openRouter = Mockery::mock(OpenRouterKeyService::class);
     $openRouter->shouldReceive('deleteKey')->with('test-hash-123')->once();
-    app()->instance(OpenRouterProvisioningService::class, $openRouter);
+    app()->instance(OpenRouterKeyService::class, $openRouter);
 
     DestroyTeamJob::dispatchSync($team);
 
     expect(Team::find($team->id))->toBeNull();
-    expect(ManagedOpenRouterKey::find($managedKey->id))->toBeNull();
+    expect(ManagedApiKey::find($managedKey->id))->toBeNull();
 });
 
 it('destroys cloud server and volume when destroying team', function () {
@@ -134,9 +225,6 @@ it('destroys cloud server and volume when destroying team', function () {
 
     $slackCleanup = Mockery::mock(SlackAppCleanupService::class);
     app()->instance(SlackAppCleanupService::class, $slackCleanup);
-
-    $openRouter = Mockery::mock(OpenRouterProvisioningService::class);
-    app()->instance(OpenRouterProvisioningService::class, $openRouter);
 
     $doService = Mockery::mock(DigitalOceanService::class);
     $doService->shouldReceive('deleteDroplet')->with('999888')->once();
@@ -167,8 +255,6 @@ it('retries DO volume conflicts for the full detach backoff window', function ()
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $conflict = new RequestException(new Response(new Psr7Response(409, [], json_encode([
         'id' => 'conflict',
         'message' => 'attached volume cannot be deleted',
@@ -221,8 +307,6 @@ it('retains teardown state after DO volume retries exhaust and can safely retry'
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $teardownEvents = [];
     $artifacts = Mockery::mock(PublishArtifactService::class);
     $artifacts->shouldReceive('teardownAgent')
@@ -307,8 +391,6 @@ it('retains the team and skips cloud teardown when artifact cleanup fails', func
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $artifacts = Mockery::mock(PublishArtifactService::class);
     $artifactCleanupAttempts = [];
     $artifacts->shouldReceive('teardownAgent')->twice()
@@ -354,8 +436,6 @@ it('releases the DO firewall when destroying a team that has one (issue #37)', f
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $doService = Mockery::mock(DigitalOceanService::class);
     $doService->shouldReceive('deleteDroplet')->with('999888')->once();
     $doService->shouldReceive('deleteVolume')->with('vol-abc')->once();
@@ -381,8 +461,6 @@ it('waits for AWS instance termination before releasing its security group', fun
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     // The security group can only be deleted once the instance is fully
     // terminated, so the wait MUST happen before deleteSecurityGroup.
     $aws = Mockery::mock(AwsService::class);
@@ -411,8 +489,6 @@ it('releases the Linode Cloud Firewall when destroying a team that has one', fun
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $linode = Mockery::mock(LinodeService::class);
     $linode->shouldReceive('deleteInstance')->with('55501')->once();
     $linode->shouldReceive('detachVolume')->with(9001)->once();
@@ -437,8 +513,6 @@ it('archives an ascii box before deleting its team record', function () {
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $ascii = Mockery::mock(AsciiBoxService::class);
     $ascii->shouldReceive('archiveBox')->with('bx_23456789')->once();
 
@@ -472,8 +546,6 @@ it('still deletes the Linode volume, firewall and team when the redundant detach
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $invalidJson = new RequestException(new Response(new Psr7Response(400, [], json_encode([
         'errors' => [['reason' => 'Invalid JSON']],
     ], JSON_THROW_ON_ERROR))));
@@ -509,8 +581,6 @@ it('retries the Linode volume delete while it is still detaching', function () {
         app()->instance(MailboxKitService::class, Mockery::mock(MailboxKitService::class));
     }
     app()->instance(SlackAppCleanupService::class, Mockery::mock(SlackAppCleanupService::class));
-    app()->instance(OpenRouterProvisioningService::class, Mockery::mock(OpenRouterProvisioningService::class));
-
     $stillAttached = new RequestException(new Response(new Psr7Response(400, [], json_encode([
         'errors' => [['reason' => 'Volume is still attached']],
     ], JSON_THROW_ON_ERROR))));
@@ -542,39 +612,38 @@ it('retries the Linode volume delete while it is still detaching', function () {
     ]);
 });
 
-it('continues cleanup even if external api calls fail', function () {
-    if (! class_exists('Provision\Billing\Models\ManagedOpenRouterKey')) {
-        $this->markTestSkipped('Requires billing module');
-    }
-
-    $team = Team::factory()->subscribed()->create();
-    $agent = Agent::factory()->create(['team_id' => $team->id]);
-    AgentEmailConnection::factory()->create([
-        'agent_id' => $agent->id,
-        'mailboxkit_inbox_id' => 11111,
-    ]);
-    ManagedOpenRouterKey::factory()->create([
+it('retains the team and managed key until openrouter cleanup succeeds', function () {
+    $team = Team::factory()->create();
+    $managedKey = ManagedApiKey::query()->create([
         'team_id' => $team->id,
         'openrouter_key_hash' => 'fail-hash',
+        'api_key' => 'sk-or-test',
+        'name' => 'Provision retry key',
     ]);
+    $attempts = 0;
 
-    if (class_exists(MailboxKitService::class)) {
-        $mailboxKit = Mockery::mock(MailboxKitService::class);
-        $mailboxKit->shouldReceive('deleteInbox')->andThrow(new RuntimeException('API down'));
-        $mailboxKit->shouldReceive('deleteWebhook')->never();
-        app()->instance(MailboxKitService::class, $mailboxKit);
-    }
+    $openRouter = Mockery::mock(OpenRouterKeyService::class);
+    $openRouter->shouldReceive('deleteKey')
+        ->with('fail-hash')
+        ->twice()
+        ->andReturnUsing(function () use (&$attempts): void {
+            $attempts++;
 
-    $slackCleanup = Mockery::mock(SlackAppCleanupService::class);
-    $slackCleanup->shouldReceive('cleanup')->once();
-    app()->instance(SlackAppCleanupService::class, $slackCleanup);
+            if ($attempts === 1) {
+                throw new RuntimeException('OpenRouter unavailable');
+            }
+        });
+    app()->instance(OpenRouterKeyService::class, $openRouter);
 
-    $openRouter = Mockery::mock(OpenRouterProvisioningService::class);
-    $openRouter->shouldReceive('deleteKey')->andThrow(new RuntimeException('API down'));
-    app()->instance(OpenRouterProvisioningService::class, $openRouter);
+    expect(fn () => DestroyTeamJob::dispatchSync($team))
+        ->toThrow(RuntimeException::class, 'OpenRouter key cleanup failed; team retained for retry.');
 
-    // Should not throw — failures are logged but don't block deletion
-    DestroyTeamJob::dispatchSync($team);
+    expect(Team::find($team->id))->not->toBeNull()
+        ->and(ManagedApiKey::find($managedKey->id))->not->toBeNull();
 
-    expect(Team::find($team->id))->toBeNull();
+    DestroyTeamJob::dispatchSync($team->fresh());
+
+    expect(Team::find($team->id))->toBeNull()
+        ->and(ManagedApiKey::find($managedKey->id))->toBeNull()
+        ->and($attempts)->toBe(2);
 });

@@ -10,5 +10,7 @@ interface BillingProvider
 
     public function getAgentLimit(Team $team): ?int;
 
+    public function cleanupTeam(Team $team): void;
+
     public function requiresSubscription(): bool;
 }
