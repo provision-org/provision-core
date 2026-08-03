@@ -311,8 +311,9 @@ function GmailSettings({ agent }: { agent: Agent }) {
             </div>
             <p className="mt-1 text-sm text-muted-foreground">
                 This agent sends and receives mail through its own Gmail account
-                (via an App Password). Its inbox lives in Gmail — the agent reads
-                and sends directly, and is woken the moment new mail arrives.
+                (via an App Password). Its inbox lives in Gmail — the agent
+                reads and sends directly, and is woken the moment new mail
+                arrives.
             </p>
 
             <form onSubmit={submit} className="mt-6 space-y-5">
@@ -358,8 +359,8 @@ function GmailSettings({ agent }: { agent: Agent }) {
                         >
                             myaccount.google.com/apppasswords
                         </a>
-                        . Spaces are fine — we strip them. The password is stored
-                        encrypted and never shown again.
+                        . Spaces are fine — we strip them. The password is
+                        stored encrypted and never shown again.
                     </p>
                 </div>
 
@@ -906,10 +907,14 @@ function ErrorBanner({ agent }: { agent: Agent }) {
     );
 }
 
-function AutoTopUpNudge({ agent }: { agent: Agent }) {
+function AutoTopUpNudge({
+    usesManagedCredits,
+}: {
+    usesManagedCredits: boolean;
+}) {
     const { wallet } = usePage<SharedData>().props;
+    if (!usesManagedCredits) return null;
     if (!wallet || wallet.auto_topup_enabled) return null;
-    if (agent.auth_provider === 'chatgpt') return null;
 
     const lowBalance = wallet.balance_cents < 300;
 
@@ -943,12 +948,18 @@ function AutoTopUpNudge({ agent }: { agent: Agent }) {
     );
 }
 
-function OverviewTab({ agent }: { agent: Agent }) {
+function OverviewTab({
+    agent,
+    usesManagedCredits,
+}: {
+    agent: Agent;
+    usesManagedCredits: boolean;
+}) {
     const [showPassword, setShowPassword] = useState(false);
 
     return (
         <div className="space-y-8">
-            <AutoTopUpNudge agent={agent} />
+            <AutoTopUpNudge usesManagedCredits={usesManagedCredits} />
 
             {agent.status === 'active' && (
                 <section>
@@ -960,7 +971,14 @@ function OverviewTab({ agent }: { agent: Agent }) {
                             </span>
                         )}
                     </div>
-                    <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-4 sm:grid-cols-4">
+                    <div
+                        className={cn(
+                            'mt-3 grid grid-cols-2 gap-x-8 gap-y-4',
+                            usesManagedCredits
+                                ? 'sm:grid-cols-4'
+                                : 'sm:grid-cols-3',
+                        )}
+                    >
                         <div>
                             <p className="text-2xl font-semibold tabular-nums">
                                 {agent.stats_total_sessions}
@@ -977,17 +995,19 @@ function OverviewTab({ agent }: { agent: Agent }) {
                                 Messages
                             </p>
                         </div>
-                        <div>
-                            <p className="text-2xl font-semibold tabular-nums">
-                                {formatTokens(
-                                    agent.stats_tokens_input +
-                                        agent.stats_tokens_output,
-                                )}
-                            </p>
-                            <p className="text-xs text-muted-foreground">
-                                Tokens used
-                            </p>
-                        </div>
+                        {usesManagedCredits && (
+                            <div>
+                                <p className="text-2xl font-semibold tabular-nums">
+                                    {formatTokens(
+                                        agent.stats_tokens_input +
+                                            agent.stats_tokens_output,
+                                    )}
+                                </p>
+                                <p className="text-xs text-muted-foreground">
+                                    Tokens used
+                                </p>
+                            </div>
+                        )}
                         <div>
                             <p className="text-2xl font-semibold tabular-nums">
                                 {relativeTime(agent.stats_last_active_at)}
@@ -1000,7 +1020,7 @@ function OverviewTab({ agent }: { agent: Agent }) {
                 </section>
             )}
 
-            {agent.status === 'active' && (
+            {agent.status === 'active' && usesManagedCredits && (
                 <section>
                     <h3 className="text-sm font-medium">Token Usage</h3>
                     <div className="mt-3">
@@ -1117,42 +1137,6 @@ function OverviewTab({ agent }: { agent: Agent }) {
                                 </div>
                             </div>
                         )}
-                    </div>
-                </section>
-            )}
-
-            {/* Tools */}
-            {agent.tools && agent.tools.length > 0 && (
-                <section className="rounded-lg border border-border p-4">
-                    <h3 className="mb-3 text-sm font-semibold">Tools</h3>
-                    <div className="space-y-2">
-                        {agent.tools.map((tool) => (
-                            <div
-                                key={tool.id}
-                                className="flex items-center justify-between text-sm"
-                            >
-                                <div className="flex items-center gap-2">
-                                    <span>{tool.name}</span>
-                                    {tool.url && (
-                                        <span className="text-xs text-muted-foreground">
-                                            {tool.url}
-                                        </span>
-                                    )}
-                                </div>
-                                <span
-                                    className={cn(
-                                        'text-xs font-medium',
-                                        tool.status === 'active'
-                                            ? 'text-green-500'
-                                            : 'text-muted-foreground',
-                                    )}
-                                >
-                                    {tool.status === 'active'
-                                        ? 'Connected'
-                                        : 'Pending'}
-                                </span>
-                            </div>
-                        ))}
                     </div>
                 </section>
             )}
@@ -3109,6 +3093,7 @@ function ArtifactsTab({
 export default function ShowAgent({
     agent,
     activities = [],
+    usesManagedCredits = false,
     teamId = '',
     browserUrl = null,
     desktopUrl = null,
@@ -3118,6 +3103,7 @@ export default function ShowAgent({
 }: {
     agent: Agent;
     activities?: AgentActivity[];
+    usesManagedCredits?: boolean;
     teamId?: string;
     browserUrl?: string | null;
     desktopUrl?: string | null;
@@ -3405,7 +3391,12 @@ export default function ShowAgent({
                                 <div className="mx-auto max-w-3xl">
                                     {activeTab === 'overview' && (
                                         <>
-                                            <OverviewTab agent={agent} />
+                                            <OverviewTab
+                                                agent={agent}
+                                                usesManagedCredits={
+                                                    usesManagedCredits
+                                                }
+                                            />
                                             {activities.length > 0 && (
                                                 <section className="mt-8">
                                                     <h3 className="text-sm font-medium">

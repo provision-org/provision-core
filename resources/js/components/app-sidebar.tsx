@@ -245,7 +245,7 @@ export function AppSidebar() {
                     <Button
                         asChild
                         size="sm"
-                        className="w-full justify-start gap-2 rounded-lg shadow-sm transition-transform group-data-[collapsible=icon]:w-auto group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 hover:scale-[1.02]"
+                        className="w-full justify-start gap-2 rounded-lg shadow-sm transition-transform group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0 hover:scale-[1.02]"
                     >
                         <Link href="/agents/create">
                             <Plus className="size-4 shrink-0" />
