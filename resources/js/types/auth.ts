@@ -138,7 +138,7 @@ export type Agent = {
     status: AgentStatus;
     model_primary: string | null;
     model_fallbacks: string[] | null;
-    auth_provider: 'openrouter' | 'chatgpt';
+    auth_provider: 'openrouter' | 'chatgpt' | 'bedrock';
     chatgpt_email: string | null;
     chatgpt_plan_type: string | null;
     chatgpt_account_id: string | null;

@@ -571,7 +571,7 @@ class AgentController extends Controller
         $emailProvider = app()->bound(AgentEmailProvider::class) ? app(AgentEmailProvider::class) : null;
 
         $agent->load(array_filter([
-            'server', 'slackConnection', 'emailConnection', 'telegramConnection', 'discordConnection', 'tools',
+            'server', 'slackConnection', 'emailConnection', 'telegramConnection', 'discordConnection',
             class_exists(Skill::class) ? 'skills' : null,
         ]))->makeVisible('default_password');
 
@@ -582,6 +582,8 @@ class AgentController extends Controller
 
         return Inertia::render('agents/show', [
             'agent' => $agent,
+            'usesManagedCredits' => $agent->auth_provider === 'openrouter'
+                && $team->managedApiKey()->exists(),
             'activities' => $activities,
             'teamId' => $team->id,
             'browserUrl' => $browserUrl,
