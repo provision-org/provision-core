@@ -10,6 +10,7 @@ use App\Enums\UsageSource;
 use App\Events\ApprovalRequestedEvent;
 use App\Events\TaskStatusChangedEvent;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\Api\DaemonHeartbeatRequest;
 use App\Http\Requests\Governance\ReportResultRequest;
 use App\Models\Agent;
 use App\Models\Approval;
@@ -402,13 +403,22 @@ class DaemonController extends Controller
     /**
      * POST /api/daemon/{token}/heartbeat
      */
-    public function heartbeat(Request $request): JsonResponse
+    public function heartbeat(DaemonHeartbeatRequest $request): JsonResponse
     {
         /** @var Server $server */
         $server = $request->get('daemon_server');
 
-        $server->update(['last_health_check' => now()]);
+        $validated = $request->validated();
+        $server->forceFill([
+            'last_health_check' => now(),
+            ...(! empty($validated['version']) ? ['daemon_version' => $validated['version']] : []),
+            ...(isset($validated['capabilities']) ? ['daemon_capabilities' => $validated['capabilities']] : []),
+            ...(isset($validated['active_runs']) ? ['daemon_active_runs' => $validated['active_runs']] : []),
+        ])->save();
 
-        return response()->json(['status' => 'ok']);
+        return response()->json([
+            'status' => 'ok',
+            'desired_version' => config('provision.provisiond_version'),
+        ]);
     }
 }

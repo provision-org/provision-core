@@ -10,12 +10,16 @@ use App\Enums\ServerStatus;
 use App\Events\ChatMessageErrorEvent;
 use App\Events\ChatMessageReceivedEvent;
 use App\Http\Requests\SendChatMessageRequest;
+use App\Jobs\CleanupOpenClawChatAttachmentsJob;
+use App\Jobs\EnsureProvisionDaemonCurrentJob;
 use App\Jobs\SendAgentChatMessageJob;
 use App\Models\Agent;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
+use App\Models\OpenClawSessionDiscovery;
 use App\Services\GatewayClient;
 use App\Services\OpenClawChatService;
+use App\Services\OpenClawSessionSyncService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -45,9 +49,25 @@ class ChatController extends Controller
             ->map(fn (ChatConversation $c) => [
                 'id' => $c->id,
                 'title' => $c->title,
+                'source' => $c->source,
+                'source_channel' => $c->source_channel,
+                'is_read_only' => $c->is_read_only,
                 'last_message_at' => $c->last_message_at?->toISOString(),
                 'created_at' => $c->created_at->toISOString(),
             ]);
+
+        $canImportServerSessions = $agent->harness_type === HarnessType::OpenClaw
+            && $request->user()->isTeamAdmin($team);
+        $serverSessions = collect();
+        if ($canImportServerSessions) {
+            $serverSessions = OpenClawSessionDiscovery::query()
+                ->where('agent_id', $agent->id)
+                ->unclaimedAndFresh()
+                ->orderByDesc('upstream_updated_at')
+                ->limit(50)
+                ->get()
+                ->map(fn (OpenClawSessionDiscovery $discovery) => $this->serverSessionResponse($discovery));
+        }
 
         $server = $agent->server;
         $hasBoxDesktop = $server?->cloud_provider === CloudProvider::Ascii
@@ -58,9 +78,13 @@ class ChatController extends Controller
             || $server?->isDocker()
             || ($server?->ipv4_address && $server?->vnc_password));
 
+        $this->ensureCurrentProvisionDaemon($agent);
+
         return Inertia::render('agents/chat', [
             'agent' => $agent,
             'conversations' => $conversations,
+            'serverSessions' => $serverSessions,
+            'canImportServerSessions' => $canImportServerSessions,
             'browserAvailable' => $browserAvailable,
             'desktopUrl' => $hasBoxDesktop ? route('agents.desktop', $agent) : null,
         ]);
@@ -94,6 +118,7 @@ class ChatController extends Controller
             ->get()
             ->map(fn ($msg) => [
                 'id' => $msg->id,
+                'client_message_id' => $msg->client_message_id,
                 'chat_conversation_id' => $msg->chat_conversation_id,
                 'role' => $msg->role->value,
                 'content' => $msg->contentWithUrls(),
@@ -122,11 +147,15 @@ class ChatController extends Controller
                 'id' => $conversation->id,
                 'title' => $conversation->title,
                 'session_key' => $conversation->session_key,
+                'source' => $conversation->source,
+                'source_channel' => $conversation->source_channel,
+                'is_read_only' => $conversation->is_read_only,
                 'last_message_at' => $conversation->last_message_at?->toISOString(),
             ],
             'messages' => $messages,
             'active_run' => $activeMessage ? [
                 'message_id' => $activeMessage->id,
+                'client_message_id' => $activeMessage->client_message_id,
                 'run_id' => $activeMessage->upstream_run_id,
                 'status' => $activeMessage->delivery_status,
             ] : null,
@@ -303,6 +332,7 @@ class ChatController extends Controller
         abort_unless($agent->team_id === $team->id, 404);
         abort_unless($conversation->agent_id === $agent->id, 404);
         abort_unless($conversation->user_id === $request->user()->id, 404);
+        abort_if($conversation->is_read_only, 409, 'This imported channel session is read-only.');
 
         [$userMessage, $created] = $this->createMessageForConversation(
             $agent,
@@ -341,6 +371,7 @@ class ChatController extends Controller
         abort_unless($agent->team_id === $team->id, 404);
         abort_unless($conversation->agent_id === $agent->id, 404);
         abort_unless($conversation->user_id === $request->user()->id, 404);
+        abort_if($conversation->is_read_only, 409, 'This imported channel session is read-only.');
 
         $conversation->loadMissing('agent.server');
 
@@ -495,6 +526,7 @@ class ChatController extends Controller
         abort_unless($agent->team_id === $team->id, 404);
         abort_unless($conversation->agent_id === $agent->id, 404);
         abort_unless($conversation->user_id === $request->user()->id, 404);
+        abort_if($conversation->is_read_only, 409, 'This imported channel session is read-only.');
 
         if ($agent->harness_type !== HarnessType::OpenClaw) {
             return response()->json(['error' => 'Stopping a response is not available for this agent.'], 409);
@@ -542,8 +574,89 @@ class ChatController extends Controller
             new ChatMessageErrorEvent($conversation->id, 'Response stopped.'),
             $conversation->id,
         );
+        CleanupOpenClawChatAttachmentsJob::dispatch($conversation, $message);
 
         return response()->json(['aborted' => true]);
+    }
+
+    public function syncServerSessions(
+        Agent $agent,
+        Request $request,
+        OpenClawSessionSyncService $syncService,
+    ): JsonResponse {
+        $team = $request->user()->currentTeam;
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+        abort_unless($agent->harness_type === HarnessType::OpenClaw, 409);
+
+        try {
+            $syncService->refreshAgent($agent);
+        } catch (\Throwable $exception) {
+            Log::warning('Could not refresh OpenClaw server sessions', [
+                'agent_id' => $agent->id,
+                'exception' => $exception::class,
+            ]);
+
+            return response()->json([
+                'error' => 'The server session list could not be refreshed right now.',
+            ], 503);
+        }
+
+        return response()->json([
+            'server_sessions' => OpenClawSessionDiscovery::query()
+                ->where('agent_id', $agent->id)
+                ->unclaimedAndFresh()
+                ->orderByDesc('upstream_updated_at')
+                ->limit(50)
+                ->get()
+                ->map(fn (OpenClawSessionDiscovery $discovery) => $this->serverSessionResponse($discovery))
+                ->values(),
+        ]);
+    }
+
+    public function importServerSession(
+        Agent $agent,
+        OpenClawSessionDiscovery $discovery,
+        Request $request,
+        OpenClawSessionSyncService $syncService,
+    ): JsonResponse {
+        $team = $request->user()->currentTeam;
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+        abort_unless($agent->harness_type === HarnessType::OpenClaw, 409);
+        abort_unless($discovery->agent_id === $agent->id, 404);
+        abort_unless($discovery->server_id === $agent->server_id, 404);
+        abort_if($discovery->isExpiredForImport(), 404);
+
+        try {
+            $conversation = $syncService->claimAndImport($discovery, $request->user());
+        } catch (\RuntimeException $exception) {
+            if ($exception->getMessage() === 'This server session has already been imported.') {
+                return response()->json(['error' => $exception->getMessage()], 409);
+            }
+
+            Log::warning('Could not import OpenClaw server session', [
+                'agent_id' => $agent->id,
+                'discovery_id' => $discovery->id,
+                'exception' => $exception::class,
+            ]);
+
+            return response()->json([
+                'error' => 'The server chat could not be imported right now.',
+            ], 503);
+        }
+
+        return response()->json([
+            'conversation' => [
+                'id' => $conversation->id,
+                'title' => $conversation->title,
+                'source' => $conversation->source,
+                'source_channel' => $conversation->source_channel,
+                'is_read_only' => $conversation->is_read_only,
+                'last_message_at' => $conversation->last_message_at?->toISOString(),
+                'created_at' => $conversation->created_at->toISOString(),
+            ],
+        ], 201);
     }
 
     public function attachment(ChatConversation $conversation, string $filename, Request $request): StreamedResponse
@@ -769,6 +882,48 @@ class ChatController extends Controller
             ]);
 
             abort(503, self::QUEUE_FAILURE_MESSAGE);
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function serverSessionResponse(OpenClawSessionDiscovery $discovery): array
+    {
+        return [
+            'id' => $discovery->id,
+            'title' => $discovery->title,
+            'preview' => $discovery->preview,
+            'kind' => $discovery->kind,
+            'channel' => $discovery->channel,
+            'chat_type' => $discovery->chat_type,
+            'can_send' => $discovery->canSend(),
+            'has_active_run' => $discovery->has_active_run,
+            'updated_at' => $discovery->upstream_updated_at?->toISOString(),
+        ];
+    }
+
+    private function ensureCurrentProvisionDaemon(Agent $agent): void
+    {
+        $server = $agent->server;
+        if (! $server || $agent->harness_type !== HarnessType::OpenClaw) {
+            return;
+        }
+
+        $desiredVersion = (string) config('provision.provisiond_version', '0.4.0');
+        $capabilities = $server->daemon_capabilities ?? [];
+        if ($server->daemon_version === $desiredVersion
+            && in_array('chat-relay-v1', $capabilities, true)) {
+            return;
+        }
+
+        try {
+            EnsureProvisionDaemonCurrentJob::dispatch($server);
+        } catch (\Throwable $exception) {
+            Log::warning('Could not queue provisiond chat relay upgrade', [
+                'server_id' => $server->id,
+                'exception' => $exception::class,
+            ]);
         }
     }
 

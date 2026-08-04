@@ -359,7 +359,7 @@ WRAPPER);
         $lines[] = '';
 
         // 10. Install and start provisiond (workforce agent daemon)
-        $provisiondVersion = config('provision.provisiond_version', '0.3.0');
+        $provisiondVersion = config('provision.provisiond_version', '0.4.0');
         $provisiondUrl = "https://github.com/provision-org/provision-core/releases/download/provisiond-v{$provisiondVersion}/provisiond.mjs";
         $apiUrl = config('app.url');
         $daemonToken = $server->daemon_token;

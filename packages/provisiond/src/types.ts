@@ -113,3 +113,42 @@ export interface UsageEvent {
   output_tokens: number;
   source: 'daemon';
 }
+
+export interface ChatRelayEvent {
+  event: 'chat' | 'session.message' | 'session.tool' | 'sessions.changed';
+  agent_id: string;
+  session_key: string;
+  run_id?: string;
+  sequence?: number;
+  state?: 'delta' | 'final' | 'aborted' | 'error';
+  delta?: string;
+  cumulative?: string;
+  replace?: boolean;
+  role?: 'user' | 'assistant';
+  idempotency_key?: string;
+  message_id?: string;
+  message_sequence?: number;
+  tool?: string;
+  phase?: string;
+  label?: string;
+  error_kind?: 'refusal' | 'timeout' | 'rate_limit' | 'context_length' | 'unknown';
+  has_active_run?: boolean;
+}
+
+export interface OpenClawSessionSnapshot {
+  agentId: string;
+  key: string;
+  kind: 'direct' | 'group' | 'global' | 'unknown';
+  channel?: string;
+  chatType?: string;
+  label?: string;
+  displayName?: string;
+  derivedTitle?: string;
+  subject?: string;
+  lastMessagePreview?: string;
+  updatedAt?: number;
+  hasActiveRun?: boolean;
+  activeRunIds?: string[];
+  spawnedBy?: string;
+  subagentRole?: string;
+}

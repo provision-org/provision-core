@@ -17,6 +17,25 @@ import { buildPrompt } from './prompt-builder.js';
 import { parseResponse } from './response-parser.js';
 const OPENCLAW_DEFAULT_PORT = 18789;
 export async function executeTask(task, config, api) {
+    // Defense-in-depth watchdog: even if every awaited call inside runTask had
+    // its own timeout fail open, this outer race guarantees the promise settles
+    // and the concurrency slot is released. Grace = 60s past the configured
+    // task timeout so the inner gateway timeout fires first under normal failure.
+    const watchdogMs = (config.taskTimeout + 60) * 1000;
+    let watchdogTimer;
+    const watchdog = new Promise((_, reject) => {
+        watchdogTimer = setTimeout(() => reject(new Error(`Watchdog timeout after ${watchdogMs}ms`)), watchdogMs);
+    });
+    try {
+        await Promise.race([runTask(task, config, api), watchdog]);
+    }
+    finally {
+        if (watchdogTimer) {
+            clearTimeout(watchdogTimer);
+        }
+    }
+}
+async function runTask(task, config, api) {
     const runId = randomUUID();
     const taskLabel = `${task.identifier} (${task.id})`;
     logger.info(`Starting task ${taskLabel}`, { runId, agent: task.agent.name });

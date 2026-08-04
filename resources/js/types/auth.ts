@@ -396,8 +396,23 @@ export type ChatContentBlock =
 export type ChatConversation = {
     id: string;
     title: string | null;
+    source?: string | null;
+    source_channel?: string | null;
+    is_read_only?: boolean;
     last_message_at: string | null;
     created_at: string;
+};
+
+export type ChatServerSession = {
+    id: string;
+    title: string;
+    preview: string | null;
+    kind: string;
+    channel: string | null;
+    chat_type: string | null;
+    can_send: boolean;
+    has_active_run: boolean;
+    updated_at: string | null;
 };
 
 export type ChatDeliveryStatus =
@@ -413,6 +428,7 @@ export type ChatMessage = {
     role: 'user' | 'assistant';
     content: ChatContentBlock[];
     sent_at: string;
+    client_message_id?: string | null;
     delivery_status?: ChatDeliveryStatus | null;
     delivery_error?: string | null;
     upstream_run_id?: string | null;

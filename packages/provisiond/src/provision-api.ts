@@ -1,142 +1,191 @@
 /**
  * HTTP client for Provision's daemon API.
  *
- * All endpoints are prefixed with /api/daemon/{token}/.
+ * All endpoints are server-scoped under /api/daemon/servers/{serverId}.
+ * The daemon token is sent only through the Authorization header.
  * Uses Node's built-in fetch API (Node 22+).
  */
 
 import { logger } from './logger.js';
-import type { Config, WorkQueueTask, TaskResult, ResolvedApproval, UsageEvent } from './types.js';
+import type {
+    ChatRelayEvent,
+    Config,
+    OpenClawSessionSnapshot,
+    WorkQueueTask,
+    TaskResult,
+    ResolvedApproval,
+    UsageEvent,
+} from './types.js';
 
 export class ProvisionApiClient {
-  private readonly baseUrl: string;
-  private readonly token: string;
+    private readonly baseUrl: string;
+    private readonly token: string;
 
-  constructor(config: Config) {
-    this.baseUrl = `${config.apiUrl}/api/daemon/${config.daemonToken}`;
-    this.token = config.daemonToken;
-  }
-
-  async getWorkQueue(): Promise<WorkQueueTask[]> {
-    const res = await this.request('GET', '/work-queue');
-    const data = (await res.json()) as { tasks: WorkQueueTask[] };
-    return data.tasks;
-  }
-
-  async checkoutTask(
-    taskId: string,
-    runId: string,
-  ): Promise<{ ok: boolean; task?: WorkQueueTask }> {
-    const res = await this.request('POST', `/tasks/${taskId}/checkout`, {
-      daemon_run_id: runId,
-    });
-
-    if (res.status === 409) {
-      logger.debug(`Task ${taskId} already checked out`);
-      return { ok: false };
+    constructor(config: Config) {
+        const apiUrl = config.apiUrl.replace(/\/+$/, '');
+        this.baseUrl = `${apiUrl}/api/daemon/servers/${encodeURIComponent(config.serverId)}`;
+        this.token = config.daemonToken;
     }
 
-    if (!res.ok) {
-      logger.error(`Checkout failed for task ${taskId}`, {
-        status: res.status,
-        statusText: res.statusText,
-      });
-      return { ok: false };
+    async getWorkQueue(): Promise<WorkQueueTask[]> {
+        const res = await this.request('GET', '/work-queue');
+        const data = (await res.json()) as { tasks: WorkQueueTask[] };
+        return data.tasks;
     }
 
-    const data = (await res.json()) as { task: WorkQueueTask };
-    return { ok: true, task: data.task };
-  }
+    async checkoutTask(
+        taskId: string,
+        runId: string,
+    ): Promise<{ ok: boolean; task?: WorkQueueTask }> {
+        const res = await this.request('POST', `/tasks/${taskId}/checkout`, {
+            daemon_run_id: runId,
+        });
 
-  async reportResult(taskId: string, result: TaskResult): Promise<void> {
-    const res = await this.request('POST', `/tasks/${taskId}/result`, result);
-    if (!res.ok) {
-      throw new Error(
-        `Failed to report result for task ${taskId}: ${res.status} ${res.statusText}`,
-      );
-    }
-  }
+        if (res.status === 409) {
+            logger.debug(`Task ${taskId} already checked out`);
+            return { ok: false };
+        }
 
-  async releaseTask(taskId: string, runId: string, reason?: string): Promise<void> {
-    const res = await this.request('POST', `/tasks/${taskId}/release`, {
-      daemon_run_id: runId,
-      reason,
-    });
-    if (!res.ok) {
-      logger.error(`Failed to release task ${taskId}`, {
-        status: res.status,
-        statusText: res.statusText,
-      });
-    }
-  }
+        if (!res.ok) {
+            logger.error(`Checkout failed for task ${taskId}`, {
+                status: res.status,
+                statusText: res.statusText,
+            });
+            return { ok: false };
+        }
 
-  async getResolvedApprovals(): Promise<ResolvedApproval[]> {
-    const res = await this.request('GET', '/resolved-approvals');
-    const data = (await res.json()) as { approvals: ResolvedApproval[] };
-    return data.approvals;
-  }
-
-  async reportUsage(event: UsageEvent): Promise<void> {
-    const res = await this.request('POST', '/usage-events', event);
-    if (!res.ok) {
-      logger.error('Failed to report usage event', {
-        status: res.status,
-        statusText: res.statusText,
-      });
-    }
-  }
-
-  async postNote(taskId: string, body: string): Promise<void> {
-    const res = await this.request('POST', `/tasks/${taskId}/notes`, { body });
-    if (!res.ok) {
-      logger.error(`Failed to post note for task ${taskId}`, {
-        status: res.status,
-        statusText: res.statusText,
-      });
-    }
-  }
-
-  async sendHeartbeat(activeRuns: string[]): Promise<void> {
-    const res = await this.request('POST', '/heartbeat', {
-      timestamp: new Date().toISOString(),
-      active_runs: activeRuns,
-    });
-    if (!res.ok) {
-      logger.warn('Heartbeat failed', {
-        status: res.status,
-        statusText: res.statusText,
-      });
-    }
-  }
-
-  private async request(
-    method: string,
-    path: string,
-    body?: unknown,
-    timeoutMs = 30_000,
-  ): Promise<Response> {
-    const url = `${this.baseUrl}${path}`;
-    const headers: Record<string, string> = {
-      Accept: 'application/json',
-      'Content-Type': 'application/json',
-    };
-
-    const init: RequestInit = { method, headers };
-    if (body !== undefined) {
-      init.body = JSON.stringify(body);
+        const data = (await res.json()) as { task: WorkQueueTask };
+        return { ok: true, task: data.task };
     }
 
-    logger.debug(`${method} ${path}`);
-
-    // Hard timeout on every API call — without this, a wedged socket can hang
-    // an awaited fetch indefinitely, which prevents the executor promise from
-    // ever settling and starves the daemon's concurrency slots.
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      return await fetch(url, { ...init, signal: controller.signal });
-    } finally {
-      clearTimeout(timer);
+    async reportResult(taskId: string, result: TaskResult): Promise<void> {
+        const res = await this.request(
+            'POST',
+            `/tasks/${taskId}/result`,
+            result,
+        );
+        if (!res.ok) {
+            throw new Error(
+                `Failed to report result for task ${taskId}: ${res.status} ${res.statusText}`,
+            );
+        }
     }
-  }
+
+    async releaseTask(
+        taskId: string,
+        runId: string,
+        reason?: string,
+    ): Promise<void> {
+        const res = await this.request('POST', `/tasks/${taskId}/release`, {
+            daemon_run_id: runId,
+            reason,
+        });
+        if (!res.ok) {
+            logger.error(`Failed to release task ${taskId}`, {
+                status: res.status,
+                statusText: res.statusText,
+            });
+        }
+    }
+
+    async getResolvedApprovals(): Promise<ResolvedApproval[]> {
+        const res = await this.request('GET', '/resolved-approvals');
+        const data = (await res.json()) as { approvals: ResolvedApproval[] };
+        return data.approvals;
+    }
+
+    async reportUsage(event: UsageEvent): Promise<void> {
+        const res = await this.request('POST', '/usage-events', event);
+        if (!res.ok) {
+            logger.error('Failed to report usage event', {
+                status: res.status,
+                statusText: res.statusText,
+            });
+        }
+    }
+
+    async postNote(taskId: string, body: string): Promise<void> {
+        const res = await this.request('POST', `/tasks/${taskId}/notes`, {
+            body,
+        });
+        if (!res.ok) {
+            logger.error(`Failed to post note for task ${taskId}`, {
+                status: res.status,
+                statusText: res.statusText,
+            });
+        }
+    }
+
+    async sendHeartbeat(
+        activeRuns: string[],
+        version?: string,
+        capabilities?: string[],
+    ): Promise<void> {
+        const res = await this.request('POST', '/heartbeat', {
+            timestamp: new Date().toISOString(),
+            active_runs: activeRuns,
+            version,
+            capabilities,
+        });
+        if (!res.ok) {
+            logger.warn('Heartbeat failed', {
+                status: res.status,
+                statusText: res.statusText,
+            });
+        }
+    }
+
+    async reportChatEvents(events: ChatRelayEvent[]): Promise<void> {
+        const res = await this.request('POST', '/chat/events', { events });
+        if (!res.ok) {
+            throw new Error(
+                `Chat event relay failed: ${res.status} ${res.statusText}`,
+            );
+        }
+    }
+
+    async syncOpenClawSessions(
+        sessions: OpenClawSessionSnapshot[],
+    ): Promise<void> {
+        const res = await this.request('POST', '/chat/sessions/snapshot', {
+            sessions,
+        });
+        if (!res.ok) {
+            throw new Error(
+                `Session snapshot failed: ${res.status} ${res.statusText}`,
+            );
+        }
+    }
+
+    private async request(
+        method: string,
+        path: string,
+        body?: unknown,
+        timeoutMs = 30_000,
+    ): Promise<Response> {
+        const url = `${this.baseUrl}${path}`;
+        const headers: Record<string, string> = {
+            Accept: 'application/json',
+            Authorization: `Bearer ${this.token}`,
+            'Content-Type': 'application/json',
+        };
+
+        const init: RequestInit = { method, headers };
+        if (body !== undefined) {
+            init.body = JSON.stringify(body);
+        }
+
+        logger.debug(`${method} ${path}`);
+
+        // Hard timeout on every API call — without this, a wedged socket can hang
+        // an awaited fetch indefinitely, which prevents the executor promise from
+        // ever settling and starves the daemon's concurrency slots.
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+            return await fetch(url, { ...init, signal: controller.signal });
+        } finally {
+            clearTimeout(timer);
+        }
+    }
 }

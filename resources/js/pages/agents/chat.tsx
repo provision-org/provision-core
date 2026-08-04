@@ -9,6 +9,7 @@ import {
     FolderOpen,
     LayoutGrid,
     LoaderCircle,
+    LockKeyhole,
     Monitor,
     PanelLeftClose,
     PanelLeftOpen,
@@ -28,11 +29,14 @@ import {
 } from '@/actions/App/Http/Controllers/AgentController';
 import {
     abort as abortChat,
+    importServerSession,
     index as chatIndex,
     kickoff as kickoffChat,
+    sendMessage as sendChatMessage,
     show as showChatConversation,
     store as storeChat,
     stream as streamChat,
+    syncServerSessions,
 } from '@/actions/App/Http/Controllers/ChatController';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import ChatConversationList from '@/components/agents/chat-conversation-list';
@@ -55,11 +59,14 @@ import type {
     ChatConversation,
     ChatDeliveryStatus,
     ChatMessage,
+    ChatServerSession,
 } from '@/types';
 
 type Props = {
     agent: Agent;
     conversations: ChatConversation[];
+    serverSessions?: ChatServerSession[];
+    canImportServerSessions?: boolean;
     browserAvailable?: boolean;
     desktopUrl?: string | null;
 };
@@ -97,8 +104,7 @@ type ChatConversationPayload = {
     active_run: ActiveChatRun | null;
 };
 
-const CHAT_POLL_INTERVAL_MS = 2_000;
-const CHAT_REPLY_TIMEOUT_MS = 3 * 60_000;
+const CHAT_RECONCILIATION_INTERVAL_MS = 15_000;
 
 function newRunId(): string {
     return (
@@ -177,9 +183,6 @@ function fetchHeaders(): Record<string, string> {
     };
 }
 
-/**
- * Parse an SSE stream from a fetch Response, calling the handler for each event.
- */
 async function readSseStream(
     response: Response,
     onEvent: (event: string, data: string) => void,
@@ -196,9 +199,7 @@ async function readSseStream(
 
         buffer += decoder.decode(value, { stream: true });
         buffer = buffer.replaceAll('\r\n', '\n');
-
         const parts = buffer.split('\n\n');
-        // Keep the last incomplete chunk in the buffer
         buffer = parts.pop() ?? '';
 
         for (const part of parts) {
@@ -223,6 +224,8 @@ async function readSseStream(
 export default function Chat({
     agent,
     conversations: initialConversations,
+    serverSessions: initialServerSessions = [],
+    canImportServerSessions = false,
     browserAvailable = false,
     desktopUrl = null,
 }: Props) {
@@ -270,6 +273,19 @@ export default function Chat({
 
     const [conversations, setConversations] =
         useState<ChatConversation[]>(initialConversations);
+    const [serverSessions, setServerSessions] = useState<ChatServerSession[]>(
+        initialServerSessions,
+    );
+    const [isRefreshingServerSessions, setIsRefreshingServerSessions] =
+        useState(false);
+    const [importingServerSessionId, setImportingServerSessionId] = useState<
+        string | null
+    >(null);
+    const [serverSessionsError, setServerSessionsError] = useState<
+        string | null
+    >(null);
+    const canManageServerSessions =
+        canImportServerSessions && agent.harness_type === 'openclaw';
     const [activeConversationId, setActiveConversationId] = useState<
         string | null
     >(null);
@@ -451,22 +467,24 @@ export default function Chat({
             setStreamingText(null);
             activeStreamId.current = null;
 
+            const run = pendingRunRef.current;
             if (
-                pendingRunRef.current?.conversationId ===
-                data.chat_conversation_id
+                data.role === 'assistant' &&
+                run?.conversationId === data.chat_conversation_id
             ) {
-                // The durable poll correlates this reply with the tracked user
-                // message before settling the run. Realtime is only a fast UI
-                // path because broadcast events do not yet carry the run ID.
-                setIsThinking(true);
-                setConnectionState('live');
+                // Only one run can be active in a conversation. A persisted
+                // assistant message is therefore the terminal relay event for
+                // the run currently shown in this thread.
+                finishPendingRun(run.id);
             } else {
-                setIsThinking(false);
-                setConnectionState('ready');
-                setChatError(null);
+                if (!run) {
+                    setIsThinking(false);
+                    setConnectionState('ready');
+                    setChatError(null);
+                }
             }
         },
-        [updateMessages],
+        [finishPendingRun, updateMessages],
     );
 
     const handleRealtimeSending = useCallback((conversationId: string) => {
@@ -677,10 +695,13 @@ export default function Chat({
                         ) {
                             finishPendingRun(trackedRun.id);
                         } else {
-                            finishPendingRun(trackedRun.id, {
-                                error: 'The agent is no longer processing this request and did not return a reply.',
-                                state: 'delayed',
-                            });
+                            // Relay and persistence can cross briefly. Absence
+                            // of active_run alone is not a terminal signal; keep
+                            // listening and let an explicit message status or
+                            // assistant event settle the run.
+                            setIsThinking(true);
+                            setConnectionState('recovering');
+                            setChatError(null);
                         }
                     } else {
                         const latestUserMessage = freshMessages.findLast(
@@ -842,35 +863,20 @@ export default function Chat({
         rememberActiveConversation,
     ]);
 
-    // Realtime is the fast path; this per-run poll is the durable source of
-    // truth. It correlates the browser run with the queued user message and the
-    // Gateway run ID returned by the show endpoint.
+    // Gateway events relayed over Reverb are the primary path. This low-rate
+    // reconciliation is only a safety net for a missed broadcast or a browser
+    // that slept while the run completed.
     useEffect(() => {
         if (!pendingRun) return;
 
         let stopped = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
         let consecutiveFailures = 0;
-        let missingActivePolls = 0;
-        let timeoutWarningShown = false;
         const controller = new AbortController();
         const run = pendingRun;
 
         const poll = async () => {
             if (stopped || pendingRunRef.current?.id !== run.id) return;
-
-            if (
-                !timeoutWarningShown &&
-                Date.now() - run.startedAt >= CHAT_REPLY_TIMEOUT_MS
-            ) {
-                timeoutWarningShown = true;
-                setConnectionState('delayed');
-                setChatError({
-                    message:
-                        'The reply is taking longer than expected. The agent is still processing it; you can keep waiting or stop the response.',
-                    canCheckAgain: false,
-                });
-            }
 
             try {
                 const res = await fetch(
@@ -923,8 +929,6 @@ export default function Chat({
                         activeRun.message_id === run.messageId);
 
                 if (activeRunMatches) {
-                    missingActivePolls = 0;
-
                     if (
                         run.messageId !== activeRun.message_id ||
                         run.upstreamRunId !== activeRun.run_id
@@ -939,10 +943,7 @@ export default function Chat({
                         return;
                     }
 
-                    if (
-                        activeConversationRef.current === run.conversationId &&
-                        !timeoutWarningShown
-                    ) {
+                    if (activeConversationRef.current === run.conversationId) {
                         setConnectionState(
                             activeRun.status === 'queued'
                                 ? 'sending'
@@ -969,15 +970,6 @@ export default function Chat({
                 ) {
                     finishPendingRun(run.id);
                     return;
-                } else if (!activeRun) {
-                    missingActivePolls += 1;
-                    if (missingActivePolls >= 2) {
-                        finishPendingRun(run.id, {
-                            error: 'The agent stopped processing this request without returning a reply.',
-                            state: 'delayed',
-                        });
-                        return;
-                    }
                 }
             } catch (error) {
                 if (controller.signal.aborted || stopped) return;
@@ -998,11 +990,11 @@ export default function Chat({
             }
 
             if (!stopped) {
-                timer = setTimeout(poll, CHAT_POLL_INTERVAL_MS);
+                timer = setTimeout(poll, CHAT_RECONCILIATION_INTERVAL_MS);
             }
         };
 
-        timer = setTimeout(poll, 750);
+        timer = setTimeout(poll, CHAT_RECONCILIATION_INTERVAL_MS);
         return () => {
             stopped = true;
             controller.abort();
@@ -1081,14 +1073,192 @@ export default function Chat({
         }
     }, [agent, conversations, finishPendingRun, isStopping, loadConversation]);
 
-    /**
-     * Stream a message to an existing conversation via SSE.
-     */
+    /** Keep the direct token stream for harnesses that do not use the OpenClaw
+     * Gateway relay yet. */
     const sendWithStreaming = useCallback(
         async (
             conversationId: string,
             formData: FormData,
             content: string,
+            clientMessageId: string,
+        ): Promise<boolean> => {
+            const runId = newRunId();
+            const baselineAssistantIds = messagesRef.current
+                .filter((message) => message.role === 'assistant')
+                .map((message) => message.id);
+            const optimisticMessage: ChatMessage = {
+                id: `temp-${runId}`,
+                chat_conversation_id: conversationId,
+                role: 'user',
+                content: [{ type: 'text', text: content }],
+                sent_at: new Date().toISOString(),
+                client_message_id: clientMessageId,
+                delivery_status: 'queued',
+            };
+            updateMessages((current) => [...current, optimisticMessage]);
+            setIsThinking(true);
+            setStreamingText(null);
+            setActivityLabel(null);
+            setChatError(null);
+            setConnectionState('sending');
+
+            let acknowledged = false;
+            let completed = false;
+            let sawHandoff = false;
+            let streamFailure: string | null = null;
+
+            try {
+                const response = await fetch(
+                    streamChat.url({ agent, conversation: conversationId }),
+                    {
+                        method: 'POST',
+                        body: formData,
+                        headers: fetchHeaders(),
+                    },
+                );
+                if (!response.ok || !response.body) {
+                    throw new Error(
+                        await responseError(
+                            response,
+                            'The message could not be sent.',
+                        ),
+                    );
+                }
+
+                await readSseStream(response, (event, data) => {
+                    const parsed = JSON.parse(data) as ChatMessage & {
+                        message?: string;
+                        text?: string;
+                    };
+                    if (activeConversationRef.current !== conversationId) {
+                        return;
+                    }
+
+                    if (event === 'message') {
+                        acknowledged = true;
+                        updateMessages((current) =>
+                            current.map((message) =>
+                                message.id === optimisticMessage.id
+                                    ? parsed
+                                    : message,
+                            ),
+                        );
+                        beginPendingRun(conversationId, {
+                            id: runId,
+                            messageId: parsed.id,
+                            upstreamRunId: parsed.upstream_run_id ?? null,
+                            baselineAssistantIds,
+                            state: 'sending',
+                        });
+                        setStreamingText('');
+                        return;
+                    }
+
+                    if (event === 'token') {
+                        if (pendingRunRef.current?.id !== runId) return;
+                        setConnectionState('live');
+                        setStreamingText(
+                            (current) => (current ?? '') + (parsed.text ?? ''),
+                        );
+                        return;
+                    }
+
+                    if (event === 'done') {
+                        completed = true;
+                        if (pendingRunRef.current?.id !== runId) return;
+                        if (parsed.id) {
+                            lastStreamedMessageId.current = parsed.id;
+                        }
+                        updateMessages((current) =>
+                            current.some((message) => message.id === parsed.id)
+                                ? current
+                                : [...current, parsed],
+                        );
+                        finishPendingRun(runId);
+                        return;
+                    }
+
+                    if (event === 'error') {
+                        streamFailure =
+                            parsed.message ??
+                            'The agent could not complete that request.';
+                        if (acknowledged) {
+                            finishPendingRun(runId, {
+                                error: streamFailure,
+                                state: 'delayed',
+                            });
+                        }
+                        return;
+                    }
+
+                    if (event === 'handoff') {
+                        sawHandoff = true;
+                        setStreamingText(null);
+                        setIsThinking(true);
+                        setConnectionState('waiting');
+                    }
+                });
+
+                if (!acknowledged) {
+                    throw new Error(
+                        streamFailure ??
+                            'The server did not confirm that the message was sent.',
+                    );
+                }
+
+                if (!completed && !streamFailure && !sawHandoff) {
+                    setConnectionState('recovering');
+                }
+
+                return true;
+            } catch (error) {
+                if (activeConversationRef.current !== conversationId) {
+                    return acknowledged;
+                }
+
+                if (acknowledged && pendingRunRef.current?.id === runId) {
+                    setStreamingText(null);
+                    setIsThinking(true);
+                    setConnectionState('recovering');
+                    setChatError({
+                        message:
+                            'Your message was sent, but the live connection was interrupted. We are checking for the reply automatically.',
+                        canCheckAgain: false,
+                    });
+                    return true;
+                }
+
+                updateMessages((current) =>
+                    current.filter(
+                        (message) => message.id !== optimisticMessage.id,
+                    ),
+                );
+                setIsThinking(false);
+                setStreamingText(null);
+                setConnectionState('delayed');
+                setChatError({
+                    message:
+                        error instanceof Error
+                            ? `${error.message} Your draft has been kept.`
+                            : 'The message could not be sent. Your draft has been kept.',
+                    canCheckAgain: false,
+                });
+                return false;
+            }
+        },
+        [agent, beginPendingRun, finishPendingRun, updateMessages],
+    );
+
+    /**
+     * Persist the message quickly, then let the Gateway relay carry progress
+     * and the terminal assistant message over the private Reverb channel.
+     */
+    const sendToConversation = useCallback(
+        async (
+            conversationId: string,
+            formData: FormData,
+            content: string,
+            clientMessageId: string,
         ): Promise<boolean> => {
             const runId = newRunId();
             const startedAt = Date.now();
@@ -1104,22 +1274,23 @@ export default function Chat({
                 role: 'user',
                 content: [{ type: 'text', text: content }],
                 sent_at: new Date().toISOString(),
+                client_message_id: clientMessageId,
+                delivery_status: 'queued',
             };
             updateMessages((prev) => [...prev, optimisticMsg]);
-            setIsThinking(true);
-            setStreamingText(null);
-            setActivityLabel(null);
-            setChatError(null);
-            setConnectionState('sending');
-
-            let sawHandoff = false;
-            let acknowledged = false;
-            let completed = false;
-            let streamFailure: string | null = null;
+            beginPendingRun(conversationId, {
+                id: runId,
+                startedAt,
+                baselineAssistantIds,
+                state: 'sending',
+            });
 
             try {
                 const res = await fetch(
-                    streamChat.url({ agent, conversation: conversationId }),
+                    sendChatMessage.url({
+                        agent,
+                        conversation: conversationId,
+                    }),
                     {
                         method: 'POST',
                         body: formData,
@@ -1127,7 +1298,7 @@ export default function Chat({
                     },
                 );
 
-                if (!res.ok || !res.body) {
+                if (!res.ok) {
                     throw new Error(
                         await responseError(
                             res,
@@ -1135,132 +1306,41 @@ export default function Chat({
                         ),
                     );
                 }
-
-                await readSseStream(res, (event, data) => {
-                    const parsed = JSON.parse(data) as ChatMessage & {
-                        message?: string;
-                        text?: string;
-                    };
-
-                    switch (event) {
-                        case 'message':
-                            acknowledged = true;
-                            if (
-                                activeConversationRef.current !== conversationId
-                            ) {
-                                break;
-                            }
-                            // Replace optimistic user message with real one
-                            updateMessages((prev) =>
-                                prev.map((m) =>
-                                    m.id === optimisticMsg.id ? parsed : m,
-                                ),
-                            );
-                            beginPendingRun(conversationId, {
-                                id: runId,
-                                messageId: parsed.id,
-                                upstreamRunId: parsed.upstream_run_id ?? null,
-                                startedAt,
-                                baselineAssistantIds,
-                                state: 'sending',
-                            });
-                            setStreamingText('');
-                            break;
-
-                        case 'token':
-                            if (
-                                activeConversationRef.current !== conversationId
-                            ) {
-                                break;
-                            }
-                            if (pendingRunRef.current?.id !== runId) break;
-                            setConnectionState('live');
-                            setStreamingText(
-                                (prev) => (prev ?? '') + (parsed.text ?? ''),
-                            );
-                            break;
-
-                        case 'done':
-                            if (
-                                activeConversationRef.current !== conversationId
-                            ) {
-                                break;
-                            }
-                            if (pendingRunRef.current?.id !== runId) break;
-                            completed = true;
-                            // Add the final assistant message and clear streaming
-                            if (parsed.id)
-                                lastStreamedMessageId.current = parsed.id;
-                            updateMessages((prev) => {
-                                if (prev.some((m) => m.id === parsed.id))
-                                    return prev;
-                                return [...prev, parsed];
-                            });
-                            finishPendingRun(runId);
-                            break;
-
-                        case 'error':
-                            streamFailure =
-                                parsed.message ||
-                                'The agent could not complete that request.';
-                            if (
-                                activeConversationRef.current !== conversationId
-                            ) {
-                                break;
-                            }
-                            if (acknowledged) {
-                                finishPendingRun(runId, {
-                                    error: streamFailure,
-                                    state: 'delayed',
-                                });
-                            } else {
-                                setIsThinking(false);
-                                setStreamingText(null);
-                                setConnectionState('delayed');
-                                setChatError({
-                                    message: streamFailure,
-                                    canCheckAgain: false,
-                                });
-                            }
-                            break;
-
-                        case 'handoff':
-                            if (
-                                activeConversationRef.current !== conversationId
-                            ) {
-                                break;
-                            }
-                            // OpenClaw hands the durable message to its native
-                            // Gateway run. The reply arrives via the private
-                            // conversation channel or durable polling.
-                            sawHandoff = true;
-                            setStreamingText(null);
-                            setIsThinking(true);
-                            setConnectionState('waiting');
-                            break;
-                    }
-                });
-
-                if (!acknowledged) {
-                    throw new Error(
-                        streamFailure ??
-                            'The server did not confirm that the message was sent.',
-                    );
+                const data = (await res.json()) as { message?: ChatMessage };
+                if (!data.message?.id) {
+                    throw new Error('Malformed response from server');
                 }
 
-                if (
-                    activeConversationRef.current === conversationId &&
-                    !completed &&
-                    !streamFailure &&
-                    !sawHandoff
-                ) {
-                    setConnectionState('recovering');
+                if (activeConversationRef.current !== conversationId) {
+                    return true;
+                }
+
+                updateMessages((prev) =>
+                    prev.map((message) =>
+                        message.id === optimisticMsg.id
+                            ? data.message!
+                            : message,
+                    ),
+                );
+
+                // A very fast terminal relay may have already completed this
+                // run while the POST response was in flight. Never resurrect it.
+                const currentRun = pendingRunRef.current;
+                if (currentRun?.id === runId) {
+                    const acknowledgedRun = {
+                        ...currentRun,
+                        messageId: data.message.id,
+                        upstreamRunId: data.message.upstream_run_id ?? null,
+                    } satisfies PendingChatRun;
+                    pendingRunRef.current = acknowledgedRun;
+                    setPendingRun(acknowledgedRun);
+                    setConnectionState('waiting');
                 }
 
                 return true;
             } catch (error) {
                 if (activeConversationRef.current !== conversationId) {
-                    return acknowledged;
+                    return false;
                 }
 
                 setStreamingText(null);
@@ -1268,97 +1348,89 @@ export default function Chat({
                 // The request may have reached Laravel before the connection
                 // broke. Reconcile once before restoring the draft, preventing
                 // an unnecessary resend when the durable user message exists.
-                if (!acknowledged) {
-                    try {
-                        const check = await fetch(
-                            showChatConversation.url({
-                                agent,
-                                conversation: conversationId,
-                            }),
-                            { headers: fetchHeaders() },
+                try {
+                    const check = await fetch(
+                        showChatConversation.url({
+                            agent,
+                            conversation: conversationId,
+                        }),
+                        { headers: fetchHeaders() },
+                    );
+                    if (check.ok) {
+                        const data =
+                            (await check.json()) as ChatConversationPayload;
+                        const fresh: ChatMessage[] = data.messages ?? [];
+                        const persistedUserMessage = fresh.find(
+                            (message) =>
+                                message.role === 'user' &&
+                                !knownMessageIds.has(message.id) &&
+                                (message.client_message_id ===
+                                    clientMessageId ||
+                                    (messageText(message).trim() === content &&
+                                        Date.parse(message.sent_at) >=
+                                            startedAt - 5_000)),
                         );
-                        if (check.ok) {
-                            const data =
-                                (await check.json()) as ChatConversationPayload;
-                            const fresh: ChatMessage[] = data.messages ?? [];
-                            const persistedUserMessage = fresh.find(
-                                (message) =>
-                                    message.role === 'user' &&
-                                    !knownMessageIds.has(message.id) &&
-                                    messageText(message).trim() === content &&
-                                    Date.parse(message.sent_at) >=
-                                        startedAt - 5_000,
-                            );
 
-                            if (persistedUserMessage) {
-                                messagesRef.current = fresh;
-                                setMessages(fresh);
+                        if (persistedUserMessage) {
+                            messagesRef.current = fresh;
+                            setMessages(fresh);
 
-                                if (
-                                    persistedUserMessage.delivery_status ===
-                                    'aborted'
-                                ) {
-                                    setIsThinking(false);
-                                    setConnectionState('ready');
-                                    setChatError(null);
-                                } else if (
-                                    persistedUserMessage.delivery_status ===
-                                    'failed'
-                                ) {
-                                    setIsThinking(false);
-                                    setConnectionState('delayed');
-                                    setChatError({
-                                        message:
-                                            persistedUserMessage.delivery_error ??
-                                            'The agent could not complete that request.',
-                                        canCheckAgain: true,
-                                    });
-                                } else if (
-                                    persistedUserMessage.delivery_status !==
-                                    'completed'
-                                ) {
-                                    beginPendingRun(conversationId, {
-                                        id: runId,
+                            if (
+                                persistedUserMessage.delivery_status ===
+                                'aborted'
+                            ) {
+                                finishPendingRun(runId);
+                            } else if (
+                                persistedUserMessage.delivery_status ===
+                                'failed'
+                            ) {
+                                finishPendingRun(runId, {
+                                    error:
+                                        persistedUserMessage.delivery_error ??
+                                        'The agent could not complete that request.',
+                                    state: 'delayed',
+                                });
+                            } else if (
+                                persistedUserMessage.delivery_status ===
+                                    'completed' ||
+                                fresh.some(
+                                    (message) =>
+                                        message.role === 'assistant' &&
+                                        !baselineAssistantIds.includes(
+                                            message.id,
+                                        ),
+                                )
+                            ) {
+                                finishPendingRun(runId);
+                            } else {
+                                const currentRun = pendingRunRef.current;
+                                if (currentRun?.id === runId) {
+                                    const reconciledRun = {
+                                        ...currentRun,
                                         messageId: persistedUserMessage.id,
                                         upstreamRunId:
                                             data.active_run?.message_id ===
                                             persistedUserMessage.id
                                                 ? data.active_run.run_id
                                                 : null,
-                                        startedAt,
-                                        baselineAssistantIds,
-                                        state: 'recovering',
-                                    });
-                                } else {
-                                    setIsThinking(false);
-                                    setConnectionState('ready');
-                                    setChatError(null);
+                                    } satisfies PendingChatRun;
+                                    pendingRunRef.current = reconciledRun;
+                                    setPendingRun(reconciledRun);
+                                    setConnectionState('recovering');
                                 }
-
-                                return true;
                             }
+
+                            return true;
                         }
-                    } catch {
-                        // Preserve the original send error below.
                     }
-                }
-
-                if (acknowledged && pendingRunRef.current?.id === runId) {
-                    setIsThinking(true);
-                    setConnectionState('recovering');
-                    setChatError({
-                        message:
-                            'Your message was sent, but the live connection was interrupted. We are checking for the reply automatically.',
-                        canCheckAgain: false,
-                    });
-
-                    return true;
+                } catch {
+                    // Preserve the original send error below.
                 }
 
                 updateMessages((prev) =>
                     prev.filter((message) => message.id !== optimisticMsg.id),
                 );
-                setIsThinking(false);
+                clearPendingRun();
                 setConnectionState('delayed');
                 setChatError({
                     message:
@@ -1371,7 +1443,13 @@ export default function Chat({
                 return false;
             }
         },
-        [agent, beginPendingRun, finishPendingRun, updateMessages],
+        [
+            agent,
+            beginPendingRun,
+            clearPendingRun,
+            finishPendingRun,
+            updateMessages,
+        ],
     );
 
     const handleSend = useCallback(
@@ -1409,12 +1487,32 @@ export default function Chat({
             files.forEach((file) => formData.append('attachments[]', file));
 
             if (activeConversationId) {
-                // Use streaming for existing conversations
-                const accepted = await sendWithStreaming(
-                    activeConversationId,
-                    formData,
-                    content,
+                const activeConversation = conversations.find(
+                    (conversation) => conversation.id === activeConversationId,
                 );
+                if (activeConversation?.is_read_only) {
+                    setChatError({
+                        message:
+                            'This imported channel conversation is read-only in Provision.',
+                        canCheckAgain: false,
+                    });
+                    return false;
+                }
+
+                const accepted =
+                    agent.harness_type === 'openclaw'
+                        ? await sendToConversation(
+                              activeConversationId,
+                              formData,
+                              content,
+                              clientMessageId,
+                          )
+                        : await sendWithStreaming(
+                              activeConversationId,
+                              formData,
+                              content,
+                              clientMessageId,
+                          );
                 if (accepted) {
                     pendingClientMessageRef.current = null;
                 }
@@ -1489,7 +1587,9 @@ export default function Chat({
             activeConversationId,
             agent,
             beginPendingRun,
+            conversations,
             rememberActiveConversation,
+            sendToConversation,
             sendWithStreaming,
         ],
     );
@@ -1506,6 +1606,111 @@ export default function Chat({
         setChatError(null);
         await loadConversation(conversation);
     }, [activeConversationId, conversations, loadConversation]);
+
+    const handleRefreshServerSessions = useCallback(async () => {
+        if (!canManageServerSessions || isRefreshingServerSessions) return;
+
+        setIsRefreshingServerSessions(true);
+        setServerSessionsError(null);
+
+        try {
+            const response = await fetch(syncServerSessions.url(agent), {
+                method: 'POST',
+                headers: fetchHeaders(),
+            });
+            if (!response.ok) {
+                throw new Error(
+                    await responseError(
+                        response,
+                        'Unable to refresh server chats.',
+                    ),
+                );
+            }
+
+            const data = (await response.json()) as {
+                server_sessions?: ChatServerSession[];
+            };
+            setServerSessions(data.server_sessions ?? []);
+        } catch (error) {
+            setServerSessionsError(
+                error instanceof Error
+                    ? error.message
+                    : 'Unable to refresh server chats.',
+            );
+        } finally {
+            setIsRefreshingServerSessions(false);
+        }
+    }, [agent, canManageServerSessions, isRefreshingServerSessions]);
+
+    const handleImportServerSession = useCallback(
+        async (session: ChatServerSession) => {
+            if (!canManageServerSessions || importingServerSessionId) return;
+
+            setImportingServerSessionId(session.id);
+            setServerSessionsError(null);
+
+            try {
+                const response = await fetch(
+                    importServerSession.url({
+                        agent,
+                        discovery: session.id,
+                    }),
+                    {
+                        method: 'POST',
+                        headers: fetchHeaders(),
+                    },
+                );
+                if (!response.ok) {
+                    throw new Error(
+                        await responseError(
+                            response,
+                            'Unable to import this server chat.',
+                        ),
+                    );
+                }
+
+                const data = (await response.json()) as {
+                    conversation?: ChatConversation;
+                };
+                if (!data.conversation?.id) {
+                    throw new Error('Malformed response from server');
+                }
+
+                setServerSessions((current) =>
+                    current.filter((candidate) => candidate.id !== session.id),
+                );
+                setConversations((current) => [
+                    data.conversation!,
+                    ...current.filter(
+                        (candidate) => candidate.id !== data.conversation!.id,
+                    ),
+                ]);
+                await loadConversation(data.conversation);
+            } catch (error) {
+                setServerSessionsError(
+                    error instanceof Error
+                        ? error.message
+                        : 'Unable to import this server chat.',
+                );
+            } finally {
+                setImportingServerSessionId(null);
+            }
+        },
+        [
+            agent,
+            canManageServerSessions,
+            importingServerSessionId,
+            loadConversation,
+        ],
+    );
+
+    const activeConversation = conversations.find(
+        (conversation) => conversation.id === activeConversationId,
+    );
+    const activeConversationIsReadOnly =
+        activeConversation?.is_read_only === true;
+    const activeConversationChannel =
+        activeConversation?.source_channel?.replaceAll('-', ' ') ?? 'channel';
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Agents', href: agentsIndex.url() },
@@ -1540,6 +1745,17 @@ export default function Chat({
                         activeId={activeConversationId}
                         onSelect={loadConversation}
                         onNewChat={handleNewChat}
+                        serverSessions={serverSessions}
+                        canImportServerSessions={canManageServerSessions}
+                        isRefreshingServerSessions={isRefreshingServerSessions}
+                        importingServerSessionId={importingServerSessionId}
+                        serverSessionsError={serverSessionsError}
+                        onRefreshServerSessions={() =>
+                            void handleRefreshServerSessions()
+                        }
+                        onImportServerSession={(session) =>
+                            void handleImportServerSession(session)
+                        }
                     />
                 </div>
 
@@ -1676,10 +1892,25 @@ export default function Chat({
                         />
                     )}
 
+                    {activeConversationIsReadOnly && (
+                        <div className="flex shrink-0 items-start gap-2 border-t bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
+                            <LockKeyhole className="mt-0.5 size-3.5 shrink-0" />
+                            <p>
+                                This imported {activeConversationChannel} chat
+                                is read-only in Provision. Continue the
+                                conversation in its original channel.
+                            </p>
+                        </div>
+                    )}
                     <ChatInput
                         key={activeConversationId ?? 'new'}
                         onSend={handleSend}
-                        disabled={isThinking || isLoading || isStopping}
+                        disabled={
+                            activeConversationIsReadOnly ||
+                            isThinking ||
+                            isLoading ||
+                            isStopping
+                        }
                     />
                 </div>
 

@@ -4,6 +4,8 @@ use App\Contracts\CommandExecutor;
 use App\Enums\ChatMessageRole;
 use App\Events\ChatMessageErrorEvent;
 use App\Events\ChatMessageReceivedEvent;
+use App\Jobs\CleanupOpenClawChatAttachmentsJob;
+use App\Jobs\ReconcileOpenClawChatMessageJob;
 use App\Jobs\SendAgentChatMessageJob;
 use App\Models\Agent;
 use App\Models\ChatConversation;
@@ -12,6 +14,8 @@ use App\Models\Server;
 use App\Models\User;
 use App\Services\HarnessManager;
 use App\Services\OpenClawChatService;
+use Illuminate\Contracts\Bus\Dispatcher;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Event;
 
 function openClawDeliveryFixture(): array
@@ -38,8 +42,12 @@ function openClawDeliveryFixture(): array
     return [$user, $server, $agent, $conversation, $message];
 }
 
-test('OpenClaw delivery job projects one canonical Gateway reply and completes the outbox row', function () {
+test('OpenClaw delivery starts quickly and reconciliation projects one canonical reply', function () {
     [, $server,, $conversation, $message] = openClawDeliveryFixture();
+    Bus::fake([
+        CleanupOpenClawChatAttachmentsJob::class,
+        ReconcileOpenClawChatMessageJob::class,
+    ]);
     Event::fake();
 
     $executor = Mockery::mock(CommandExecutor::class);
@@ -62,11 +70,24 @@ test('OpenClaw delivery job projects one canonical Gateway reply and completes t
         ]));
 
     $manager = Mockery::mock(HarnessManager::class);
-    $manager->shouldReceive('resolveExecutor')->once()->withArgs(fn (Server $value) => $value->is($server))->andReturn($executor);
+    $manager->shouldReceive('resolveExecutor')->twice()->withArgs(fn (Server $value) => $value->is($server))->andReturn($executor);
 
     $service = new OpenClawChatService($manager);
     (new SendAgentChatMessageJob($conversation, $message))->handle($service);
-    (new SendAgentChatMessageJob($conversation, $message))->handle($service);
+
+    expect($message->fresh()->delivery_status)->toBe('running')
+        ->and($message->fresh()->upstream_run_id)->toBe('delivery-run')
+        ->and($conversation->messages()->where('role', ChatMessageRole::Assistant)->count())->toBe(0);
+    Bus::assertDispatched(
+        ReconcileOpenClawChatMessageJob::class,
+        fn (ReconcileOpenClawChatMessageJob $job) => $job->conversation->is($conversation)
+            && $job->userMessage->is($message)
+            && $job->queue === 'chat'
+            && $job->delay !== null,
+    );
+
+    (new ReconcileOpenClawChatMessageJob($conversation, $message))->handle($service);
+    (new ReconcileOpenClawChatMessageJob($conversation, $message))->handle($service);
 
     $message->refresh();
     expect($message->delivery_status)->toBe('completed')
@@ -77,6 +98,12 @@ test('OpenClaw delivery job projects one canonical Gateway reply and completes t
         ->toBe([['type' => 'text', 'text' => 'Canonical reply']]);
 
     Event::assertDispatched(ChatMessageReceivedEvent::class);
+    Bus::assertDispatched(
+        CleanupOpenClawChatAttachmentsJob::class,
+        fn (CleanupOpenClawChatAttachmentsJob $job) => $job->conversation->is($conversation)
+            && $job->message->is($message)
+            && $job->queue === 'chat',
+    );
 });
 
 test('conversation owner can idempotently stop an active native Gateway run', function () {
@@ -132,8 +159,35 @@ test('exhausted delivery persists a reload-safe error state', function () {
     Event::assertDispatched(ChatMessageErrorEvent::class);
 });
 
+test('a reconciliation queue outage never resends or fails an accepted Gateway run', function () {
+    [, $server,, $conversation, $message] = openClawDeliveryFixture();
+    Event::fake();
+
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")))
+        ->andReturn(json_encode(['runId' => 'accepted-during-outage', 'status' => 'started']));
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')->once()->andReturn($executor);
+    $dispatcher = Mockery::mock(Dispatcher::class);
+    $dispatcher->shouldReceive('dispatch')
+        ->once()
+        ->with(Mockery::type(ReconcileOpenClawChatMessageJob::class))
+        ->andThrow(new RuntimeException('Queue unavailable'));
+    app()->instance(Dispatcher::class, $dispatcher);
+
+    (new SendAgentChatMessageJob($conversation, $message))
+        ->handle(new OpenClawChatService($manager));
+
+    expect($message->fresh()->delivery_status)->toBe('running')
+        ->and($message->fresh()->upstream_run_id)->toBe('accepted-during-outage')
+        ->and($message->fresh()->delivery_error)->toBeNull();
+});
+
 test('an abort racing with the canonical reply never creates or completes the assistant projection', function () {
     [, $server,, $conversation, $message] = openClawDeliveryFixture();
+    Bus::fake([ReconcileOpenClawChatMessageJob::class]);
     Event::fake();
 
     $executor = Mockery::mock(CommandExecutor::class);
@@ -163,9 +217,11 @@ test('an abort racing with the canonical reply never creates or completes the as
         });
 
     $manager = Mockery::mock(HarnessManager::class);
-    $manager->shouldReceive('resolveExecutor')->once()->withArgs(fn (Server $value) => $value->is($server))->andReturn($executor);
+    $manager->shouldReceive('resolveExecutor')->twice()->withArgs(fn (Server $value) => $value->is($server))->andReturn($executor);
 
-    (new SendAgentChatMessageJob($conversation, $message))->handle(new OpenClawChatService($manager));
+    $service = new OpenClawChatService($manager);
+    (new SendAgentChatMessageJob($conversation, $message))->handle($service);
+    (new ReconcileOpenClawChatMessageJob($conversation, $message))->handle($service);
 
     expect($message->fresh()->delivery_status)->toBe('aborted')
         ->and($conversation->messages()->where('role', ChatMessageRole::Assistant)->count())->toBe(0);
@@ -174,12 +230,15 @@ test('an abort racing with the canonical reply never creates or completes the as
 test('chat queue timing cannot re-reserve a still-running Horizon job', function () {
     $maxWorkerTimeout = collect(config('horizon.defaults'))->max('timeout');
     [, , , $conversation, $message] = openClawDeliveryFixture();
-    $job = new SendAgentChatMessageJob($conversation, $message);
+    $sendJob = new SendAgentChatMessageJob($conversation, $message);
+    $reconcileJob = new ReconcileOpenClawChatMessageJob($conversation, $message);
 
     expect(config('queue.connections.redis.retry_after'))->toBeGreaterThan($maxWorkerTimeout)
         ->and(config('horizon.defaults.supervisor-chat.queue'))->toBe(['chat'])
         ->and(config('horizon.defaults.supervisor-chat.timeout'))->toBeGreaterThan(
-            $job->timeout,
+            max($sendJob->timeout, $reconcileJob->timeout),
         )
-        ->and($job->timeout)->toBeGreaterThan(OpenClawChatService::DEFAULT_TIMEOUT_SECONDS);
+        ->and($sendJob->timeout)->toBe(90)
+        ->and($reconcileJob->timeout)->toBe(90)
+        ->and($sendJob->timeout)->toBeLessThan(OpenClawChatService::DEFAULT_TIMEOUT_SECONDS);
 });

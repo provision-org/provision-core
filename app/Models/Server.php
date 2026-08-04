@@ -20,14 +20,14 @@ class Server extends Model
     /**
      * @var list<string>
      */
-    /**
-     * @var list<string>
-     */
     protected $hidden = [
         'root_password',
         'gateway_token',
         'vnc_password',
         'daemon_token',
+        'daemon_version',
+        'daemon_capabilities',
+        'daemon_active_runs',
     ];
 
     protected $fillable = [
@@ -65,6 +65,8 @@ class Server extends Model
             'daemon_token' => 'encrypted',
             'provisioned_at' => 'datetime',
             'last_health_check' => 'datetime',
+            'daemon_capabilities' => 'array',
+            'daemon_active_runs' => 'array',
         ];
     }
 

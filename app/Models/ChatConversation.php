@@ -22,7 +22,11 @@ class ChatConversation extends Model
         'user_id',
         'title',
         'session_key',
+        'source',
+        'source_channel',
+        'is_read_only',
         'last_message_at',
+        'last_reconciled_at',
     ];
 
     /**
@@ -32,6 +36,8 @@ class ChatConversation extends Model
     {
         return [
             'last_message_at' => 'datetime',
+            'last_reconciled_at' => 'datetime',
+            'is_read_only' => 'boolean',
         ];
     }
 

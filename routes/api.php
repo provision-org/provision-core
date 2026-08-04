@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\CaddyController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\HermesInstallScriptController;
 use App\Http\Controllers\Api\MobilePairingExchangeController;
+use App\Http\Controllers\Api\OpenClawChatRelayController;
 use App\Http\Controllers\Api\ServerCallbackController;
 use App\Http\Controllers\Api\ServerSetupCallbackController;
 use App\Http\Controllers\Api\ServerSetupScriptController;
@@ -97,8 +98,9 @@ Route::prefix('agents/web-channel')->group(function () {
         ->name('api.agents.web-channel.upload');
 });
 
-// Daemon API — authenticated via server daemon_token
-Route::prefix('daemon/{token}')->middleware('daemon.token')->group(function () {
+// Daemon API — authenticated via each server's encrypted daemon token. Current
+// daemons send it as a bearer token; the path-token prefix remains for v0.3.
+$daemonRoutes = function (): void {
     Route::get('work-queue', [DaemonController::class, 'workQueue']);
     Route::post('tasks/{task}/checkout', [DaemonController::class, 'checkoutTask']);
     Route::post('tasks/{task}/result', [DaemonController::class, 'reportResult']);
@@ -106,5 +108,10 @@ Route::prefix('daemon/{token}')->middleware('daemon.token')->group(function () {
     Route::get('resolved-approvals', [DaemonController::class, 'resolvedApprovals']);
     Route::post('usage-events', [DaemonController::class, 'reportUsage']);
     Route::post('tasks/{task}/notes', [DaemonController::class, 'postNote']);
+    Route::post('chat/events', [OpenClawChatRelayController::class, 'events']);
+    Route::post('chat/sessions/snapshot', [OpenClawChatRelayController::class, 'sessions']);
     Route::post('heartbeat', [DaemonController::class, 'heartbeat']);
-});
+};
+
+Route::prefix('daemon/servers/{server}')->middleware('daemon.token')->group($daemonRoutes);
+Route::prefix('daemon/{token}')->middleware('daemon.token')->group($daemonRoutes);
