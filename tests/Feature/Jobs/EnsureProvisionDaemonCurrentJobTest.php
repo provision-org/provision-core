@@ -123,6 +123,19 @@ test('daemon maintenance holds an execution lock for the full update', function 
     }
 });
 
+test('current Docker daemon defers Gateway auth maintenance while heartbeat reports active runs', function () {
+    $server = dockerServerForDaemonUpdate([
+        'gateway_token' => 'active-daemon-run-token',
+        'last_health_check' => now(),
+        'daemon_active_runs' => ['active-daemon-run'],
+    ]);
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldNotReceive('resolveExecutor');
+
+    (new EnsureProvisionDaemonCurrentJob($server))->handle($manager);
+});
+
 test('Docker Gateway maintenance waits for an active dashboard chat', function () {
     $server = dockerServerForDaemonUpdate(['gateway_token' => 'active-chat-token']);
     $agent = Agent::factory()->create([
