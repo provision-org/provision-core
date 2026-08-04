@@ -189,7 +189,7 @@ test('Docker Gateway maintenance waits for an active server-discovered chat', fu
     (new EnsureProvisionDaemonCurrentJob($server))->handle($manager);
 });
 
-test('Docker daemon replacement waits for the old process before starting the new one', function () {
+test('Docker daemon replacement keeps its module extension and waits for the old process', function () {
     $server = dockerServerForDaemonUpdate([
         'gateway_token' => 'current-gateway-token',
         'daemon_version' => '0.3.0',
@@ -205,15 +205,33 @@ test('Docker daemon replacement waits for the old process before starting the ne
 
     $executor = Mockery::mock(CommandExecutor::class);
     $executor->shouldReceive('readFile')->once()->andReturn($remoteConfig);
-    $executor->shouldReceive('writeFile')->twice();
-    $executor->shouldReceive('exec')->once()->with(Mockery::on(fn (string $command) => str_starts_with($command, 'chmod 0755')))->andReturn('');
-    $executor->shouldReceive('exec')->once()->with(Mockery::on(fn (string $command) => str_starts_with($command, 'node --check')))->andReturn('');
-    $executor->shouldReceive('exec')->once()->with(Mockery::on(fn (string $command) => str_contains($command, 'mv ')))->andReturn('');
+    $executor->shouldReceive('writeFile')
+        ->once()
+        ->with('/opt/provisiond/provisiond.provision-new.mjs', Mockery::type('string'));
+    $executor->shouldReceive('writeFile')
+        ->once()
+        ->with('/opt/provisiond/package.provision-new.json', Mockery::type('string'));
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with("chmod 0755 '/opt/provisiond/provisiond.provision-new.mjs'")
+        ->andReturn('');
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with("node --check '/opt/provisiond/provisiond.provision-new.mjs'")
+        ->andReturn('');
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with("mv '/opt/provisiond/provisiond.provision-new.mjs' /opt/provisiond/provisiond.mjs && mv '/opt/provisiond/package.provision-new.json' /opt/provisiond/package.json")
+        ->andReturn('');
     $executor->shouldReceive('exec')
         ->once()
         ->with(Mockery::on(fn (string $command) => str_contains($command, 'for attempt in {1..30}')
             && str_contains($command, "pgrep -f '^node /opt/provisiond/provisiond[.]mjs( |$)'")
             && strpos($command, 'for attempt') < strpos($command, 'nohup node')))
+        ->andReturn('');
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with("rm -f '/opt/provisiond/provisiond.provision-new.mjs' '/opt/provisiond/package.provision-new.json' '/opt/provisiond/provisiond.mjs.provision-new' '/opt/provisiond/package.json.provision-new'")
         ->andReturn('');
 
     $manager = Mockery::mock(HarnessManager::class);
@@ -223,4 +241,45 @@ test('Docker daemon replacement waits for the old process before starting the ne
 
     expect($server->fresh()->daemon_version)->toBeNull()
         ->and($server->fresh()->daemon_capabilities)->toBeNull();
+});
+
+test('daemon update preserves the live bundle when candidate validation fails', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $server = Server::factory()->running()->create([
+        'team_id' => $user->currentTeam->id,
+        'cloud_provider' => CloudProvider::Aws,
+    ]);
+    $server->forceFill([
+        'daemon_version' => '0.3.0',
+        'daemon_capabilities' => ['legacy-capability'],
+        'daemon_active_runs' => [],
+    ])->saveQuietly();
+
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('writeFile')->twice();
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with("chmod 0755 '/opt/provisiond/provisiond.provision-new.mjs'")
+        ->andReturn('');
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with("node --check '/opt/provisiond/provisiond.provision-new.mjs'")
+        ->andThrow(new RuntimeException('candidate validation failed'));
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with("rm -f '/opt/provisiond/provisiond.provision-new.mjs' '/opt/provisiond/package.provision-new.json' '/opt/provisiond/provisiond.mjs.provision-new' '/opt/provisiond/package.json.provision-new'")
+        ->andThrow(new RuntimeException('candidate cleanup failed'));
+    $executor->shouldNotReceive('exec')
+        ->with(Mockery::on(fn (string $command): bool => str_contains($command, 'mv ')
+            || str_contains($command, 'systemctl restart provisiond')
+            || str_contains($command, 'nohup node')));
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')->once()->andReturn($executor);
+
+    expect(fn () => (new EnsureProvisionDaemonCurrentJob($server))->handle($manager))
+        ->toThrow(RuntimeException::class, 'candidate validation failed');
+
+    expect($server->fresh()->daemon_version)->toBe('0.3.0')
+        ->and($server->fresh()->daemon_capabilities)->toBe(['legacy-capability']);
 });
