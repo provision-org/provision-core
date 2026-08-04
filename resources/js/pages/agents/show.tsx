@@ -40,7 +40,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { destroyArtifact } from '@/actions/App/Http/Controllers/AgentController';
 import { show as showProvisionApp } from '@/actions/App/Http/Controllers/ProvisionAppController';
-import ActivityFeed from '@/components/agents/activity-feed';
 import AgentAvatar from '@/components/agents/agent-avatar';
 import {
     TelegramIcon,
@@ -78,13 +77,7 @@ import { useEcho } from '@/hooks/use-echo';
 import AppLayout from '@/layouts/app-layout';
 import { roleLabels, relativeTime, formatTokens } from '@/lib/agents';
 import { cn } from '@/lib/utils';
-import type {
-    Agent,
-    AgentActivity,
-    BreadcrumbItem,
-    CronJob,
-    SharedData,
-} from '@/types';
+import type { Agent, BreadcrumbItem, CronJob, SharedData } from '@/types';
 
 type Tab =
     | 'overview'
@@ -3092,7 +3085,6 @@ function ArtifactsTab({
 
 export default function ShowAgent({
     agent,
-    activities = [],
     usesManagedCredits = false,
     teamId = '',
     browserUrl = null,
@@ -3102,7 +3094,6 @@ export default function ShowAgent({
     artifacts = [],
 }: {
     agent: Agent;
-    activities?: AgentActivity[];
     usesManagedCredits?: boolean;
     teamId?: string;
     browserUrl?: string | null;
@@ -3390,30 +3381,12 @@ export default function ShowAgent({
                             ) : (
                                 <div className="mx-auto max-w-3xl">
                                     {activeTab === 'overview' && (
-                                        <>
-                                            <OverviewTab
-                                                agent={agent}
-                                                usesManagedCredits={
-                                                    usesManagedCredits
-                                                }
-                                            />
-                                            {activities.length > 0 && (
-                                                <section className="mt-8">
-                                                    <h3 className="text-sm font-medium">
-                                                        Recent Activity
-                                                    </h3>
-                                                    <div className="mt-3">
-                                                        <ActivityFeed
-                                                            activities={
-                                                                activities
-                                                            }
-                                                            teamId={teamId}
-                                                            agentId={agent.id}
-                                                        />
-                                                    </div>
-                                                </section>
-                                            )}
-                                        </>
+                                        <OverviewTab
+                                            agent={agent}
+                                            usesManagedCredits={
+                                                usesManagedCredits
+                                            }
+                                        />
                                     )}
                                     {activeTab === 'channels' && (
                                         <ChannelsTab agent={agent} />
