@@ -1,7 +1,9 @@
 <?php
 
 use App\Enums\ChatMessageRole;
+use App\Events\ChatMessageErrorEvent;
 use App\Events\ChatMessageStreamingEvent;
+use App\Jobs\CleanupOpenClawChatAttachmentsJob;
 use App\Jobs\ReconcileOpenClawChatMessageJob;
 use App\Models\Agent;
 use App\Models\ChatConversation;
@@ -120,7 +122,7 @@ test('relay binds a gateway run only during the pre-ack running race', function 
             'event' => 'chat',
             'agent_id' => $agent->harness_agent_id,
             'session_key' => $conversation->session_key,
-            'run_id' => 'race-run',
+            'run_id' => "provision-chat:{$message->id}",
             'sequence' => 1,
             'state' => 'delta',
             'delta' => 'Starting',
@@ -128,10 +130,75 @@ test('relay binds a gateway run only during the pre-ack running race', function 
         ]],
     ])->assertSuccessful();
 
-    expect($message->fresh()->upstream_run_id)->toBe('race-run')
+    expect($message->fresh()->upstream_run_id)->toBe("provision-chat:{$message->id}")
         ->and($message->fresh()->upstream_event_sequence)->toBe(1)
         ->and($message->fresh()->last_gateway_event_at)->not->toBeNull();
     Event::assertDispatchedTimes(ChatMessageStreamingEvent::class, 1);
+});
+
+test('untyped gateway errors reconcile canonical history before failing the message', function () {
+    [, , $agent, $conversation, $message] = openClawRelayFixture();
+    Bus::fake([
+        CleanupOpenClawChatAttachmentsJob::class,
+        ReconcileOpenClawChatMessageJob::class,
+    ]);
+    Event::fake([ChatMessageErrorEvent::class]);
+
+    $this->postJson('/api/daemon/relay-daemon-token/chat/events', [
+        'events' => [[
+            'event' => 'chat',
+            'agent_id' => $agent->harness_agent_id,
+            'session_key' => $conversation->session_key,
+            'run_id' => $message->upstream_run_id,
+            'sequence' => 50,
+            'state' => 'error',
+        ]],
+    ])->assertSuccessful();
+
+    expect($message->fresh()->delivery_status)->toBe('running')
+        ->and($message->fresh()->delivery_error)
+        ->toBe('The agent encountered an error while processing this request.');
+    Bus::assertDispatched(
+        ReconcileOpenClawChatMessageJob::class,
+        fn (ReconcileOpenClawChatMessageJob $job) => $job->conversation->is($conversation)
+            && $job->userMessage->is($message)
+            && $job->delay !== null,
+    );
+    Bus::assertNotDispatched(CleanupOpenClawChatAttachmentsJob::class);
+    Event::assertNotDispatched(ChatMessageErrorEvent::class);
+});
+
+test('a late event from a completed run cannot claim the next pre-ack message', function () {
+    [, , $agent, $conversation, $completedMessage] = openClawRelayFixture();
+    $completedMessage->forceFill(['delivery_status' => 'completed'])->save();
+    $nextMessage = ChatMessage::factory()->create([
+        'chat_conversation_id' => $conversation->id,
+        'role' => ChatMessageRole::User,
+        'delivery_status' => 'running',
+        'upstream_run_id' => null,
+        'last_gateway_event_at' => null,
+    ]);
+    Bus::fake([
+        CleanupOpenClawChatAttachmentsJob::class,
+        ReconcileOpenClawChatMessageJob::class,
+    ]);
+    Event::fake([ChatMessageErrorEvent::class]);
+
+    $this->postJson('/api/daemon/relay-daemon-token/chat/events', [
+        'events' => [[
+            'event' => 'chat',
+            'agent_id' => $agent->harness_agent_id,
+            'session_key' => $conversation->session_key,
+            'run_id' => $completedMessage->upstream_run_id,
+            'state' => 'error',
+        ]],
+    ])->assertSuccessful();
+
+    expect($nextMessage->fresh()->upstream_run_id)->toBeNull()
+        ->and($nextMessage->fresh()->delivery_status)->toBe('running')
+        ->and($nextMessage->fresh()->delivery_error)->toBeNull();
+    Bus::assertNothingDispatched();
+    Event::assertNotDispatched(ChatMessageErrorEvent::class);
 });
 
 test('a daemon token cannot relay events into an agent on another server', function () {

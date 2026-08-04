@@ -373,6 +373,25 @@ final class OpenClawChatService
                 throw new RuntimeException('The response was stopped.');
             }
 
+            $preclaimed = ChatMessage::query()
+                ->whereKey($message->getKey())
+                ->whereIn('delivery_status', ['queued', 'running'])
+                ->update([
+                    'delivery_status' => 'running',
+                    'upstream_run_id' => $idempotencyKey,
+                    'delivery_error' => null,
+                ]);
+            if ($preclaimed === 0) {
+                $message->refresh();
+                if ($message->delivery_status === 'aborted') {
+                    throw new RuntimeException('The response was stopped.');
+                }
+
+                throw new RuntimeException('The chat request is no longer active.');
+            }
+
+            $message->refresh();
+
             $sendResult = $this->callGateway($executor, 'chat.send', [
                 'sessionKey' => $sessionKey,
                 'agentId' => $agent->harness_agent_id,
@@ -398,7 +417,6 @@ final class OpenClawChatService
                 ->update([
                     'delivery_status' => 'running',
                     'upstream_run_id' => $runId,
-                    'delivery_error' => null,
                     'outbound_to_agent_at' => now(),
                     'last_gateway_event_at' => now(),
                 ]);

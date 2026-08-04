@@ -45,7 +45,12 @@ test('native OpenClaw chat sends idempotently and reads the canonical reply from
         ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")
             && str_contains($command, 'provision-chat:'.$message->id)
             && str_contains($command, 'Hello from Provision')))
-        ->andReturn(json_encode(['runId' => 'run-native-1', 'status' => 'started']));
+        ->andReturnUsing(function () use ($message): string {
+            expect($message->fresh()->upstream_run_id)->toBe("provision-chat:{$message->id}")
+                ->and($message->fresh()->delivery_status)->toBe('running');
+
+            return json_encode(['runId' => 'run-native-1', 'status' => 'started']);
+        });
 
     $executor->shouldReceive('exec')
         ->once()
@@ -668,7 +673,7 @@ test('native OpenClaw chat aborts the active run when cancellation is requested'
     ))->toThrow(RuntimeException::class, 'The response was stopped.');
 
     expect($message->fresh()->delivery_status)->toBe('aborted')
-        ->and($message->fresh()->upstream_run_id)->toBeNull();
+        ->and($message->fresh()->upstream_run_id)->toBe("provision-chat:{$message->id}");
 });
 
 test('native OpenClaw chat does not send when cancellation is already durable', function () {

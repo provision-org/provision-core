@@ -104,8 +104,11 @@ class OpenClawChatRelayController extends Controller
     {
         $runId = $event['run_id'] ?? null;
         $idempotencyKey = $event['idempotency_key'] ?? null;
-        if (is_string($idempotencyKey)
-            && preg_match('/^provision-chat:([0-9a-z]{26})(?::user)?$/i', $idempotencyKey, $matches) === 1) {
+        $correlationKey = collect([$idempotencyKey, $runId])
+            ->first(fn (mixed $value): bool => is_string($value)
+                && preg_match('/^provision-chat:[0-9a-z]{26}(?::user)?$/i', $value) === 1);
+        if (is_string($correlationKey)
+            && preg_match('/^provision-chat:([0-9a-z]{26})(?::user)?$/i', $correlationKey, $matches) === 1) {
             $matched = $conversation->messages()
                 ->whereKey($matches[1])
                 ->where('role', ChatMessageRole::User)
@@ -142,33 +145,7 @@ class OpenClawChatRelayController extends Controller
             }
         }
 
-        if (! is_string($runId) || $runId === '') {
-            return null;
-        }
-
-        $candidates = $conversation->messages()
-            ->where('role', ChatMessageRole::User)
-            ->where('delivery_status', 'running')
-            ->whereNull('upstream_run_id')
-            ->latest('sent_at')
-            ->latest('id')
-            ->limit(2)
-            ->get();
-        if ($candidates->count() !== 1) {
-            return null;
-        }
-
-        $matched = $candidates->first();
-        $claimed = ChatMessage::query()
-            ->whereKey($matched->id)
-            ->where('delivery_status', 'running')
-            ->whereNull('upstream_run_id')
-            ->update([
-                'upstream_run_id' => $runId,
-                'last_gateway_event_at' => now(),
-            ]);
-
-        return $claimed > 0 ? $matched->refresh() : null;
+        return null;
     }
 
     /**
@@ -212,10 +189,9 @@ class OpenClawChatRelayController extends Controller
         }
 
         if ($state === 'error' && $message) {
-            $this->finishMessage(
+            $this->queueTerminalErrorReconciliation(
                 $conversation,
                 $message,
-                'failed',
                 $this->safeErrorMessage($event['error_kind'] ?? null),
             );
         }
@@ -318,6 +294,40 @@ class OpenClawChatRelayController extends Controller
 
         $this->broadcastSafely(new ChatMessageErrorEvent($conversation->id, $error), $conversation);
         CleanupOpenClawChatAttachmentsJob::dispatch($conversation, $message);
+    }
+
+    /**
+     * OpenClaw can emit an untyped error after recoverable tool failures even
+     * when its canonical transcript already contains a valid final reply.
+     */
+    private function queueTerminalErrorReconciliation(
+        ChatConversation $conversation,
+        ChatMessage $message,
+        string $error,
+    ): void {
+        $updated = ChatMessage::query()
+            ->whereKey($message->id)
+            ->whereIn('delivery_status', ['queued', 'running'])
+            ->update([
+                'delivery_error' => $error,
+                'last_gateway_event_at' => now(),
+            ]);
+        if ($updated === 0) {
+            return;
+        }
+
+        $message->refresh();
+
+        try {
+            ReconcileOpenClawChatMessageJob::dispatch($conversation, $message)
+                ->delay(now()->addSeconds(2));
+        } catch (Throwable $exception) {
+            Log::warning('Could not queue OpenClaw terminal error reconciliation', [
+                'conversation_id' => $conversation->id,
+                'message_id' => $message->id,
+                'exception' => $exception::class,
+            ]);
+        }
     }
 
     private function safeErrorMessage(mixed $kind): string

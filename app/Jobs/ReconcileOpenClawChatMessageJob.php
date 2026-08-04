@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldBeUniqueUntilProcessing;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\Middleware\WithoutOverlapping;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -26,7 +27,9 @@ class ReconcileOpenClawChatMessageJob implements ShouldBeUniqueUntilProcessing, 
 
     private const RECOVERY_TIMEOUT_MESSAGE = 'The agent did not finish this response within 60 minutes.';
 
-    public int $tries = 3;
+    private const TERMINAL_ERROR_GRACE_SECONDS = 10;
+
+    public int $tries = 10;
 
     public int $timeout = 90;
 
@@ -42,6 +45,18 @@ class ReconcileOpenClawChatMessageJob implements ShouldBeUniqueUntilProcessing, 
     public function uniqueId(): string
     {
         return "openclaw-chat-reconcile:{$this->userMessage->id}";
+    }
+
+    /**
+     * @return list<object>
+     */
+    public function middleware(): array
+    {
+        return [
+            (new WithoutOverlapping($this->uniqueId()))
+                ->releaseAfter(5)
+                ->expireAfter($this->timeout + 30),
+        ];
     }
 
     public function handle(OpenClawChatService $chatService): void
@@ -74,6 +89,12 @@ class ReconcileOpenClawChatMessageJob implements ShouldBeUniqueUntilProcessing, 
 
         $this->conversation->forceFill(['last_reconciled_at' => now()])->save();
 
+        if ($result['active']) {
+            $this->scheduleNextAttempt(30);
+
+            return;
+        }
+
         if ($result['reply'] !== null) {
             $this->complete($result);
 
@@ -86,8 +107,18 @@ class ReconcileOpenClawChatMessageJob implements ShouldBeUniqueUntilProcessing, 
             return;
         }
 
-        if ($result['active']) {
-            $this->scheduleNextAttempt(30);
+        $this->userMessage->refresh();
+        if (is_string($this->userMessage->delivery_error)
+            && $this->userMessage->delivery_error !== '') {
+            if ($this->userMessage->last_gateway_event_at?->gt(
+                now()->subSeconds(self::TERMINAL_ERROR_GRACE_SECONDS),
+            )) {
+                $this->scheduleNextAttempt(self::TERMINAL_ERROR_GRACE_SECONDS);
+
+                return;
+            }
+
+            $this->finishWithoutReply('failed', $this->userMessage->delivery_error);
 
             return;
         }
@@ -116,7 +147,7 @@ class ReconcileOpenClawChatMessageJob implements ShouldBeUniqueUntilProcessing, 
                 ->lockForUpdate()
                 ->firstOrFail();
 
-            if (! in_array($message->delivery_status, ['queued', 'running'], true)) {
+            if (! in_array($message->delivery_status, ['queued', 'running', 'failed'], true)) {
                 return null;
             }
 
