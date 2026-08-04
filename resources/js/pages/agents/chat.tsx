@@ -255,7 +255,15 @@ export default function Chat({
     const toggleBrowser = useCallback(() => {
         setBrowserOpen((open) => {
             const next = !open;
-            if (next) void loadBrowserUrl();
+            if (next) {
+                setHistoryCollapsed(true);
+                try {
+                    window.localStorage.setItem('chat-history-collapsed', '1');
+                } catch {
+                    // localStorage unavailable — preference doesn't persist, fine
+                }
+                void loadBrowserUrl();
+            }
             return next;
         });
     }, [loadBrowserUrl]);
