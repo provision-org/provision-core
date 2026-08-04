@@ -29,7 +29,7 @@ class SendAgentChatMessageJob implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 260;
+    public int $timeout = 560;
 
     public function __construct(
         public ChatConversation $conversation,

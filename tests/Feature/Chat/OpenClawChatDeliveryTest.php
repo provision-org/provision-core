@@ -180,5 +180,6 @@ test('chat queue timing cannot re-reserve a still-running Horizon job', function
         ->and(config('horizon.defaults.supervisor-chat.queue'))->toBe(['chat'])
         ->and(config('horizon.defaults.supervisor-chat.timeout'))->toBeGreaterThan(
             $job->timeout,
-        );
+        )
+        ->and($job->timeout)->toBeGreaterThan(OpenClawChatService::DEFAULT_TIMEOUT_SECONDS);
 });

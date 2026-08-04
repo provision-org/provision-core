@@ -14,6 +14,8 @@ use Throwable;
 
 final class OpenClawChatService
 {
+    public const DEFAULT_TIMEOUT_SECONDS = 520;
+
     private const HISTORY_LIMIT = 200;
 
     private const HISTORY_MAX_CHARS = 500_000;
@@ -44,7 +46,7 @@ final class OpenClawChatService
         ChatConversation $conversation,
         ChatMessage $message,
         ?callable $cancelled = null,
-        int $timeoutSeconds = 220,
+        int $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS,
         int $pollIntervalMilliseconds = 1_000,
     ): array {
         $conversation->loadMissing('agent.server');
