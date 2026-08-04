@@ -15,8 +15,10 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 use stdClass;
+use Throwable;
 
 class EnsureProvisionDaemonCurrentJob implements ShouldBeUniqueUntilProcessing, ShouldQueue
 {
@@ -75,8 +77,8 @@ class EnsureProvisionDaemonCurrentJob implements ShouldBeUniqueUntilProcessing, 
         }
 
         $executor = null;
-        $candidate = '/opt/provisiond/provisiond.mjs.provision-new';
-        $packageCandidate = '/opt/provisiond/package.json.provision-new';
+        $candidate = '/opt/provisiond/provisiond.provision-new.mjs';
+        $packageCandidate = '/opt/provisiond/package.provision-new.json';
 
         try {
             if ($this->server->isDocker()) {
@@ -124,9 +126,33 @@ class EnsureProvisionDaemonCurrentJob implements ShouldBeUniqueUntilProcessing, 
                 'daemon_capabilities' => null,
             ])->save();
         } finally {
+            if ($bundle !== null && $executor instanceof CommandExecutor) {
+                $this->cleanupCandidates($executor, [
+                    $candidate,
+                    $packageCandidate,
+                    '/opt/provisiond/provisiond.mjs.provision-new',
+                    '/opt/provisiond/package.json.provision-new',
+                ]);
+            }
+
             if ($executor instanceof SshService) {
                 $executor->disconnect();
             }
+        }
+    }
+
+    /**
+     * @param  list<string>  $candidates
+     */
+    private function cleanupCandidates(CommandExecutor $executor, array $candidates): void
+    {
+        try {
+            $executor->exec('rm -f '.implode(' ', array_map(escapeshellarg(...), $candidates)));
+        } catch (Throwable $exception) {
+            Log::warning('Unable to clean staged provisiond update files.', [
+                'server_id' => $this->server->id,
+                'exception' => $exception::class,
+            ]);
         }
     }
 
