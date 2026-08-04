@@ -9,6 +9,7 @@ import { executeTask } from './executor.js';
 import { logger } from './logger.js';
 import { ProvisionApiClient } from './provision-api.js';
 import type { Config } from './types.js';
+import { CAPABILITIES, VERSION } from './version.js';
 
 /**
  * Tracks active task runs so we can enforce max concurrency
@@ -122,7 +123,7 @@ async function pollOnce(config: Config, api: ProvisionApiClient): Promise<void> 
 
 async function sendHeartbeat(api: ProvisionApiClient): Promise<void> {
   try {
-    await api.sendHeartbeat([...activeRuns.keys()]);
+    await api.sendHeartbeat([...activeRuns.keys()], VERSION, [...CAPABILITIES]);
   } catch (err) {
     logger.warn('Heartbeat failed', {
       error: err instanceof Error ? err.message : String(err),

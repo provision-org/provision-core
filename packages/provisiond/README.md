@@ -1,6 +1,8 @@
 # provisiond
 
-Lightweight Node.js daemon that runs on agent servers and orchestrates workforce agent task execution. It polls Provision for assigned tasks, invokes agents through the local gateway API (OpenClaw or Hermes), and reports results back.
+Lightweight Node.js daemon that runs on agent servers. It orchestrates workforce
+tasks and maintains a server-local OpenClaw Gateway relay for durable dashboard
+chat events and session discovery. Gateway credentials never leave the server.
 
 ## Requirements
 
@@ -83,11 +85,11 @@ npm test          # Run tests
 
 ## How It Works
 
-1. **Poll**: Every 30 seconds, fetches the work queue from Provision
-2. **Checkout**: Claims a task with an atomic checkout (prevents double-execution)
-3. **Prompt**: Builds a structured prompt with task details, goal context, and org hierarchy
-4. **Execute**: Sends the prompt to the local gateway (OpenClaw or Hermes) via the Responses API
-5. **Parse**: Extracts the result summary, delegation requests, and approval requests from the response
-6. **Report**: Sends the result and token usage back to Provision
+1. **Relay chat**: Subscribes to the local OpenClaw Gateway and forwards bounded,
+   sanitized chat lifecycle events through the daemon-authenticated API.
+2. **Discover sessions**: Reconciles the Gateway session index so an admin can
+   explicitly import eligible server-side chats without leaking channel data.
+3. **Poll**: Every 30 seconds, fetches the workforce task queue from Provision.
+4. **Execute**: Claims tasks, invokes the local gateway, and reports results.
 
 The daemon handles errors gracefully — a single task failure never crashes the process.

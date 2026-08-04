@@ -11,8 +11,9 @@
 import { loadConfig, type CliOverrides } from './config.js';
 import { logger } from './logger.js';
 import { startPolling, requestStop, getActiveRunCount } from './poller.js';
-
-const VERSION = '0.3.0';
+import { OpenClawGatewayRelay } from './openclaw-gateway-relay.js';
+import { ProvisionApiClient } from './provision-api.js';
+import { VERSION } from './version.js';
 
 function printBanner(): void {
   console.log(`provisiond v${VERSION} — Provision Workforce Agent Daemon`);
@@ -124,9 +125,14 @@ async function main(): Promise<void> {
     checkoutDuration: config.checkoutDuration,
   });
 
+  const api = new ProvisionApiClient(config);
+  const relay = new OpenClawGatewayRelay(config, api);
+  relay.start();
+
   // Graceful shutdown
   const shutdown = (): void => {
     logger.info('Shutdown signal received, finishing active tasks...');
+    relay.stop();
     requestStop();
 
     // Force exit if tasks don't finish within 30 seconds

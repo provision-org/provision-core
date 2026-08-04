@@ -2,6 +2,7 @@
 
 use App\Enums\AgentStatus;
 use App\Enums\ChatMessageRole;
+use App\Enums\HarnessType;
 use App\Jobs\SendAgentChatMessageJob;
 use App\Models\Agent;
 use App\Models\ChatConversation;
@@ -56,6 +57,20 @@ test('user can view the chat page', function () {
             ->missing('agent.api_server_key')
             ->missing('agent.config_snapshot')
             ->missing('agent.default_password'));
+});
+
+test('server session import is not advertised for non OpenClaw agents', function () {
+    Bus::fake();
+    $user = chatUser();
+    $agent = chatAgent($user->currentTeam);
+    $agent->forceFill(['harness_type' => HarnessType::Hermes])->save();
+
+    $this->actingAs($user)
+        ->get(route('agents.chat', $agent))
+        ->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->where('canImportServerSessions', false)
+            ->has('serverSessions', 0));
 });
 
 test('chat exposes the local desktop route for an ascii box', function () {
@@ -248,6 +263,7 @@ test('user can view messages in a conversation', function () {
     ChatMessage::factory()->create([
         'chat_conversation_id' => $conversation->id,
         'role' => ChatMessageRole::User,
+        'client_message_id' => 'client-visible-after-reload',
         'content' => [['type' => 'text', 'text' => 'Hello']],
     ]);
 
@@ -259,7 +275,8 @@ test('user can view messages in a conversation', function () {
     $response = $this->actingAs($user)->getJson(route('agents.chat.show', [$agent, $conversation]));
 
     $response->assertSuccessful();
-    expect($response->json('messages'))->toHaveCount(2);
+    expect($response->json('messages'))->toHaveCount(2)
+        ->and($response->json('messages.0.client_message_id'))->toBe('client-visible-after-reload');
 });
 
 test('user cannot view another user conversation', function () {

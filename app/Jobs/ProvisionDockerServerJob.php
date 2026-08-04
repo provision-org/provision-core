@@ -32,7 +32,10 @@ class ProvisionDockerServerJob implements ShouldQueue
         $isOpenClaw = ($team->harness_type ?? HarnessType::OpenClaw) === HarnessType::OpenClaw;
 
         if ($isOpenClaw) {
-            $this->setupOpenClaw($executor, $defaultsService);
+            $gatewayToken = $this->server->gateway_token ?: bin2hex(random_bytes(16));
+            $this->server->forceFill(['gateway_token' => $gatewayToken])->saveQuietly();
+
+            $this->setupOpenClaw($executor, $defaultsService, $gatewayToken);
         }
 
         // Generate daemon token for provisiond
@@ -69,13 +72,16 @@ class ProvisionDockerServerJob implements ShouldQueue
         $executor->writeFile('/etc/provisiond/config.json', $config);
     }
 
-    private function setupOpenClaw(DockerExecutor $executor, OpenClawDefaultsService $defaultsService): void
-    {
+    private function setupOpenClaw(
+        DockerExecutor $executor,
+        OpenClawDefaultsService $defaultsService,
+        string $gatewayToken,
+    ): void {
         // Ensure directories exist
         $executor->exec('mkdir -p /root/.openclaw/agents /root/.openclaw/logs /root/.openclaw/cron');
 
         // Write openclaw.json — same config as cloud servers
-        $config = $this->buildOpenClawConfig($defaultsService);
+        $config = $this->buildOpenClawConfig($defaultsService, $gatewayToken);
         $executor->writeFile(
             '/root/.openclaw/openclaw.json',
             OpenClawConfig::toJson($config)
@@ -97,8 +103,10 @@ class ProvisionDockerServerJob implements ShouldQueue
     /**
      * @return array<string, mixed>
      */
-    private function buildOpenClawConfig(OpenClawDefaultsService $defaultsService): array
-    {
+    private function buildOpenClawConfig(
+        OpenClawDefaultsService $defaultsService,
+        string $gatewayToken,
+    ): array {
         $defaults = $defaultsService->buildDefaults($this->server);
 
         return [
@@ -122,6 +130,10 @@ class ProvisionDockerServerJob implements ShouldQueue
             'gateway' => [
                 'mode' => 'local',
                 'bind' => config('openclaw.gateway_bind'),
+                'auth' => [
+                    'mode' => 'token',
+                    'token' => $gatewayToken,
+                ],
             ],
             'logging' => [
                 'redactSensitive' => 'tools',

@@ -37,6 +37,8 @@ class ChatMessage extends Model
         'outbound_to_agent_at',
         'delivery_status',
         'upstream_run_id',
+        'upstream_event_sequence',
+        'last_gateway_event_at',
         'delivery_error',
     ];
 
@@ -52,6 +54,8 @@ class ChatMessage extends Model
             'sent_at' => 'datetime',
             'outbound_to_agent_at' => 'datetime',
             'enqueued_at' => 'datetime',
+            'upstream_event_sequence' => 'integer',
+            'last_gateway_event_at' => 'datetime',
         ];
     }
 

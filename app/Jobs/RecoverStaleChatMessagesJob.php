@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\ChatMessageRole;
+use App\Enums\HarnessType;
 use App\Models\ChatMessage;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -63,6 +64,26 @@ class RecoverStaleChatMessagesJob implements ShouldQueue
                             'exception' => $e::class,
                         ]);
                     }
+                }
+            });
+
+        ChatMessage::query()
+            ->with('conversation.agent')
+            ->where('role', ChatMessageRole::User)
+            ->where('delivery_status', 'running')
+            ->whereNotNull('upstream_run_id')
+            ->where(function (Builder $query) use ($staleBefore): void {
+                $query->whereNull('last_gateway_event_at')
+                    ->orWhere('last_gateway_event_at', '<=', $staleBefore);
+            })
+            ->chunkById(100, function ($messages): void {
+                foreach ($messages as $message) {
+                    $conversation = $message->conversation;
+                    if (! $conversation || $conversation->agent?->harness_type !== HarnessType::OpenClaw) {
+                        continue;
+                    }
+
+                    ReconcileOpenClawChatMessageJob::dispatch($conversation, $message);
                 }
             });
     }

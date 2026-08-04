@@ -2,6 +2,8 @@
 
 use App\Enums\AgentStatus;
 use App\Enums\ChatMessageRole;
+use App\Enums\HarnessType;
+use App\Jobs\ReconcileOpenClawChatMessageJob;
 use App\Jobs\RecoverStaleChatMessagesJob;
 use App\Jobs\SendAgentChatMessageJob;
 use App\Models\Agent;
@@ -148,4 +150,47 @@ test('loading a conversation repairs the short enqueue crash window', function (
             && $job->queue === 'chat',
     );
     expect($message->fresh()->enqueued_at)->not->toBeNull();
+});
+
+test('stale running OpenClaw messages are reconciled without being resent', function () {
+    Bus::fake([ReconcileOpenClawChatMessageJob::class, SendAgentChatMessageJob::class]);
+
+    $conversation = ChatConversation::factory()->create();
+    $conversation->agent->forceFill(['harness_type' => HarnessType::OpenClaw])->save();
+    $stale = ChatMessage::factory()->create([
+        'chat_conversation_id' => $conversation->id,
+        'role' => ChatMessageRole::User,
+        'delivery_status' => 'running',
+        'upstream_run_id' => 'stale-openclaw-run',
+        'last_gateway_event_at' => now()->subMinutes(2),
+    ]);
+    $recent = ChatMessage::factory()->create([
+        'chat_conversation_id' => $conversation->id,
+        'role' => ChatMessageRole::User,
+        'delivery_status' => 'running',
+        'upstream_run_id' => 'recent-openclaw-run',
+        'last_gateway_event_at' => now()->subSeconds(30),
+    ]);
+
+    $otherConversation = ChatConversation::factory()->create();
+    $otherConversation->agent->forceFill(['harness_type' => HarnessType::Hermes])->save();
+    ChatMessage::factory()->create([
+        'chat_conversation_id' => $otherConversation->id,
+        'role' => ChatMessageRole::User,
+        'delivery_status' => 'running',
+        'upstream_run_id' => 'stale-hermes-run',
+        'last_gateway_event_at' => now()->subMinutes(2),
+    ]);
+
+    (new RecoverStaleChatMessagesJob)->handle();
+
+    Bus::assertDispatchedTimes(ReconcileOpenClawChatMessageJob::class, 1);
+    Bus::assertDispatched(
+        ReconcileOpenClawChatMessageJob::class,
+        fn (ReconcileOpenClawChatMessageJob $job) => $job->conversation->is($conversation)
+            && $job->userMessage->is($stale)
+            && $job->queue === 'chat',
+    );
+    Bus::assertNotDispatched(SendAgentChatMessageJob::class);
+    expect($recent->fresh()->delivery_status)->toBe('running');
 });

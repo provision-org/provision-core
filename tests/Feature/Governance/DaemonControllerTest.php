@@ -96,6 +96,23 @@ test('checkout task succeeds for available task', function () {
     expect($task->status)->toBe('in_progress');
 });
 
+test('server-scoped bearer auth supports task routes with route model binding', function () {
+    [$team, $server, $agent] = daemonSetup();
+    $task = Task::factory()->create([
+        'team_id' => $team->id,
+        'agent_id' => $agent->id,
+        'status' => 'todo',
+    ]);
+
+    $this->withToken('test-daemon-token-123')
+        ->postJson("/api/daemon/servers/{$server->id}/tasks/{$task->id}/checkout", [
+            'daemon_run_id' => 'header-run-abc',
+        ])
+        ->assertSuccessful();
+
+    expect($task->fresh()->checked_out_by_run)->toBe('header-run-abc');
+});
+
 test('checkout task returns 409 if already checked out', function () {
     [$team, $server, $agent] = daemonSetup();
 
@@ -282,15 +299,23 @@ test('usage event is recorded', function () {
     ]);
 });
 
-test('heartbeat updates server health check', function () {
+test('heartbeat persists daemon health version capabilities and active runs', function () {
     [$team, $server, $agent] = daemonSetup();
 
-    $response = $this->postJson('/api/daemon/test-daemon-token-123/heartbeat');
+    $response = $this->postJson('/api/daemon/test-daemon-token-123/heartbeat', [
+        'version' => '0.4.0',
+        'capabilities' => ['chat-relay-v1'],
+        'active_runs' => ['run-one', 'run-two'],
+    ]);
 
-    $response->assertOk();
+    $response->assertOk()
+        ->assertJsonPath('desired_version', config('provision.provisiond_version'));
 
     $server->refresh();
-    expect($server->last_health_check)->not->toBeNull();
+    expect($server->last_health_check)->not->toBeNull()
+        ->and($server->daemon_version)->toBe('0.4.0')
+        ->and($server->daemon_capabilities)->toBe(['chat-relay-v1'])
+        ->and($server->daemon_active_runs)->toBe(['run-one', 'run-two']);
 });
 
 test('invalid daemon token returns 401', function () {

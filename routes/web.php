@@ -159,6 +159,8 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::get('agents/{agent}/chat/conversations', [ChatController::class, 'conversations'])->name('agents.chat.conversations');
         Route::post('agents/{agent}/chat', [ChatController::class, 'store'])->name('agents.chat.store');
         Route::post('agents/{agent}/chat/kickoff', [ChatController::class, 'kickoff'])->name('agents.chat.kickoff');
+        Route::post('agents/{agent}/chat/server-sessions/sync', [ChatController::class, 'syncServerSessions'])->name('agents.chat.server-sessions.sync');
+        Route::post('agents/{agent}/chat/server-sessions/{discovery}/import', [ChatController::class, 'importServerSession'])->name('agents.chat.server-sessions.import');
         Route::get('agents/{agent}/chat/{conversation}', [ChatController::class, 'show'])->name('agents.chat.show');
         Route::post('agents/{agent}/chat/{conversation}', [ChatController::class, 'sendMessage'])->name('agents.chat.send');
         Route::post('agents/{agent}/chat/{conversation}/stream', [ChatController::class, 'stream'])->name('agents.chat.stream');

@@ -167,6 +167,60 @@ test('native OpenClaw chat waits for tool runs and returns the final assistant r
     ]);
 });
 
+test('native OpenClaw reconciliation never claims a later external turn as its reply', function () {
+    [$conversation, $message, $server] = nativeChatFixture();
+    $executor = Mockery::mock(CommandExecutor::class);
+
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.send'")))
+        ->andReturn(json_encode(['runId' => 'run-correlated', 'status' => 'started']));
+    $executor->shouldReceive('exec')
+        ->once()
+        ->with(Mockery::on(fn (string $command) => str_contains($command, "'chat.history'")))
+        ->andReturn(json_encode([
+            'messages' => [
+                [
+                    'role' => 'user',
+                    'idempotencyKey' => 'provision-chat:'.$message->id.':user',
+                ],
+                [
+                    'role' => 'assistant',
+                    'content' => 'The correlated response',
+                    '__openclaw' => ['id' => 'reply-correlated', 'runId' => 'run-correlated'],
+                ],
+                [
+                    'role' => 'assistant',
+                    'content' => 'A response from another run',
+                    '__openclaw' => ['id' => 'reply-other-run', 'runId' => 'run-other'],
+                ],
+                ['role' => 'user', 'content' => 'A later Slack message'],
+                [
+                    'role' => 'assistant',
+                    'content' => 'A later external reply',
+                    '__openclaw' => ['id' => 'reply-external'],
+                ],
+            ],
+            'sessionInfo' => ['hasActiveRun' => false, 'status' => 'done'],
+        ]));
+
+    $manager = Mockery::mock(HarnessManager::class);
+    $manager->shouldReceive('resolveExecutor')
+        ->once()
+        ->withArgs(fn (Server $value) => $value->is($server))
+        ->andReturn($executor);
+
+    $result = (new OpenClawChatService($manager))->sendAndWait(
+        $conversation,
+        $message,
+        timeoutSeconds: 1,
+        pollIntervalMilliseconds: 0,
+    );
+
+    expect($result['upstream_id'])->toBe('openclaw:reply-correlated')
+        ->and($result['content'])->toBe([['type' => 'text', 'text' => 'The correlated response']]);
+});
+
 test('native OpenClaw chat imports agent-scoped media directives', function () {
     Storage::fake('local');
     [$conversation, $message, $server] = nativeChatFixture();

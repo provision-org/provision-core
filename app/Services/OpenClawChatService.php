@@ -49,6 +49,305 @@ final class OpenClawChatService
         int $timeoutSeconds = self::DEFAULT_TIMEOUT_SECONDS,
         int $pollIntervalMilliseconds = 1_000,
     ): array {
+        $started = $this->startRun($conversation, $message, $cancelled);
+        $executor = $started['executor'];
+        $agent = $started['agent'];
+        $sessionKey = $started['session_key'];
+        $idempotencyKey = $started['idempotency_key'];
+        $runId = $started['run_id'];
+
+        try {
+            if ($cancelled !== null && $cancelled() === true) {
+                $this->abortWithExecutor($executor, $sessionKey, $agent->harness_agent_id, $runId);
+
+                throw new RuntimeException('The response was stopped.');
+            }
+
+            $deadline = microtime(true) + max(1, $timeoutSeconds);
+
+            do {
+                if ($cancelled !== null && $cancelled() === true) {
+                    $this->abortWithExecutor($executor, $sessionKey, $agent->harness_agent_id, $runId);
+
+                    throw new RuntimeException('The response was stopped.');
+                }
+
+                $history = $this->callGateway($executor, 'chat.history', [
+                    'sessionKey' => $sessionKey,
+                    'agentId' => $agent->harness_agent_id,
+                    'limit' => self::HISTORY_LIMIT,
+                    'maxChars' => self::HISTORY_MAX_CHARS,
+                ]);
+
+                $sessionInfo = is_array($history['sessionInfo'] ?? null)
+                    ? $history['sessionInfo']
+                    : [];
+
+                if (! $this->historyHasActiveRun($sessionInfo, $runId)) {
+                    $reply = $this->replyForIdempotencyKey(
+                        $history,
+                        $idempotencyKey,
+                        $runId,
+                        $conversation,
+                        $executor,
+                    );
+                    if ($reply !== null) {
+                        return [
+                            'run_id' => $runId,
+                            'upstream_id' => $reply['upstream_id'],
+                            'content' => $reply['content'],
+                        ];
+                    }
+                }
+
+                if (($sessionInfo['abortedLastRun'] ?? false) === true) {
+                    throw new RuntimeException('The response was stopped.');
+                }
+
+                if (microtime(true) >= $deadline) {
+                    break;
+                }
+
+                if ($pollIntervalMilliseconds > 0) {
+                    usleep($pollIntervalMilliseconds * 1_000);
+                }
+            } while (true);
+
+            $this->abortWithExecutor($executor, $sessionKey, $agent->harness_agent_id, $runId);
+
+            throw new RuntimeException('The agent did not respond in time.');
+        } finally {
+            if ($started['has_attachments']) {
+                $this->removeStagedAttachments($executor, $started['remote_directory'], $conversation);
+            }
+        }
+    }
+
+    /**
+     * Start a native Gateway chat run and return as soon as OpenClaw accepts it.
+     * Completion is projected later from Gateway events or transcript recovery.
+     *
+     * @param  null|callable(): bool  $cancelled
+     * @return array{run_id: string, session_key: string, has_attachments: bool}
+     */
+    public function start(
+        ChatConversation $conversation,
+        ChatMessage $message,
+        ?callable $cancelled = null,
+    ): array {
+        $started = $this->startRun($conversation, $message, $cancelled);
+
+        return [
+            'run_id' => $started['run_id'],
+            'session_key' => $started['session_key'],
+            'has_attachments' => $started['has_attachments'],
+        ];
+    }
+
+    /**
+     * Read the canonical transcript once and resolve the reply for a durable
+     * Provision outbox message without occupying a queue worker while it runs.
+     *
+     * @return array{active: bool, aborted: bool, run_id: string, reply: array{upstream_id: string, content: list<array<string, mixed>>}|null}
+     */
+    public function reconcile(ChatConversation $conversation, ChatMessage $message): array
+    {
+        $conversation->loadMissing('agent.server');
+        $agent = $conversation->agent;
+
+        if (! $agent?->server || ! is_string($agent->harness_agent_id) || $agent->harness_agent_id === '') {
+            throw new RuntimeException('The agent Gateway is not available.');
+        }
+
+        $runId = $message->upstream_run_id;
+        if (! is_string($runId) || $runId === '') {
+            throw new RuntimeException('The agent Gateway did not accept the message.');
+        }
+
+        $executor = $this->harnessManager->resolveExecutor($agent->server);
+        $sessionKey = $this->ensureNativeSessionKey($conversation, $agent);
+        $history = $this->callGateway($executor, 'chat.history', [
+            'sessionKey' => $sessionKey,
+            'agentId' => $agent->harness_agent_id,
+            'limit' => self::HISTORY_LIMIT,
+            'maxChars' => self::HISTORY_MAX_CHARS,
+        ]);
+        $sessionInfo = is_array($history['sessionInfo'] ?? null) ? $history['sessionInfo'] : [];
+        $inFlightRun = is_array($history['inFlightRun'] ?? null) ? $history['inFlightRun'] : [];
+        $inFlightRunId = $inFlightRun['runId'] ?? null;
+        $active = is_string($inFlightRunId) && $inFlightRunId !== ''
+            ? hash_equals($runId, $inFlightRunId)
+            : $this->historyHasActiveRun($sessionInfo, $runId);
+
+        return [
+            'active' => $active,
+            'aborted' => ($sessionInfo['abortedLastRun'] ?? false) === true,
+            'run_id' => $runId,
+            'reply' => $this->replyForIdempotencyKey(
+                $history,
+                "provision-chat:{$message->id}",
+                $runId,
+                $conversation,
+                $executor,
+            ),
+        ];
+    }
+
+    public function cleanupAttachments(ChatConversation $conversation, ChatMessage $message): void
+    {
+        $conversation->loadMissing('agent.server');
+        $agent = $conversation->agent;
+
+        if (! $agent?->server || ! is_string($agent->harness_agent_id) || $agent->harness_agent_id === '') {
+            return;
+        }
+
+        $hasAttachments = collect($message->content)
+            ->contains(fn (array $block) => ($block['type'] ?? null) !== 'text');
+        if (! $hasAttachments) {
+            return;
+        }
+
+        $executor = $this->harnessManager->resolveExecutor($agent->server);
+        $remoteDirectory = $this->remoteAttachmentDirectory($agent, $message);
+        $this->removeStagedAttachments($executor, $remoteDirectory, $conversation);
+    }
+
+    /**
+     * Return the Gateway's bounded, human-facing session index for one agent.
+     * Local filesystem paths and other Gateway-only response fields are never
+     * returned to the browser by this service.
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function listSessions(Agent $agent): array
+    {
+        $agent->loadMissing('server');
+
+        if (! $agent->server || ! is_string($agent->harness_agent_id) || $agent->harness_agent_id === '') {
+            throw new RuntimeException('The agent Gateway is not available.');
+        }
+
+        $executor = $this->harnessManager->resolveExecutor($agent->server);
+        $result = $this->callGateway($executor, 'sessions.list', [
+            'agentId' => $agent->harness_agent_id,
+            'configuredAgentsOnly' => true,
+            'includeDerivedTitles' => true,
+            'includeLastMessage' => true,
+            'limit' => 200,
+            'offset' => 0,
+        ]);
+
+        return collect(is_array($result['sessions'] ?? null) ? $result['sessions'] : [])
+            ->filter(fn (mixed $session) => is_array($session))
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Project a bounded canonical history into storage-ready user/assistant
+     * messages. Tool and system records never enter the dashboard transcript.
+     *
+     * @return list<array{
+     *     upstream_id: string,
+     *     idempotency_key: string|null,
+     *     sequence: int|null,
+     *     role: string,
+     *     content: list<array<string, mixed>>,
+     *     timestamp_ms: int|null
+     * }>
+     */
+    public function transcript(ChatConversation $conversation): array
+    {
+        $conversation->loadMissing('agent.server');
+        $agent = $conversation->agent;
+
+        if (! $agent?->server || ! is_string($agent->harness_agent_id) || $agent->harness_agent_id === '') {
+            throw new RuntimeException('The agent Gateway is not available.');
+        }
+
+        $executor = $this->harnessManager->resolveExecutor($agent->server);
+        $history = $this->callGateway($executor, 'chat.history', [
+            'sessionKey' => $conversation->session_key,
+            'agentId' => $agent->harness_agent_id,
+            'limit' => self::HISTORY_LIMIT,
+            'maxChars' => self::HISTORY_MAX_CHARS,
+        ]);
+        $messages = is_array($history['messages'] ?? null) ? $history['messages'] : [];
+        $existingMessages = $conversation->messages()
+            ->whereNotNull('upstream_id')
+            ->get(['upstream_id', 'content'])
+            ->keyBy('upstream_id');
+
+        return collect($messages)
+            ->filter(fn (mixed $message) => is_array($message)
+                && in_array($message['role'] ?? null, ['user', 'assistant'], true))
+            ->map(function (array $message) use ($conversation, $executor, $existingMessages): ?array {
+                $role = (string) $message['role'];
+                $metadata = is_array($message['__openclaw'] ?? null) ? $message['__openclaw'] : [];
+                $upstreamId = $metadata['id'] ?? $message['id'] ?? $message['responseId'] ?? null;
+                if (! is_string($upstreamId) || $upstreamId === '') {
+                    $upstreamId = hash('sha256', json_encode($message, JSON_THROW_ON_ERROR));
+                }
+                $canonicalUpstreamId = "openclaw:{$upstreamId}";
+                /** @var ChatMessage|null $existingMessage */
+                $existingMessage = $existingMessages->get($canonicalUpstreamId);
+                $content = $existingMessage?->content ?? ($role === 'assistant'
+                    ? $this->normalizeAssistantContent($message['content'] ?? null, $conversation, $executor)
+                    : $this->normalizeUserContent($message['content'] ?? null));
+                if ($content === []) {
+                    return null;
+                }
+
+                $idempotencyKey = $message['idempotencyKey'] ?? $metadata['idempotencyKey'] ?? null;
+                $sequence = $metadata['seq'] ?? null;
+                $timestamp = $message['timestamp'] ?? $message['createdAt'] ?? null;
+
+                return [
+                    'upstream_id' => $canonicalUpstreamId,
+                    'idempotency_key' => is_string($idempotencyKey) ? $idempotencyKey : null,
+                    'sequence' => is_int($sequence) && $sequence >= 0 ? $sequence : null,
+                    'role' => $role,
+                    'content' => $content,
+                    'timestamp_ms' => is_int($timestamp) || is_float($timestamp) ? (int) $timestamp : null,
+                ];
+            })
+            ->filter()
+            ->values()
+            ->all();
+    }
+
+    public function abort(ChatConversation $conversation, ?string $runId = null): void
+    {
+        $conversation->loadMissing('agent.server');
+        $agent = $conversation->agent;
+
+        if (! $agent?->server || ! is_string($agent->harness_agent_id) || $agent->harness_agent_id === '') {
+            throw new RuntimeException('The agent Gateway is not available.');
+        }
+
+        $executor = $this->harnessManager->resolveExecutor($agent->server);
+        $sessionKey = $this->ensureNativeSessionKey($conversation, $agent);
+        $this->abortWithExecutor($executor, $sessionKey, $agent->harness_agent_id, $runId);
+    }
+
+    /**
+     * @param  null|callable(): bool  $cancelled
+     * @return array{
+     *     executor: CommandExecutor,
+     *     agent: Agent,
+     *     session_key: string,
+     *     idempotency_key: string,
+     *     run_id: string,
+     *     has_attachments: bool,
+     *     remote_directory: string
+     * }
+     */
+    private function startRun(
+        ChatConversation $conversation,
+        ChatMessage $message,
+        ?callable $cancelled,
+    ): array {
         $conversation->loadMissing('agent.server');
         $agent = $conversation->agent;
 
@@ -61,7 +360,7 @@ final class OpenClawChatService
         $idempotencyKey = "provision-chat:{$message->id}";
         $hasAttachments = collect($message->content)
             ->contains(fn (array $block) => ($block['type'] ?? null) !== 'text');
-        $remoteDirectory = "/root/.openclaw/agents/{$agent->harness_agent_id}/provision-chat-attachments/{$message->id}";
+        $remoteDirectory = $this->remoteAttachmentDirectory($agent, $message);
 
         try {
             if ($cancelled !== null && $cancelled() === true) {
@@ -100,6 +399,8 @@ final class OpenClawChatService
                     'delivery_status' => 'running',
                     'upstream_run_id' => $runId,
                     'delivery_error' => null,
+                    'outbound_to_agent_at' => now(),
+                    'last_gateway_event_at' => now(),
                 ]);
 
             if ($claimed === 0) {
@@ -113,77 +414,27 @@ final class OpenClawChatService
 
             $message->refresh();
 
-            $deadline = microtime(true) + max(1, $timeoutSeconds);
-
-            do {
-                if ($cancelled !== null && $cancelled() === true) {
-                    $this->abortWithExecutor($executor, $sessionKey, $agent->harness_agent_id, $runId);
-
-                    throw new RuntimeException('The response was stopped.');
-                }
-
-                $history = $this->callGateway($executor, 'chat.history', [
-                    'sessionKey' => $sessionKey,
-                    'agentId' => $agent->harness_agent_id,
-                    'limit' => self::HISTORY_LIMIT,
-                    'maxChars' => self::HISTORY_MAX_CHARS,
-                ]);
-
-                $sessionInfo = is_array($history['sessionInfo'] ?? null)
-                    ? $history['sessionInfo']
-                    : [];
-
-                if (! $this->historyHasActiveRun($sessionInfo, $runId)) {
-                    $reply = $this->replyForIdempotencyKey(
-                        $history,
-                        $idempotencyKey,
-                        $conversation,
-                        $executor,
-                    );
-                    if ($reply !== null) {
-                        return [
-                            'run_id' => $runId,
-                            'upstream_id' => $reply['upstream_id'],
-                            'content' => $reply['content'],
-                        ];
-                    }
-                }
-
-                if (($sessionInfo['abortedLastRun'] ?? false) === true) {
-                    throw new RuntimeException('The response was stopped.');
-                }
-
-                if (microtime(true) >= $deadline) {
-                    break;
-                }
-
-                if ($pollIntervalMilliseconds > 0) {
-                    usleep($pollIntervalMilliseconds * 1_000);
-                }
-            } while (true);
-
-            $this->abortWithExecutor($executor, $sessionKey, $agent->harness_agent_id, $runId);
-
-            throw new RuntimeException('The agent did not respond in time.');
-        } finally {
+            return [
+                'executor' => $executor,
+                'agent' => $agent,
+                'session_key' => $sessionKey,
+                'idempotency_key' => $idempotencyKey,
+                'run_id' => $runId,
+                'has_attachments' => $hasAttachments,
+                'remote_directory' => $remoteDirectory,
+            ];
+        } catch (Throwable $exception) {
             if ($hasAttachments) {
                 $this->removeStagedAttachments($executor, $remoteDirectory, $conversation);
             }
+
+            throw $exception;
         }
     }
 
-    public function abort(ChatConversation $conversation, ?string $runId = null): void
+    private function remoteAttachmentDirectory(Agent $agent, ChatMessage $message): string
     {
-        $conversation->loadMissing('agent.server');
-        $agent = $conversation->agent;
-
-        if (! $agent?->server || ! is_string($agent->harness_agent_id) || $agent->harness_agent_id === '') {
-            throw new RuntimeException('The agent Gateway is not available.');
-        }
-
-        $executor = $this->harnessManager->resolveExecutor($agent->server);
-        $sessionKey = $this->ensureNativeSessionKey($conversation, $agent);
-        $this->abortWithExecutor($executor, $sessionKey, $agent->harness_agent_id, $runId);
+        return "/root/.openclaw/agents/{$agent->harness_agent_id}/provision-chat-attachments/{$message->id}";
     }
 
     private function ensureNativeSessionKey(ChatConversation $conversation, Agent $agent): string
@@ -305,6 +556,7 @@ final class OpenClawChatService
     private function replyForIdempotencyKey(
         array $history,
         string $idempotencyKey,
+        string $runId,
         ChatConversation $conversation,
         CommandExecutor $executor,
     ): ?array {
@@ -327,7 +579,16 @@ final class OpenClawChatService
             return null;
         }
 
-        $candidates = array_slice($messages, $userIndex + 1);
+        $candidates = [];
+        foreach (array_slice($messages, $userIndex + 1) as $candidate) {
+            if (is_array($candidate) && ($candidate['role'] ?? null) === 'user') {
+                break;
+            }
+
+            $candidates[] = $candidate;
+        }
+
+        $fallback = null;
 
         for ($index = count($candidates) - 1; $index >= 0; $index--) {
             $candidate = $candidates[$index];
@@ -346,18 +607,29 @@ final class OpenClawChatService
             }
 
             $metadata = is_array($candidate['__openclaw'] ?? null) ? $candidate['__openclaw'] : [];
+            $candidateRunId = $candidate['runId'] ?? $metadata['runId'] ?? null;
+            if (is_string($candidateRunId) && $candidateRunId !== '' && ! hash_equals($runId, $candidateRunId)) {
+                continue;
+            }
+
             $upstreamId = $metadata['id'] ?? $candidate['responseId'] ?? null;
             if (! is_string($upstreamId) || $upstreamId === '') {
                 $upstreamId = hash('sha256', json_encode($candidate, JSON_THROW_ON_ERROR));
             }
 
-            return [
+            $reply = [
                 'upstream_id' => "openclaw:{$upstreamId}",
                 'content' => $content,
             ];
+
+            if (is_string($candidateRunId) && $candidateRunId !== '') {
+                return $reply;
+            }
+
+            $fallback ??= $reply;
         }
 
-        return null;
+        return $fallback;
     }
 
     /**
@@ -425,6 +697,38 @@ final class OpenClawChatService
         return collect($blocks)
             ->filter(fn (array $block) => ($block['type'] ?? null) !== 'text'
                 || trim((string) ($block['text'] ?? '')) !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Imported user turns keep only display-safe text. Provision-originated
+     * uploads already live in our own durable message rows, while external
+     * Gateway media URLs require credentials that must stay on the server.
+     *
+     * @return list<array{type: string, text: string}>
+     */
+    private function normalizeUserContent(mixed $content): array
+    {
+        if (is_string($content)) {
+            $text = trim($content);
+
+            return $text === '' ? [] : [['type' => 'text', 'text' => $text]];
+        }
+
+        if (! is_array($content)) {
+            return [];
+        }
+
+        return collect($content)
+            ->filter(fn (mixed $block) => is_array($block)
+                && ($block['type'] ?? null) === 'text'
+                && is_string($block['text'] ?? null)
+                && trim($block['text']) !== '')
+            ->map(fn (array $block) => [
+                'type' => 'text',
+                'text' => trim($block['text']),
+            ])
             ->values()
             ->all();
     }
@@ -690,10 +994,11 @@ JS;
         ChatConversation $conversation,
     ): array {
         $extension = $this->extensionForMimeType($mimeType);
-        $path = 'chat-agent-media/'.$conversation->id.'/'.strtolower((string) Str::ulid()).$extension;
+        $path = 'chat-agent-media/'.$conversation->id.'/'.hash('sha256', $contents).$extension;
         $disk = (string) config('filesystems.default', 'local');
 
-        if (! Storage::disk($disk)->put($path, $contents)) {
+        if (! Storage::disk($disk)->exists($path)
+            && ! Storage::disk($disk)->put($path, $contents)) {
             throw new RuntimeException('The agent media could not be stored.');
         }
 

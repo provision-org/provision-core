@@ -17,7 +17,6 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -29,7 +28,7 @@ class SendAgentChatMessageJob implements ShouldQueue
 
     public int $tries = 3;
 
-    public int $timeout = 560;
+    public int $timeout = 90;
 
     public function __construct(
         public ChatConversation $conversation,
@@ -147,7 +146,7 @@ class SendAgentChatMessageJob implements ShouldQueue
 
     private function handleOpenClaw(OpenClawChatService $openClawChat): void
     {
-        $result = $openClawChat->sendAndWait(
+        $openClawChat->start(
             $this->conversation,
             $this->userMessage,
             cancelled: function (): bool {
@@ -156,45 +155,17 @@ class SendAgentChatMessageJob implements ShouldQueue
                 return $this->userMessage->delivery_status === 'aborted';
             },
         );
-
-        $assistantMessage = DB::transaction(function () use ($result): ?ChatMessage {
-            $message = ChatMessage::query()
-                ->whereKey($this->userMessage->getKey())
-                ->lockForUpdate()
-                ->firstOrFail();
-
-            if (! in_array($message->delivery_status, ['queued', 'running'], true)) {
-                return null;
-            }
-
-            $assistantMessage = $this->conversation->messages()->firstOrCreate([
-                'upstream_id' => $result['upstream_id'],
-            ], [
-                'role' => ChatMessageRole::Assistant,
-                'reply_to_message_id' => $message->id,
-                'content' => $result['content'],
-                'sent_at' => now(),
-            ]);
-
-            $message->forceFill([
-                'delivery_status' => 'completed',
-                'delivery_error' => null,
-                'upstream_run_id' => $result['run_id'],
-                'outbound_to_agent_at' => now(),
-            ])->save();
-
-            return $assistantMessage;
-        });
-
-        if (! $assistantMessage) {
-            return;
-        }
-
         $this->userMessage->refresh();
-        $this->conversation->update(['last_message_at' => now()]);
 
-        if ($assistantMessage->wasRecentlyCreated) {
-            $this->broadcastSafely(new ChatMessageReceivedEvent($assistantMessage));
+        try {
+            ReconcileOpenClawChatMessageJob::dispatch($this->conversation, $this->userMessage)
+                ->delay(now()->addSeconds(15));
+        } catch (Throwable $exception) {
+            Log::warning('Could not queue initial OpenClaw chat reconciliation', [
+                'conversation_id' => $this->conversation->id,
+                'message_id' => $this->userMessage->id,
+                'exception' => $exception::class,
+            ]);
         }
     }
 
