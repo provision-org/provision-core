@@ -28,7 +28,6 @@ use App\Jobs\UpdateEnvOnServerJob;
 use App\Jobs\VerifyAgentChannelsJob;
 use App\Mail\AgentDeletedMail;
 use App\Models\Agent;
-use App\Models\AgentActivity;
 use App\Models\AgentArtifact;
 use App\Models\AgentDailyStat;
 use App\Models\AgentTemplate;
@@ -549,21 +548,6 @@ class AgentController extends Controller
 
         abort_unless($agent->team_id === $team->id, 404);
 
-        $activities = AgentActivity::query()
-            ->where('agent_id', $agent->id)
-            ->latest()
-            ->limit(20)
-            ->get()
-            ->map(fn (AgentActivity $a) => [
-                'id' => $a->id,
-                'agent_id' => $a->agent_id,
-                'agent_name' => $agent->name,
-                'type' => $a->type,
-                'channel' => $a->channel,
-                'summary' => $a->summary,
-                'created_at' => $a->created_at->toISOString(),
-            ]);
-
         $hasBoxDesktop = $this->hasBoxDesktop($agent);
         $browserUrl = $hasBoxDesktop ? null : $this->resolveBrowserUrl($agent);
         $desktopUrl = $hasBoxDesktop ? route('agents.desktop', $agent) : null;
@@ -583,8 +567,8 @@ class AgentController extends Controller
         return Inertia::render('agents/show', [
             'agent' => $agent,
             'usesManagedCredits' => $agent->auth_provider === 'openrouter'
+                && filled($agent->model_primary)
                 && $team->managedApiKey()->exists(),
-            'activities' => $activities,
             'teamId' => $team->id,
             'browserUrl' => $browserUrl,
             'desktopUrl' => $desktopUrl,

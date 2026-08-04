@@ -245,6 +245,33 @@ test('show page excludes external provider agents from managed credit UI', funct
         );
 })->with(['chatgpt', 'bedrock']);
 
+test('show page excludes agents without a configured managed model from managed credit UI', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'openrouter',
+        'model_primary' => null,
+    ]);
+
+    ManagedApiKey::query()->create([
+        'team_id' => $team->id,
+        'openrouter_key_hash' => 'managed-key-hash',
+        'api_key' => 'managed-key',
+        'name' => 'Provision managed key',
+        'credit_limit_cents' => 1000,
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('agents.show', $agent))
+        ->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->component('agents/show')
+            ->where('usesManagedCredits', false)
+            ->missing('activities')
+        );
+});
+
 test('show page includes per-agent browser url when server has vnc password', function () {
     $user = User::factory()->withPersonalTeam()->create();
     $team = $user->currentTeam;
