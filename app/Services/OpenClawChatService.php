@@ -455,7 +455,7 @@ final class OpenClawChatService
         return "/root/.openclaw/agents/{$agent->harness_agent_id}/provision-chat-attachments/{$message->id}";
     }
 
-    private function ensureNativeSessionKey(ChatConversation $conversation, Agent $agent): string
+    public function ensureNativeSessionKey(ChatConversation $conversation, Agent $agent): string
     {
         if (Str::startsWith($conversation->session_key, "agent:{$agent->harness_agent_id}:")) {
             return $conversation->session_key;

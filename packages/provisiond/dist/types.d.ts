@@ -143,4 +143,12 @@ export interface OpenClawSessionSnapshot {
     spawnedBy?: string;
     subagentRole?: string;
 }
+export interface ChatOutboxSend {
+    message_id: string;
+    session_key: string;
+    agent_id: string;
+    message: string;
+    idempotency_key: string;
+    queued_at: number;
+}
 //# sourceMappingURL=types.d.ts.map

@@ -100,6 +100,22 @@ export class ProvisionApiClient {
             throw new Error(`Chat event relay failed: ${res.status} ${res.statusText}`);
         }
     }
+    async pollChatOutbox(waitSeconds) {
+        // Long-poll: the server holds the request up to waitSeconds via a
+        // blocking Redis pop, so the fetch timeout must exceed the wait.
+        const res = await this.request('GET', `/chat/outbox?wait=${waitSeconds}`, undefined, (waitSeconds + 10) * 1000);
+        if (!res.ok) {
+            throw new Error(`Chat outbox poll failed: ${res.status} ${res.statusText}`);
+        }
+        const payload = (await res.json());
+        return payload.send ?? null;
+    }
+    async ackChatSend(ack) {
+        const res = await this.request('POST', '/chat/outbox/ack', ack);
+        if (!res.ok) {
+            throw new Error(`Chat send ack failed: ${res.status} ${res.statusText}`);
+        }
+    }
     async syncOpenClawSessions(sessions) {
         const res = await this.request('POST', '/chat/sessions/snapshot', {
             sessions,

@@ -5,7 +5,7 @@
  * The daemon token is sent only through the Authorization header.
  * Uses Node's built-in fetch API (Node 22+).
  */
-import type { ChatRelayEvent, Config, OpenClawSessionSnapshot, WorkQueueTask, TaskResult, ResolvedApproval, UsageEvent } from './types.js';
+import type { ChatOutboxSend, ChatRelayEvent, Config, OpenClawSessionSnapshot, WorkQueueTask, TaskResult, ResolvedApproval, UsageEvent } from './types.js';
 export declare class ProvisionApiClient {
     private readonly baseUrl;
     private readonly token;
@@ -22,6 +22,13 @@ export declare class ProvisionApiClient {
     postNote(taskId: string, body: string): Promise<void>;
     sendHeartbeat(activeRuns: string[], version?: string, capabilities?: string[]): Promise<void>;
     reportChatEvents(events: ChatRelayEvent[]): Promise<void>;
+    pollChatOutbox(waitSeconds: number): Promise<ChatOutboxSend | null>;
+    ackChatSend(ack: {
+        message_id: string;
+        status: 'started' | 'error';
+        run_id?: string | null;
+        error?: string | null;
+    }): Promise<void>;
     syncOpenClawSessions(sessions: OpenClawSessionSnapshot[]): Promise<void>;
     private request;
 }

@@ -310,6 +310,22 @@ export class OpenClawGatewayRelay {
         this.challengeRejecter = null;
         rejecter?.(error);
     }
+    isConnected() {
+        return this.socket?.readyState === WebSocket.OPEN;
+    }
+    /**
+     * Fire a chat.send over the relay's authenticated loopback socket —
+     * the fast-send path. The gateway acks with {runId, status}; streaming
+     * output arrives via the normal broadcast events this relay already
+     * forwards.
+     */
+    async sendChat(params) {
+        const payload = await this.request('chat.send', { ...params });
+        return {
+            runId: typeof payload.runId === 'string' ? payload.runId : null,
+            status: typeof payload.status === 'string' ? payload.status : null,
+        };
+    }
     request(method, params) {
         const socket = this.socket;
         if (!socket || socket.readyState !== WebSocket.OPEN) {

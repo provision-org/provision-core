@@ -10,6 +10,7 @@ use App\Events\ChatMessageReceivedEvent;
 use App\Events\ChatMessageSendingEvent;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
+use App\Services\DaemonChatSendService;
 use App\Services\GatewayClient;
 use App\Services\OpenClawChatService;
 use Illuminate\Bus\Queueable;
@@ -146,15 +147,27 @@ class SendAgentChatMessageJob implements ShouldQueue
 
     private function handleOpenClaw(OpenClawChatService $openClawChat): void
     {
-        $openClawChat->start(
-            $this->conversation,
-            $this->userMessage,
-            cancelled: function (): bool {
-                $this->userMessage->refresh();
+        // Fast path: hand the send to the on-server daemon, which fires
+        // chat.send over its already-open loopback gateway WebSocket —
+        // skipping the SSH handshake + remote CLI startup that dominate
+        // time-to-first-token. Falls through to the SSH path when the daemon
+        // is absent, stale, or does not ack in time (idempotencyKey makes a
+        // late daemon send harmless).
+        $fastSent = app(DaemonChatSendService::class)
+            ->attempt($this->conversation, $this->userMessage);
 
-                return $this->userMessage->delivery_status === 'aborted';
-            },
-        );
+        if (! $fastSent) {
+            $openClawChat->start(
+                $this->conversation,
+                $this->userMessage,
+                cancelled: function (): bool {
+                    $this->userMessage->refresh();
+
+                    return $this->userMessage->delivery_status === 'aborted';
+                },
+            );
+        }
+
         $this->userMessage->refresh();
 
         try {
