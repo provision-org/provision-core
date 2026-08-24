@@ -97,6 +97,8 @@ class Agent extends Model
         'chatgpt_account_id',
         'chatgpt_connected_at',
         'chatgpt_token_expires_at',
+        'claude_connected_at',
+        'claude_token_expires_at',
         'system_prompt',
         'identity',
         'soul',
@@ -145,6 +147,8 @@ class Agent extends Model
             'stats_synced_at' => 'datetime',
             'chatgpt_connected_at' => 'datetime',
             'chatgpt_token_expires_at' => 'datetime',
+            'claude_connected_at' => 'datetime',
+            'claude_token_expires_at' => 'datetime',
             'artifact_cleanup_required' => 'boolean',
         ];
     }
@@ -152,6 +156,15 @@ class Agent extends Model
     public function usesChatGptSubscription(): bool
     {
         return $this->auth_provider === 'chatgpt';
+    }
+
+    /**
+     * Whether this agent runs anthropic models through the customer's own
+     * Claude subscription (setup token stored in the agent's auth store).
+     */
+    public function usesClaudeSubscription(): bool
+    {
+        return $this->auth_provider === 'claude';
     }
 
     /**
@@ -183,7 +196,7 @@ class Agent extends Model
      */
     public function openclawHeartbeatConfig(): ?array
     {
-        if ($this->usesChatGptSubscription()) {
+        if ($this->usesChatGptSubscription() || $this->usesClaudeSubscription()) {
             return ['model' => $this->openclawModel(), 'lightContext' => true];
         }
 
@@ -465,11 +478,7 @@ class Agent extends Model
      */
     public function openclawModel(): string
     {
-        $provider = LlmProvider::forModel($this->model_primary);
-
-        return $provider
-            ? $provider->openclawModel($this->model_primary)
-            : $this->model_primary;
+        return $this->prefixModelForOpenclaw($this->model_primary) ?? $this->model_primary;
     }
 
     /**
@@ -486,9 +495,33 @@ class Agent extends Model
         }
 
         $fallbacks = collect($this->model_fallbacks)
-            ->map(fn (string $id) => LlmProvider::forModel($id)?->openclawModel($id) ?? $id)
+            ->map(fn (string $id) => $this->prefixModelForOpenclaw($id) ?? $id)
             ->all();
 
         return ['primary' => $primary, 'fallbacks' => $fallbacks];
+    }
+
+    /**
+     * Teams that brought their own Anthropic/OpenAI key route those models
+     * straight to the provider; without one the model rides OpenRouter, which
+     * previously happened unconditionally — leaving a team with only a BYO
+     * Anthropic key pointed at OpenRouter with no OpenRouter credential.
+     */
+    private function prefixModelForOpenclaw(string $modelId): ?string
+    {
+        $provider = LlmProvider::forModel($modelId);
+
+        if ($provider === null) {
+            return null;
+        }
+
+        // Claude-subscription agents must hit Anthropic directly — their
+        // credential is a setup token in the agent auth store, which the
+        // OpenRouter route can't use.
+        $direct = ($provider === LlmProvider::Anthropic && $this->usesClaudeSubscription())
+            || (in_array($provider, [LlmProvider::Anthropic, LlmProvider::OpenAi], true)
+                && $this->team->hasActiveLlmKey($provider));
+
+        return $provider->openclawModel($modelId, $direct);
     }
 }

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AgentActivityController;
 use App\Http\Controllers\AgentChatGPTAuthController;
+use App\Http\Controllers\AgentClaudeAuthController;
 use App\Http\Controllers\AgentController;
 use App\Http\Controllers\AgentEnvController;
 use App\Http\Controllers\AgentMemoryController;
@@ -96,6 +97,7 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::post('agents', [AgentController::class, 'store'])->name('agents.store')->middleware(HandlePrecognitiveRequests::class);
         Route::get('agents/{agent}/setup', [AgentController::class, 'setup'])->name('agents.setup');
         Route::get('agents/{agent}/connect-chatgpt', [AgentController::class, 'connectChatgpt'])->name('agents.connect-chatgpt');
+        Route::get('agents/{agent}/connect-claude', [AgentController::class, 'connectClaude'])->name('agents.connect-claude');
         Route::post('agents/{agent}/use-pay-per-use', [AgentController::class, 'usePayPerUse'])->name('agents.use-pay-per-use');
         Route::get('agents/{agent}/provisioning', [AgentController::class, 'provisioning'])->name('agents.provisioning');
         Route::get('agents/{agent}', [AgentController::class, 'show'])->name('agents.show');
@@ -187,6 +189,10 @@ Route::middleware(['auth', 'verified', 'ensure-activated', 'ensure-has-team'])->
         Route::post('agents/{agent}/chatgpt-auth', [AgentChatGPTAuthController::class, 'store'])->name('agents.chatgpt-auth.store');
         Route::get('agents/{agent}/chatgpt-auth', [AgentChatGPTAuthController::class, 'show'])->name('agents.chatgpt-auth.show');
         Route::delete('agents/{agent}/chatgpt-auth', [AgentChatGPTAuthController::class, 'destroy'])->name('agents.chatgpt-auth.destroy');
+
+        Route::post('agents/{agent}/claude-auth', [AgentClaudeAuthController::class, 'store'])->name('agents.claude-auth.store');
+        Route::get('agents/{agent}/claude-auth', [AgentClaudeAuthController::class, 'show'])->name('agents.claude-auth.show');
+        Route::delete('agents/{agent}/claude-auth', [AgentClaudeAuthController::class, 'destroy'])->name('agents.claude-auth.destroy');
     });
 
     // API Keys

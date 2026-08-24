@@ -32,8 +32,16 @@ class ProvisionDigitalOceanServerJob implements ShouldQueue
         $volumeName = "provision-{$this->server->team_id}-{$this->server->id}";
         $region = config('cloud.regions.us-east.digitalocean', 'nyc1');
 
-        $volumeResponse = $doService->createVolume($volumeName, $team->volumeSize(), $region);
-        $volumeId = (string) $volumeResponse['volume']['id'];
+        // Retry-safe: a previous attempt may have created the volume and then
+        // failed at droplet creation (volume names are unique per region, so
+        // a blind re-create would 409). Reuse the existing volume when one
+        // with our name survives.
+        $volumeId = $doService->findVolumeIdByName($volumeName, $region);
+
+        if ($volumeId === null) {
+            $volumeResponse = $doService->createVolume($volumeName, $team->volumeSize(), $region);
+            $volumeId = (string) $volumeResponse['volume']['id'];
+        }
 
         $this->server->update([
             'provider_volume_id' => $volumeId,

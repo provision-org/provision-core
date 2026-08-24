@@ -117,24 +117,27 @@ enum LlmProvider: string
 
     /**
      * Prefix a model ID for OpenClaw config (e.g. "openrouter/z-ai/glm-4.7").
-     */
-    /**
-     * Prefix a model ID for OpenClaw config, routing all models through OpenRouter.
      *
-     * OpenRouter uses provider-prefixed model IDs (e.g. "anthropic/claude-opus-4-6"),
-     * and OpenClaw uses "openrouter/" prefix to select the OpenRouter API key.
+     * When $direct is true (the team brought its own Anthropic/OpenAI API
+     * key), models route straight to the provider — OpenClaw resolves
+     * ANTHROPIC_API_KEY / OPENAI_API_KEY from the config env block. Otherwise
+     * everything routes through OpenRouter (managed or BYO OpenRouter key):
+     * OpenRouter uses provider-prefixed model IDs and OpenClaw uses the
+     * "openrouter/" prefix to select the OpenRouter credential.
      */
-    public function openclawModel(string $modelId): string
+    public function openclawModel(string $modelId, bool $direct = false): string
     {
         // OpenRouter uses dotted version segments (e.g. claude-haiku-4.5) while
         // our DB ids use hyphens (claude-haiku-4-5). Convert the trailing
         // -N-M version pair to -N.M so the model id is recognized upstream.
+        // Direct Anthropic keeps the hyphenated API id; direct OpenAI ids are
+        // already dotted in the DB.
         $forOpenRouter = preg_replace('/-(\d+)-(\d+)$/', '-$1.$2', $modelId) ?? $modelId;
 
         return match ($this) {
             self::OpenRouter => "openrouter/{$modelId}",
-            self::Anthropic => "openrouter/anthropic/{$forOpenRouter}",
-            self::OpenAi => "openrouter/openai/{$forOpenRouter}",
+            self::Anthropic => $direct ? "anthropic/{$modelId}" : "openrouter/anthropic/{$forOpenRouter}",
+            self::OpenAi => $direct ? "openai/{$modelId}" : "openrouter/openai/{$forOpenRouter}",
             self::OpenAiCodex => "openai-codex/{$modelId}",
             // Direct Bedrock routing — never via OpenRouter. Model traffic
             // stays inside the customer's AWS account. OpenClaw's provider

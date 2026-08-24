@@ -17,7 +17,7 @@ use Mockery\MockInterface;
 
 uses(RefreshDatabase::class);
 
-function mockExecutorWithConfigUpdate(MockInterface $executor, ?string &$writtenConfig = null): void
+function mockExecutorWithConfigUpdate(MockInterface $executor, ?string &$writtenConfig = null, ?array &$execCommands = null): void
 {
     $existingConfig = json_encode(['agents' => ['defaults' => ['sandbox' => ['mode' => 'off']]]]);
     $executor->shouldReceive('readFile')
@@ -30,6 +30,12 @@ function mockExecutorWithConfigUpdate(MockInterface $executor, ?string &$written
             return json_decode($content) !== null;
         }))
         ->once();
+    $executor->shouldReceive('exec')
+        ->andReturnUsing(function (string $command) use (&$execCommands) {
+            $execCommands[] = $command;
+
+            return '';
+        });
 }
 
 function mockHarnessManager(MockInterface $executor): HarnessManager
@@ -116,6 +122,65 @@ test('it skips inactive api keys', function () {
     // Verify inactive keys are also not in openclaw.json env section
     $config = json_decode($writtenConfigJson, true);
     expect($config)->not->toHaveKey('env');
+});
+
+test('it injects api keys into each agent auth store and never writes auth-profiles.json', function () {
+    Bus::fake([RestartGatewayJob::class]);
+
+    $team = Team::factory()->create();
+    $server = Server::factory()->running()->create(['team_id' => $team->id]);
+
+    TeamApiKey::factory()->create([
+        'team_id' => $team->id,
+        'provider' => LlmProvider::Anthropic,
+        'api_key' => 'sk-ant-test-key',
+        'is_active' => true,
+    ]);
+    TeamApiKey::factory()->create([
+        'team_id' => $team->id,
+        'provider' => LlmProvider::OpenAi,
+        'api_key' => 'sk-openai-test-key',
+        'is_active' => true,
+    ]);
+
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_type' => 'openclaw',
+        'harness_agent_id' => 'agent-alpha',
+    ]);
+    // ChatGPT-subscription agents keep their OAuth openai slot untouched.
+    Agent::factory()->create([
+        'team_id' => $team->id,
+        'server_id' => $server->id,
+        'harness_type' => 'openclaw',
+        'harness_agent_id' => 'agent-chatgpt',
+        'auth_provider' => 'chatgpt',
+    ]);
+
+    $writtenConfigJson = null;
+    $execCommands = [];
+
+    $executor = Mockery::mock(CommandExecutor::class);
+    $executor->shouldReceive('writeFile')
+        ->once()
+        ->with('/root/.openclaw/.env', Mockery::any());
+    mockExecutorWithConfigUpdate($executor, $writtenConfigJson, $execCommands);
+
+    (new UpdateEnvOnServerJob($server))->handle(mockHarnessManager($executor), new OpenClawDefaultsService);
+
+    $pasteCommands = array_values(array_filter($execCommands, fn (string $c) => str_contains($c, 'paste-api-key')));
+
+    expect($pasteCommands)->toHaveCount(3)
+        ->and(implode("\n", $pasteCommands))
+        ->toContain("--agent 'agent-alpha' auth paste-api-key --provider 'anthropic'")
+        ->toContain("--agent 'agent-alpha' auth paste-api-key --provider 'openai'")
+        ->toContain("--agent 'agent-chatgpt' auth paste-api-key --provider 'anthropic'")
+        ->not->toContain("--agent 'agent-chatgpt' auth paste-api-key --provider 'openai'");
+
+    // The retired auth-profiles.json mechanism must stay dead: the 2026.7.x
+    // runtime never reads it, and its presence corrupts auth heuristics.
+    expect(implode("\n", $execCommands))->not->toContain('auth-profiles.json');
 });
 
 test('it pushes AWS_REGION but never the AWS key or secret for BYO-AWS teams', function () {

@@ -517,12 +517,15 @@ test('openclaw update config preserves browser.profiles for every agent on the s
         ->toHaveKey('agent-scout')
         ->toHaveKey('agent-buddy');
 
+    // Raw CDP attach-only profile: no driver key (driver=existing-session
+    // would route through the chrome-devtools-mcp subprocess and lose
+    // per-tab websockets, element screenshots, and download interception).
     expect($config['browser']['profiles']['agent-scout'])
         ->toMatchArray([
-            'driver' => 'existing-session',
             'attachOnly' => true,
             'cdpUrl' => 'http://127.0.0.1:9223',
-        ]);
+        ])
+        ->not->toHaveKey('driver');
 
     expect($config['browser']['profiles']['agent-buddy']['cdpUrl'])
         ->toBe('http://127.0.0.1:9224');

@@ -1715,8 +1715,8 @@ export default function CreateAgent({
                                                 think?
                                             </h1>
                                             <p className="mt-2 text-sm text-muted-foreground">
-                                                Pick a model — or connect your
-                                                own ChatGPT plan.
+                                                Pick a model — or bring your own
+                                                ChatGPT or Claude plan.
                                             </p>
                                         </div>
 
@@ -1728,6 +1728,8 @@ export default function CreateAgent({
                                                             (tier) =>
                                                                 tier.value !==
                                                                     'subscription' &&
+                                                                tier.value !==
+                                                                    'claude_subscription' &&
                                                                 (tier.value !==
                                                                     'bedrock' ||
                                                                     bedrockAvailable),
@@ -1937,6 +1939,59 @@ export default function CreateAgent({
                                                                 {'\u2014'} we'll
                                                                 connect your
                                                                 account in the
+                                                                next step.
+                                                            </p>
+                                                        </div>
+                                                        <span className="rounded bg-emerald-100 px-2 py-1 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300">
+                                                            $0 API costs
+                                                        </span>
+                                                    </button>
+                                                )}
+
+                                                {modelTiers.find(
+                                                    (t) =>
+                                                        t.value ===
+                                                        'claude_subscription',
+                                                ) && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => {
+                                                            form.setData(
+                                                                'model_tier',
+                                                                'claude_subscription',
+                                                            );
+                                                            form.setData(
+                                                                'model_primary',
+                                                                '',
+                                                            );
+                                                        }}
+                                                        className={cn(
+                                                            'flex w-full items-center gap-4 rounded-xl border px-5 py-4 text-left transition-all',
+                                                            form.data
+                                                                .model_tier ===
+                                                                'claude_subscription' &&
+                                                                !form.data
+                                                                    .model_primary
+                                                                ? 'border-foreground bg-accent shadow-sm'
+                                                                : 'border-border hover:border-foreground/30',
+                                                        )}
+                                                    >
+                                                        <div className="text-2xl">
+                                                            {'✳️'}
+                                                        </div>
+                                                        <div className="flex-1">
+                                                            <p className="text-sm font-bold">
+                                                                Bring your own
+                                                                Claude plan
+                                                            </p>
+                                                            <p className="mt-0.5 text-xs text-muted-foreground">
+                                                                Use your
+                                                                existing Claude
+                                                                Pro or Max
+                                                                subscription{' '}
+                                                                {'—'} you'll
+                                                                paste a setup
+                                                                token in the
                                                                 next step.
                                                             </p>
                                                         </div>

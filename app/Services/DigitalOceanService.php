@@ -60,6 +60,24 @@ class DigitalOceanService
     }
 
     /**
+     * Look up an existing volume by its unique per-region name. Returns the
+     * volume id, or null when it does not exist. Lets the provisioning job
+     * retry after a partial failure (volume created, droplet create failed)
+     * without colliding on the name or leaking a second volume.
+     */
+    public function findVolumeIdByName(string $name, ?string $region = null): ?string
+    {
+        $response = $this->http->get('/volumes', [
+            'name' => $name,
+            'region' => $region ?? 'nyc1',
+        ]);
+
+        $response->throw();
+
+        return $response->json('volumes.0.id');
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function attachVolume(string $volumeId, string $dropletId): array

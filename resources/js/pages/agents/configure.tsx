@@ -145,9 +145,15 @@ export default function ConfigureAgent({
                                                         {modelTiers
                                                             .filter(
                                                                 (tier) =>
+                                                                    // The Claude-subscription tier shares its primary
+                                                                    // model with Powerful, and this chooser submits
+                                                                    // model_primary only — it can't express the
+                                                                    // auth-provider switch, so it's create-wizard-only.
                                                                     tier.value !==
+                                                                        'claude_subscription' &&
+                                                                    (tier.value !==
                                                                         'bedrock' ||
-                                                                    bedrockAvailable,
+                                                                        bedrockAvailable),
                                                             )
                                                             .map((tier) => (
                                                                 <button

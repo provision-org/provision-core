@@ -526,6 +526,12 @@ class OpenClawDefaultsService
     }
 
     /**
+     * Keys must match the runtime model refs exactly: OpenRouter-routed models
+     * use the dotted version form under the "openrouter/" prefix, while
+     * direct-Anthropic models keep the hyphenated API id. Both forms are
+     * listed so caching applies regardless of which route the team's keys
+     * select.
+     *
      * @return array<string, array{params: array{cacheRetention: string}}>
      */
     private function buildPromptCaching(): array
@@ -533,6 +539,8 @@ class OpenClawDefaultsService
         return [
             'anthropic/claude-opus-4-6' => ['params' => ['cacheRetention' => 'long']],
             'anthropic/claude-opus-4-5' => ['params' => ['cacheRetention' => 'long']],
+            'openrouter/anthropic/claude-opus-4.6' => ['params' => ['cacheRetention' => 'long']],
+            'openrouter/anthropic/claude-opus-4.5' => ['params' => ['cacheRetention' => 'long']],
         ];
     }
 }

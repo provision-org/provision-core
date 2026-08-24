@@ -154,11 +154,15 @@ class CloudInitScriptBuilder
 
         return <<<BASH
         ping_progress "installing_openclaw"
-        # Version pinned via config('provision.openclaw_version'). 2026.5.3-1 is the
-        # first release where `devices approve` has a local-pairing fallback over
-        # loopback and the gateway no longer auto-clobbers config edits.
+        # Version pinned via config('provision.openclaw_version'). NO_PROMPT and
+        # NO_ONBOARD are the installer's documented automation flags — onboarding
+        # runs later in ServerSetupScriptService with our own flag set, so the
+        # installer must never start its own wizard on a headless box.
         export OPENCLAW_VERSION={$version}
-        curl -fsSL https://openclaw.ai/install.sh | bash || true
+        export OPENCLAW_NO_PROMPT=1
+        export OPENCLAW_NO_ONBOARD=1
+        curl -fsSL https://openclaw.ai/install.sh | bash \
+          || { echo "OpenClaw installer script failed"; exit 1; }
 
         # The installer may place OpenClaw and Node under root's NVM directory
         # without updating this non-login shell. Load NVM for the rest of setup,

@@ -10,7 +10,6 @@ use App\Services\Aws\MantleCatalogService;
 use App\Services\OpenClawDefaultsService;
 use App\Support\OpenClawConfig;
 use App\Support\OpenClawGatewayEndpoint;
-use App\Support\OperatorPairingPatch;
 use Illuminate\Support\Str;
 
 class ServerSetupScriptService
@@ -106,7 +105,7 @@ class ServerSetupScriptService
 
             // Capture version
             $lines[] = '# Capture OpenClaw version';
-            $lines[] = 'OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | sed "s/openclaw //" || echo "unknown")';
+            $lines[] = 'OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | grep -oE "[0-9]{4}\\.[0-9]+\\.[0-9]+" | head -1 || echo "unknown")';
             $lines[] = '';
 
             // Run doctor in non-interactive mode for settings migrations only.
@@ -302,22 +301,18 @@ WRAPPER);
             $lines[] = 'systemctl --user restart openclaw-gateway';
             $lines[] = '';
 
-            // 8. Wait for gateway + grant the full operator scope set
-            $lines[] = '# --- Step 8: Wait for Gateway & Grant Full Operator Scopes ---';
+            // 8. Wait for gateway health
+            //
+            // No pairing-scope seeding needed: since 2026.7.1 (#95997) a
+            // loopback CLI call authenticated with the gateway token bypasses
+            // device pairing entirely and keeps full operator scopes — the
+            // 2026.5.x scope-upgrade deadlock (formerly worked around by
+            // OperatorPairingPatch's direct paired.json edits) no longer
+            // applies to the local CLI path.
+            $lines[] = '# --- Step 8: Wait for Gateway ---';
             $lines[] = 'ping_progress "starting_services"';
             $lines[] = 'sleep 15';
             $lines[] = '';
-            $lines[] = '# OpenClaw 2026.5.x pairs the local CLI with operator.pairing+read by';
-            $lines[] = '# default. Anything beyond that triggers a scope-upgrade pending request,';
-            $lines[] = '# and approving it requires operator.admin — which nobody on a fresh box';
-            $lines[] = '# has. Seed full operator scopes directly on disk so the install script';
-            $lines[] = '# (channel sync, browser profile registration, etc.) can drive the gateway.';
-            $lines[] = OperatorPairingPatch::buildScript();
-            $lines[] = 'systemctl --user restart openclaw-gateway 2>/dev/null || true';
-            $lines[] = 'sleep 5';
-            $lines[] = '';
-
-            // Gateway health check retry loop
             $lines[] = '# Wait for gateway health';
             $lines[] = 'GATEWAY_READY=0';
             $lines[] = 'for DELAY in 5 10 10 15; do';
@@ -325,8 +320,6 @@ WRAPPER);
             $lines[] = '    GATEWAY_READY=1';
             $lines[] = '    break';
             $lines[] = '  fi';
-            $lines[] = '  # Re-seed scopes in case a new device paired mid-startup';
-            $lines[] = '  '.OperatorPairingPatch::buildScript();
             $lines[] = '  systemctl --user restart openclaw-gateway 2>/dev/null || true';
             $lines[] = '  sleep $DELAY';
             $lines[] = 'done';

@@ -5,7 +5,6 @@ namespace App\Services\Harness;
 use App\Contracts\CommandExecutor;
 use App\Contracts\HarnessDriver;
 use App\Enums\AgentStatus;
-use App\Enums\LlmProvider;
 use App\Events\AgentUpdatedEvent;
 use App\Jobs\RestartGatewayJob;
 use App\Jobs\SetupAgentGitHubJob;
@@ -102,199 +101,19 @@ class OpenClawDriver implements HarnessDriver
         broadcast(new AgentUpdatedEvent($agent));
     }
 
-    /**
-     * @deprecated Kept for reference — replaced by AgentUpdateScriptService
-     */
-    private function _legacyUpdateAgent(Agent $agent, CommandExecutor $executor): void
-    {
-        $server = $agent->server;
-        $configPath = '/root/.openclaw/openclaw.json';
-        $agentId = $agent->harness_agent_id;
-        $agentDir = $this->agentDir($agent);
-
-        // Read current config
-        $config = json_decode($executor->readFile($configPath), true);
-
-        // Ensure restrictive "messaging" tool profile is removed — unset means
-        // "full" (all tools available). The sandbox deny list handles restrictions.
-        unset($config['tools']['profile']);
-
-        // Update or add agent entry
-        $agentEntry = [
-            'id' => $agentId,
-            'name' => $agent->name,
-            'workspace' => $agentDir,
-            'agentDir' => "{$agentDir}/agent",
-            'model' => $agent->openclawModelConfig(),
-        ];
-        // ChatGPT-subscription agents heartbeat on their own model (billed via
-        // ChatGPT), not the managed OpenRouter automation model.
-        if ($heartbeat = $agent->openclawHeartbeatConfig()) {
-            $agentEntry['heartbeat'] = $heartbeat;
-        }
-
-        $agents = $config['agents']['list'] ?? [];
-        $index = array_search($agentId, array_column($agents, 'id'));
-
-        if ($index !== false) {
-            $agents[$index] = array_merge($agents[$index], $agentEntry);
-        } else {
-            $agents[] = $agentEntry;
-        }
-
-        $config['agents']['list'] = array_values($agents);
-
-        // Use the cheapest model for heartbeats with light context to reduce token usage
-        $config['agents']['defaults'] = $config['agents']['defaults'] ?? [];
-        $config['agents']['defaults']['heartbeat'] = $config['agents']['defaults']['heartbeat'] ?? [];
-        $config['agents']['defaults']['heartbeat']['model'] = LlmProvider::AUTOMATION_MODEL;
-        $config['agents']['defaults']['heartbeat']['lightContext'] = true;
-
-        // Rebuild all channel accounts and bindings from database
-        $this->configBuilder->applyToConfig($config, $server);
-
-        // Add MailboxKit email skill config if agent has email connection
-        $emailConnection = $agent->emailConnection;
-        if ($emailConnection?->mailboxkit_inbox_id) {
-            $config['skills'] = $config['skills'] ?? [];
-            $config['skills']['entries'] = $config['skills']['entries'] ?? [];
-            $config['skills']['entries']['mailboxkit'] = ['enabled' => true];
-        }
-
-        // Clean up legacy env vars that should NOT be in shared env
-        foreach (['MAILBOXKIT_API_KEY', 'MAILBOXKIT_INBOX_ID', 'MAILBOXKIT_EMAIL', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL', 'PROVISION_API_URL', 'PROVISION_AGENT_TOKEN'] as $key) {
-            unset($config['env'][$key]);
-        }
-
-        // Remove invalid top-level keys that crash the gateway
-        unset($config['config']);
-
-        // Enable provision-tasks + provision-publish + provision-artifacts skills (core, always deployed)
-        $config['skills'] = $config['skills'] ?? [];
-        $config['skills']['entries'] = $config['skills']['entries'] ?? [];
-        $config['skills']['entries']['provision-tasks'] = ['enabled' => true];
-        $config['skills']['entries']['provision-publish'] = ['enabled' => true];
-        $config['skills']['entries']['provision-artifacts'] = ['enabled' => true];
-        $config['skills']['entries']['totp'] = ['enabled' => true];
-
-        // Write updated config
-        $executor->writeFile($configPath, OpenClawConfig::toJson($config));
-
-        // Update workspace files and directories
-        $executor->exec("mkdir -p {$agentDir}");
-        // Migrate old knowledge/ dir to workspace/ if it exists
-        $executor->exec("test -d {$agentDir}/knowledge && ! -d {$agentDir}/workspace && mv {$agentDir}/knowledge {$agentDir}/workspace || true");
-        $executor->exec("mkdir -p {$agentDir}/workspace");
-
-        // Create isolated Git/GitHub config directory
-        $executor->exec("mkdir -p {$agentDir}/.gh");
-
-        // Seed .gitconfig if empty or missing
-        $existingGitconfig = '';
-        try {
-            $existingGitconfig = $executor->readFile("{$agentDir}/.gitconfig");
-        } catch (\RuntimeException) {
-            // File doesn't exist yet
-        }
-
-        if (empty(trim($existingGitconfig))) {
-            $email = $agent->emailConnection?->email_address
-                ?? "{$agentId}@noreply.openclaw.ai";
-            $executor->writeFile("{$agentDir}/.gitconfig",
-                "[user]\n    name = {$agent->name}\n    email = {$email}\n");
-        }
-
-        if ($agent->soul) {
-            $executor->writeFile("{$agentDir}/SOUL.md", $agent->soul);
-        }
-
-        if ($agent->system_prompt) {
-            $executor->writeFile("{$agentDir}/AGENTS.md", $agent->system_prompt);
-        }
-
-        if ($agent->identity) {
-            $executor->writeFile("{$agentDir}/IDENTITY.md", $agent->identity);
-        }
-
-        if ($agent->user_context) {
-            $executor->writeFile("{$agentDir}/USER.md", $agent->user_context);
-        }
-
-        // Write ONBOARDING.md: first-run onboarding checklist (only if it doesn't exist yet).
-        // (Renamed from BOOTSTRAP.md — OpenClaw auto-removes that filename.)
-        $onboardingExists = false;
-        try {
-            $executor->readFile("{$agentDir}/ONBOARDING.md");
-            $onboardingExists = true;
-        } catch (\RuntimeException) {
-            // File doesn't exist yet
-        }
-        if (! $onboardingExists) {
-            $executor->writeFile("{$agentDir}/ONBOARDING.md", AgentInstallScriptService::buildOnboardingContent($agent));
-        }
-
-        // Write HEARTBEAT.md: periodic checks (task polling always, email if connected)
-        $executor->writeFile("{$agentDir}/HEARTBEAT.md", AgentInstallScriptService::buildHeartbeatContent($emailConnection));
-
-        // Write TOOLS.md: merge tools_config with email info
-        $toolsMd = $agent->tools_config ?? '';
-        if ($emailConnection?->mailboxkit_inbox_id) {
-            $this->deployMailboxKitSkill($agent, $executor);
-            $this->deployEmailCheckScript($agent, $executor);
-
-            $toolsMd .= "\n\n".AgentInstallScriptService::emailToolsMd($emailConnection);
-        }
-
-        $toolsMd .= "\n\n".AgentInstallScriptService::workspaceToolsMd($agent);
-        $toolsMd .= "\n\n".AgentInstallScriptService::gitToolsMd();
-        $toolsMd .= "\n\n".AgentInstallScriptService::browserToolsMd($agent);
-
-        // Deploy provision-tasks skill (core, always deployed)
-        $this->deployTasksSkill($agent, $executor);
-
-        // Deploy provision-publish skill (core, always deployed)
-        $this->deployPublishSkill($agent, $executor);
-
-        // Deploy provision-artifacts skill (core, always deployed)
-        $this->deployArtifactsSkill($agent, $executor);
-
-        // Ensure agent has an API token for the tasks API
-        $plainToken = AgentInstallScriptService::ensureAgentApiToken($agent);
-
-        // Write per-agent .env with agent-specific credentials (tasks API + mailboxkit)
-        $executor->writeFile("{$agentDir}/.env", AgentInstallScriptService::buildAgentEnv($agent, $plainToken));
-        if (trim($toolsMd)) {
-            $executor->writeFile("{$agentDir}/TOOLS.md", trim($toolsMd));
-        }
-
-        // Snapshot config, clear sync flag, activate if still deploying, and restart
-        $updateData = [
-            'config_snapshot' => $config,
-            'is_syncing' => false,
-            'last_synced_at' => now(),
-        ];
-
-        if ($agent->status === AgentStatus::Deploying) {
-            $updateData['status'] = AgentStatus::Active;
-        }
-
-        $agent->update($updateData);
-        broadcast(new AgentUpdatedEvent($agent));
-
-        RestartGatewayJob::dispatch($server);
-    }
-
     public function removeAgent(Agent $agent, CommandExecutor $executor): void
     {
         $openclawAgentId = $agent->harness_agent_id;
         $server = $agent->server;
         $hasSlack = $agent->slackConnection()->exists();
 
-        $executor->exec($this->configPatchService->buildRemoveAgentPatch($openclawAgentId));
-
+        // RPC patch first, raw file edit last (right before the restart) —
+        // see RemoveAgentFromServerJob::removeOpenClawAgent for the race.
         if ($hasSlack) {
             $executor->exec($this->configPatchService->buildRemoveSlackTokensPatch());
         }
+
+        $executor->exec($this->configPatchService->buildRemoveAgentPatch($openclawAgentId));
 
         $agentDir = $this->agentDir($agent);
         $executor->exec("rm -rf {$agentDir}");
