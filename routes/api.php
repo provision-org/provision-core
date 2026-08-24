@@ -5,6 +5,7 @@ use App\Http\Controllers\Api\AgentUpdateCallbackController;
 use App\Http\Controllers\Api\AgentUpdateScriptController;
 use App\Http\Controllers\Api\ArtifactController;
 use App\Http\Controllers\Api\CaddyController;
+use App\Http\Controllers\Api\DaemonChatOutboxController;
 use App\Http\Controllers\Api\DaemonController;
 use App\Http\Controllers\Api\HermesInstallScriptController;
 use App\Http\Controllers\Api\MobilePairingExchangeController;
@@ -109,6 +110,8 @@ $daemonRoutes = function (): void {
     Route::post('usage-events', [DaemonController::class, 'reportUsage']);
     Route::post('tasks/{task}/notes', [DaemonController::class, 'postNote']);
     Route::post('chat/events', [OpenClawChatRelayController::class, 'events']);
+    Route::get('chat/outbox', [DaemonChatOutboxController::class, 'poll']);
+    Route::post('chat/outbox/ack', [DaemonChatOutboxController::class, 'ack']);
     Route::post('chat/sessions/snapshot', [OpenClawChatRelayController::class, 'sessions']);
     Route::post('heartbeat', [DaemonController::class, 'heartbeat']);
 };

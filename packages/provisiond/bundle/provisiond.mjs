@@ -509,6 +509,29 @@ var ProvisionApiClient = class {
       );
     }
   }
+  async pollChatOutbox(waitSeconds) {
+    const res = await this.request(
+      "GET",
+      `/chat/outbox?wait=${waitSeconds}`,
+      void 0,
+      (waitSeconds + 10) * 1e3
+    );
+    if (!res.ok) {
+      throw new Error(
+        `Chat outbox poll failed: ${res.status} ${res.statusText}`
+      );
+    }
+    const payload = await res.json();
+    return payload.send ?? null;
+  }
+  async ackChatSend(ack) {
+    const res = await this.request("POST", "/chat/outbox/ack", ack);
+    if (!res.ok) {
+      throw new Error(
+        `Chat send ack failed: ${res.status} ${res.statusText}`
+      );
+    }
+  }
   async syncOpenClawSessions(sessions) {
     const res = await this.request("POST", "/chat/sessions/snapshot", {
       sessions
@@ -542,8 +565,8 @@ var ProvisionApiClient = class {
 };
 
 // src/version.ts
-var VERSION = "0.4.1";
-var CAPABILITIES = ["chat-relay-v1", "session-discovery-v1"];
+var VERSION = "0.5.0";
+var CAPABILITIES = ["chat-relay-v1", "chat-send-v1", "session-discovery-v1"];
 
 // src/poller.ts
 var activeRuns = /* @__PURE__ */ new Map();
@@ -628,6 +651,99 @@ async function sendHeartbeat(api) {
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// src/chat-send-poller.ts
+var POLL_WAIT_SECONDS = 12;
+var ERROR_BACKOFF_MS = 5e3;
+var MAX_MESSAGE_CHARS = 2e5;
+var ChatSendPoller = class {
+  constructor(api, relay) {
+    this.api = api;
+    this.relay = relay;
+  }
+  api;
+  relay;
+  stopped = false;
+  runner = null;
+  start() {
+    if (this.runner) {
+      return;
+    }
+    this.runner = this.loop();
+  }
+  async stop() {
+    this.stopped = true;
+    await this.runner?.catch(() => void 0);
+  }
+  async loop() {
+    logger.info("Chat send poller started");
+    while (!this.stopped) {
+      try {
+        const send = await this.api.pollChatOutbox(POLL_WAIT_SECONDS);
+        if (send) {
+          await this.handleSend(send);
+        }
+      } catch (error) {
+        if (this.stopped) {
+          break;
+        }
+        logger.warn("Chat outbox poll failed", {
+          error: error instanceof Error ? error.message : String(error)
+        });
+        await this.sleep(ERROR_BACKOFF_MS);
+      }
+    }
+  }
+  async handleSend(send) {
+    if (!this.validSend(send)) {
+      logger.warn("Discarding malformed chat outbox entry");
+      return;
+    }
+    if (!this.relay.isConnected()) {
+      await this.ackSafely({
+        message_id: send.message_id,
+        status: "error",
+        error: "Gateway relay socket is not connected"
+      });
+      return;
+    }
+    try {
+      const result = await this.relay.sendChat({
+        sessionKey: send.session_key,
+        agentId: send.agent_id,
+        message: send.message,
+        idempotencyKey: send.idempotency_key
+      });
+      await this.ackSafely({
+        message_id: send.message_id,
+        status: "started",
+        run_id: result.runId ?? send.idempotency_key
+      });
+    } catch (error) {
+      await this.ackSafely({
+        message_id: send.message_id,
+        status: "error",
+        error: error instanceof Error ? error.message.slice(0, 500) : "chat.send failed"
+      });
+    }
+  }
+  validSend(send) {
+    return typeof send.message_id === "string" && send.message_id.length > 0 && typeof send.session_key === "string" && send.session_key.length > 0 && typeof send.agent_id === "string" && send.agent_id.length > 0 && typeof send.message === "string" && send.message.length > 0 && send.message.length <= MAX_MESSAGE_CHARS && typeof send.idempotency_key === "string" && send.idempotency_key.startsWith("provision-chat:");
+  }
+  async ackSafely(ack) {
+    try {
+      await this.api.ackChatSend(ack);
+    } catch (error) {
+      logger.warn("Chat send ack failed", {
+        message_id: ack.message_id,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  }
+  sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+};
 
 // src/openclaw-gateway-relay.ts
 import { randomUUID as randomUUID2 } from "node:crypto";
@@ -947,6 +1063,22 @@ var OpenClawGatewayRelay = class {
     this.challengeResolver = null;
     this.challengeRejecter = null;
     rejecter?.(error);
+  }
+  isConnected() {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
+  /**
+   * Fire a chat.send over the relay's authenticated loopback socket —
+   * the fast-send path. The gateway acks with {runId, status}; streaming
+   * output arrives via the normal broadcast events this relay already
+   * forwards.
+   */
+  async sendChat(params) {
+    const payload = await this.request("chat.send", { ...params });
+    return {
+      runId: typeof payload.runId === "string" ? payload.runId : null,
+      status: typeof payload.status === "string" ? payload.status : null
+    };
   }
   request(method, params) {
     const socket = this.socket;
@@ -1516,9 +1648,12 @@ async function main() {
   const api = new ProvisionApiClient(config);
   const relay = new OpenClawGatewayRelay(config, api);
   relay.start();
+  const chatSendPoller = new ChatSendPoller(api, relay);
+  chatSendPoller.start();
   const shutdown = () => {
     logger.info("Shutdown signal received, finishing active tasks...");
     relay.stop();
+    void chatSendPoller.stop();
     requestStop();
     setTimeout(() => {
       const remaining = getActiveRunCount();

@@ -35,6 +35,22 @@ export declare class OpenClawGatewayRelay {
     private challengeResolver;
     private waitForChallenge;
     private cancelChallengeWait;
+    isConnected(): boolean;
+    /**
+     * Fire a chat.send over the relay's authenticated loopback socket —
+     * the fast-send path. The gateway acks with {runId, status}; streaming
+     * output arrives via the normal broadcast events this relay already
+     * forwards.
+     */
+    sendChat(params: {
+        sessionKey: string;
+        agentId: string;
+        message: string;
+        idempotencyKey: string;
+    }): Promise<{
+        runId: string | null;
+        status: string | null;
+    }>;
     private request;
     private normalizeEvent;
     private enqueueEvent;

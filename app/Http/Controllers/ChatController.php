@@ -9,14 +9,17 @@ use App\Enums\HarnessType;
 use App\Enums\ServerStatus;
 use App\Events\ChatMessageErrorEvent;
 use App\Events\ChatMessageReceivedEvent;
+use App\Events\ChatMessageSendingEvent;
 use App\Http\Requests\SendChatMessageRequest;
 use App\Jobs\CleanupOpenClawChatAttachmentsJob;
 use App\Jobs\EnsureProvisionDaemonCurrentJob;
+use App\Jobs\ReconcileOpenClawChatMessageJob;
 use App\Jobs\SendAgentChatMessageJob;
 use App\Models\Agent;
 use App\Models\ChatConversation;
 use App\Models\ChatMessage;
 use App\Models\OpenClawSessionDiscovery;
+use App\Services\DaemonChatSendService;
 use App\Services\GatewayClient;
 use App\Services\OpenClawChatService;
 use App\Services\OpenClawSessionSyncService;
@@ -856,9 +859,69 @@ class ChatController extends Controller
         ]);
     }
 
+    /**
+     * Try daemon fast-send from the web request with a short ack window.
+     * On success, take over the queued job's follow-through: the thinking
+     * broadcast and the delayed reconcile safety net.
+     */
+    private function attemptInlineFastSend(ChatConversation $conversation, ChatMessage $message): bool
+    {
+        if ($conversation->agent?->harness_type !== HarnessType::OpenClaw) {
+            return false;
+        }
+
+        try {
+            $fastSend = new DaemonChatSendService(app(OpenClawChatService::class), ackTimeoutSeconds: 2);
+
+            if (! $fastSend->attempt($conversation, $message)) {
+                return false;
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Inline fast-send failed; falling back to queued send', [
+                'message_id' => $message->id,
+                'exception' => $e::class,
+                'error' => $e->getMessage(),
+                'at' => $e->getFile().':'.$e->getLine(),
+            ]);
+
+            return false;
+        }
+
+        try {
+            broadcast(new ChatMessageSendingEvent($conversation->id, $conversation->agent->id));
+        } catch (\Throwable) {
+            // Non-fatal: streaming deltas will light the UI up regardless.
+        }
+
+        try {
+            ReconcileOpenClawChatMessageJob::dispatch($conversation, $message)
+                ->delay(now()->addSeconds(15));
+        } catch (\Throwable $e) {
+            Log::warning('Could not queue reconcile after inline fast-send', [
+                'message_id' => $message->id,
+                'exception' => $e::class,
+            ]);
+        }
+
+        return true;
+    }
+
     private function dispatchChatMessage(ChatConversation $conversation, ChatMessage $message): void
     {
         try {
+            // Inline fast path: hand the send to the on-server daemon right
+            // here in the web request, skipping queue pickup entirely. The
+            // short ack timeout bounds the request cost; any miss falls back
+            // to the queued job, which retries the fast path with a longer
+            // ack window before using SSH.
+            if ($this->attemptInlineFastSend($conversation, $message)) {
+                ChatMessage::query()
+                    ->whereKey($message->getKey())
+                    ->update(['enqueued_at' => now()]);
+
+                return;
+            }
+
             SendAgentChatMessageJob::dispatch($conversation, $message);
 
             ChatMessage::query()

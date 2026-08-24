@@ -11,6 +11,7 @@
 import { loadConfig, type CliOverrides } from './config.js';
 import { logger } from './logger.js';
 import { startPolling, requestStop, getActiveRunCount } from './poller.js';
+import { ChatSendPoller } from './chat-send-poller.js';
 import { OpenClawGatewayRelay } from './openclaw-gateway-relay.js';
 import { ProvisionApiClient } from './provision-api.js';
 import { VERSION } from './version.js';
@@ -128,11 +129,14 @@ async function main(): Promise<void> {
   const api = new ProvisionApiClient(config);
   const relay = new OpenClawGatewayRelay(config, api);
   relay.start();
+  const chatSendPoller = new ChatSendPoller(api, relay);
+  chatSendPoller.start();
 
   // Graceful shutdown
   const shutdown = (): void => {
     logger.info('Shutdown signal received, finishing active tasks...');
     relay.stop();
+    void chatSendPoller.stop();
     requestStop();
 
     // Force exit if tasks don't finish within 30 seconds
