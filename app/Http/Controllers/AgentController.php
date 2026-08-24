@@ -38,6 +38,7 @@ use App\Services\AgentTemplateService;
 use App\Services\AsciiBoxService;
 use App\Services\Aws\AwsCredentials;
 use App\Services\ChatGPTAuthService;
+use App\Services\ClaudeAuthService;
 use App\Services\CloudServiceFactory;
 use App\Services\Harness\HermesDriver;
 use App\Services\ModuleRegistry;
@@ -214,6 +215,15 @@ class AgentController extends Controller
             } else {
                 $data['model_primary'] = $tier->primaryModel();
                 $data['model_fallbacks'] = $tier->fallbackModels();
+            }
+
+            // Claude subscription can't be inferred from the model id (the
+            // same Anthropic models also run via managed OpenRouter), so the
+            // tier decides. Like ChatGPT subscription, keep fallbacks empty so
+            // the agent never silently draws Provision credits.
+            if ($tier === ModelTier::ClaudeSubscription) {
+                $data['auth_provider'] = 'claude';
+                $data['model_fallbacks'] = [];
             }
         }
         unset($data['model_tier']);
@@ -457,6 +467,10 @@ class AgentController extends Controller
                 return to_route('agents.connect-chatgpt', $agent);
             }
 
+            if ($agent->auth_provider === 'claude' && empty($agent->claude_connected_at)) {
+                return to_route('agents.connect-claude', $agent);
+            }
+
             // Workforce agents don't have a channel surface — send them home.
             if ($agent->agent_mode === AgentMode::Workforce) {
                 return to_route('agents.show', $agent);
@@ -500,6 +514,10 @@ class AgentController extends Controller
         if ($agent->status === AgentStatus::Active) {
             if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
                 return to_route('agents.connect-chatgpt', $agent);
+            }
+
+            if ($agent->auth_provider === 'claude' && empty($agent->claude_connected_at)) {
+                return to_route('agents.connect-claude', $agent);
             }
 
             // Workforce agents land on their config page — they have no
@@ -632,6 +650,22 @@ class AgentController extends Controller
         ]);
     }
 
+    public function connectClaude(Request $request, Agent $agent): Response|RedirectResponse
+    {
+        $team = $request->user()->currentTeam;
+
+        abort_unless($agent->team_id === $team->id, 404);
+        abort_unless($request->user()->isTeamAdmin($team), 403);
+
+        if ($agent->auth_provider !== 'claude' || $agent->claude_connected_at) {
+            return to_route('agents.setup', $agent);
+        }
+
+        return Inertia::render('agents/connect-claude', [
+            'agent' => $agent->load('server'),
+        ]);
+    }
+
     /**
      * One-click switch from ChatGPT subscription to managed pay-per-use.
      *
@@ -660,6 +694,14 @@ class AgentController extends Controller
         }
 
         $tier = ModelTier::Efficient;
+
+        // Revoke a connected Claude setup token before flipping providers —
+        // otherwise the customer credential is stranded on the server with no
+        // Disconnect button left in the UI (the auth card is gated on
+        // auth_provider === 'claude').
+        if ($agent->usesClaudeSubscription()) {
+            app(ClaudeAuthService::class)->disconnect($agent);
+        }
 
         $agent->update([
             'auth_provider' => $tier->authProvider(),
@@ -711,12 +753,24 @@ class AgentController extends Controller
 
         if (array_key_exists('model_primary', $data)) {
             $isChatGpt = LlmProvider::isChatGptSubscriptionModel($data['model_primary'] ?? '');
-            $data['auth_provider'] = $isChatGpt ? 'chatgpt' : 'openrouter';
-            // Switching to ChatGPT subscription must drop any managed OpenRouter
-            // fallbacks left over from a previous pay-per-use tier — otherwise the
-            // agent silently falls back to OpenRouter and drains Provision credits.
-            if ($isChatGpt) {
+            // A Claude-subscription agent that stays on an Anthropic model keeps
+            // its setup-token auth — the same model ids also run via managed
+            // OpenRouter, so the model alone can't distinguish the two.
+            $keepsClaude = $agent->usesClaudeSubscription()
+                && LlmProvider::forModel($data['model_primary'] ?? '') === LlmProvider::Anthropic;
+            $data['auth_provider'] = $isChatGpt ? 'chatgpt' : ($keepsClaude ? 'claude' : 'openrouter');
+            // Subscription auth must drop any managed OpenRouter fallbacks left
+            // over from a previous pay-per-use tier — otherwise the agent
+            // silently falls back to OpenRouter and drains Provision credits.
+            if ($isChatGpt || $keepsClaude) {
                 $data['model_fallbacks'] = [];
+            }
+
+            // Switching a Claude-subscription agent to a non-Anthropic model
+            // drops it back to managed routing — revoke the stored setup
+            // token first so the credential doesn't strand on the server.
+            if ($agent->usesClaudeSubscription() && ! $keepsClaude) {
+                app(ClaudeAuthService::class)->disconnect($agent);
             }
         }
 
@@ -738,6 +792,10 @@ class AgentController extends Controller
         // connected account yet, send the user to the connect flow.
         if ($agent->auth_provider === 'chatgpt' && empty($agent->chatgpt_email)) {
             return to_route('agents.connect-chatgpt', $agent);
+        }
+
+        if ($agent->auth_provider === 'claude' && empty($agent->claude_connected_at)) {
+            return to_route('agents.connect-claude', $agent);
         }
 
         return back();

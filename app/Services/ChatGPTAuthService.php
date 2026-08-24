@@ -4,7 +4,6 @@ namespace App\Services;
 
 use App\Jobs\FinalizeChatGPTAuthJob;
 use App\Models\Agent;
-use App\Support\OperatorPairingPatch;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use RuntimeException;
@@ -88,34 +87,38 @@ class ChatGPTAuthService
     }
 
     /**
-     * Read auth-profiles.json on the agent server and check if an openai-codex
-     * OAuth profile has been written. On success, persist metadata to the agent
-     * row, pin the OAuth profile in auth-state.json, and restart the gateway.
+     * Check whether the device-code login has produced an OpenAI OAuth profile.
+     *
+     * OpenClaw 2026.7.x stores auth profiles in per-agent SQLite
+     * (openclaw-agent.sqlite), never in auth-profiles.json — the runtime no
+     * longer reads that file at all — so the only supported view is
+     * `openclaw models auth list --json`. On success, persist metadata to the
+     * agent row and finalize asynchronously.
      *
      * @return array{state: 'pending'|'active'|'expired', email?: string, plan_type?: string, expires_at?: string}
      */
     public function pollAuthStatus(Agent $agent): array
     {
         $session = self::TMUX_SESSION_PREFIX.$agent->harness_agent_id;
-        $agentDir = "/root/.openclaw/agents/{$agent->harness_agent_id}/agent";
 
         $this->sshService->connect($agent->server);
 
         try {
-            $profileJson = $this->sshService->exec(
-                "jq '.profiles | to_entries | map(select(.value.provider == \"openai-codex\" and .value.type == \"oauth\")) | first' {$agentDir}/auth-profiles.json 2>/dev/null || echo null",
-            );
+            $listJson = $this->sshService->exec(sprintf(
+                'openclaw models --agent %s auth list --provider openai --json 2>/dev/null || echo null',
+                escapeshellarg($agent->harness_agent_id),
+            ));
 
-            $profile = json_decode(trim($profileJson), true);
+            $profile = $this->extractOauthProfile($listJson);
 
-            if (! is_array($profile) || ($profile['value']['type'] ?? null) !== 'oauth') {
+            if ($profile === null) {
                 $sessionAlive = trim($this->sshService->exec("tmux has-session -t {$session} 2>/dev/null && echo yes || echo no"));
 
                 return ['state' => $sessionAlive === 'yes' ? 'pending' : 'expired'];
             }
 
-            $profileId = $profile['key'];
-            $value = $profile['value'];
+            $profileId = $profile['profile_id'];
+            $value = $profile;
 
             // Idempotency: if we've already finalized this email, skip the heavy
             // post-pairing work and just return the active state. Polling the
@@ -159,9 +162,10 @@ class ChatGPTAuthService
     }
 
     /**
-     * Disconnect: kill any in-progress tmux session, remove the OAuth profile
-     * and openai-codex order entry from auth-profiles/auth-state, restart the
-     * gateway, and reset the agent row's chatgpt_* columns + auth_provider.
+     * Disconnect: kill any in-progress tmux session, remove the OpenAI OAuth
+     * profiles from the agent's SQLite auth store via the supported CLI, and
+     * reset the agent row's chatgpt_* columns + auth_provider. `models auth
+     * logout` refreshes a running gateway itself, so no restart is needed.
      */
     public function disconnect(Agent $agent): void
     {
@@ -170,37 +174,16 @@ class ChatGPTAuthService
         }
 
         $session = self::TMUX_SESSION_PREFIX.$agent->harness_agent_id;
-        $agentDir = "/root/.openclaw/agents/{$agent->harness_agent_id}/agent";
-        $email = $agent->chatgpt_email;
 
         try {
             $this->sshService->connect($agent->server);
 
             $this->sshService->exec("tmux kill-session -t {$session} 2>/dev/null; true");
 
-            if ($email) {
-                $profileKey = "openai-codex:{$email}";
-                $this->sshService->exec(sprintf(
-                    "jq 'del(.profiles[%s])' %s/auth-profiles.json > %s/auth-profiles.json.tmp && mv %s/auth-profiles.json.tmp %s/auth-profiles.json 2>/dev/null || true",
-                    escapeshellarg('"'.$profileKey.'"'),
-                    $agentDir,
-                    $agentDir,
-                    $agentDir,
-                    $agentDir,
-                ));
-            }
-
             $this->sshService->exec(sprintf(
-                "jq 'del(.order.\"openai-codex\") | del(.lastGood.\"openai-codex\")' %s/auth-state.json > %s/auth-state.json.tmp && mv %s/auth-state.json.tmp %s/auth-state.json 2>/dev/null || true",
-                $agentDir,
-                $agentDir,
-                $agentDir,
-                $agentDir,
+                'openclaw models --agent %s auth logout --provider openai 2>&1 || true',
+                escapeshellarg($agent->harness_agent_id),
             ));
-
-            $this->sshService->exec(
-                'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway',
-            );
         } catch (\Throwable $e) {
             Log::warning("ChatGPT disconnect failed for agent {$agent->harness_agent_id}: {$e->getMessage()}");
         } finally {
@@ -218,6 +201,67 @@ class ChatGPTAuthService
     }
 
     /**
+     * Parse `openclaw models auth list --json` output and pull the first
+     * OpenAI OAuth profile. Output shape varies slightly across releases
+     * (top-level array vs {profiles: [...]}, "type" vs "kind"), so parse
+     * defensively and normalize to the keys the caller persists.
+     *
+     * @return array{profile_id: string, email: ?string, chatgptPlanType: ?string, accountId: ?string, expires: ?int}|null
+     */
+    private function extractOauthProfile(string $listJson): ?array
+    {
+        $decoded = json_decode(trim($listJson), true);
+
+        if (! is_array($decoded)) {
+            return null;
+        }
+
+        $profiles = array_is_list($decoded) ? $decoded : ($decoded['profiles'] ?? []);
+
+        if (! is_array($profiles)) {
+            return null;
+        }
+
+        foreach ($profiles as $key => $profile) {
+            if (! is_array($profile)) {
+                continue;
+            }
+
+            $provider = $profile['provider'] ?? null;
+            $type = $profile['type'] ?? $profile['kind'] ?? $profile['mode'] ?? null;
+
+            if (! in_array($provider, ['openai', 'openai-codex'], true) || $type !== 'oauth') {
+                continue;
+            }
+
+            $profileId = $profile['profileId'] ?? $profile['id'] ?? (is_string($key) ? $key : null);
+
+            if ($profileId === null) {
+                continue;
+            }
+
+            // Email commonly rides in the profile id ("openai:user@host") when
+            // no explicit field is present.
+            $email = $profile['email'] ?? null;
+            if ($email === null && str_contains($profileId, '@')) {
+                $email = substr($profileId, strpos($profileId, ':') + 1) ?: null;
+            }
+
+            return [
+                'profile_id' => $profileId,
+                'email' => $email,
+                'chatgptPlanType' => $profile['chatgptPlanType'] ?? $profile['planType'] ?? null,
+                'accountId' => $profile['accountId'] ?? null,
+                'expires' => isset($profile['expires']) && is_numeric($profile['expires'])
+                    ? (int) $profile['expires']
+                    : null,
+            ];
+        }
+
+        return null;
+    }
+
+    /**
      * `--method device-code` for openai-codex landed in 2026.5.2. If the box
      * is on an older release, upgrade in-place and restart the gateway before
      * we kick off the flow. Caller already holds an SSH connection.
@@ -226,8 +270,11 @@ class ChatGPTAuthService
     {
         $required = config('provision.openclaw_version');
 
+        // `openclaw --version` prints the bare version ("2026.7.1"); older
+        // builds printed an "OpenClaw x.y.z" banner. Grab the first
+        // version-looking token so both forms parse.
         $version = trim($this->sshService->exec(
-            "openclaw --version 2>/dev/null | sed -nE 's/.*OpenClaw ([0-9.]+).*/\\1/p' | head -1",
+            "openclaw --version 2>/dev/null | grep -oE '[0-9]{4}\\.[0-9]+\\.[0-9]+' | head -1",
         ));
 
         if ($version !== '' && version_compare($version, $required, '>=')) {
@@ -236,13 +283,16 @@ class ChatGPTAuthService
 
         Log::info("Upgrading openclaw on agent server (was '{$version}', need {$required})");
 
+        // Official updater: stages + doctor-verifies the candidate and rolls
+        // back on failure. Raw npm swap kept as fallback for pre-updater builds.
         $this->sshService->exec(
-            'npm install -g openclaw@'.escapeshellarg($required).' 2>&1',
-            300,
+            'openclaw update --tag '.escapeshellarg($required).' --yes --json 2>&1'
+            .' || npm install -g openclaw@'.escapeshellarg($required).' 2>&1',
+            600,
         );
 
-        $this->sshService->exec(OperatorPairingPatch::buildScript());
-
+        // No pairing re-seed needed: since 2026.7.1 (#95997) a loopback CLI
+        // call with the gateway token bypasses device pairing entirely.
         $this->sshService->exec(
             'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway 2>&1 || true',
         );

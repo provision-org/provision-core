@@ -43,11 +43,16 @@ class RemoveAgentFromServerJob implements ShouldQueue
 
     private function removeOpenClawAgent(CommandExecutor $executor, ConfigPatchService $configPatchService): void
     {
-        $executor->exec($configPatchService->buildRemoveAgentPatch($this->harnessAgentId));
-
+        // Gateway-RPC patch FIRST, raw file edit LAST: the RPC round-trip
+        // works from the gateway's own config snapshot, so a preceding file
+        // edit it never observed could be written back (resurrecting the
+        // removed agent) or trip the clobber detector. The file edit runs
+        // last, immediately before the gateway restart that reloads it.
         if ($this->hasSlack) {
             $executor->exec($configPatchService->buildRemoveSlackTokensPatch());
         }
+
+        $executor->exec($configPatchService->buildRemoveAgentPatch($this->harnessAgentId));
 
         $agentDir = "/root/.openclaw/agents/{$this->harnessAgentId}";
         $executor->exec("rm -rf {$agentDir}");

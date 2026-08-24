@@ -35,8 +35,6 @@ class FinalizeChatGPTAuthJob implements ShouldQueue
             return;
         }
 
-        $agentDir = "/root/.openclaw/agents/{$this->agent->harness_agent_id}/agent";
-
         $ssh->connect($this->agent->server);
 
         try {
@@ -46,15 +44,10 @@ class FinalizeChatGPTAuthJob implements ShouldQueue
                 escapeshellarg($this->profileId),
             ));
 
-            // Drop the synthesized openai-codex:default api_key so it can't out-rank
-            // the OAuth profile on subsequent runs.
-            $ssh->exec(sprintf(
-                "jq 'del(.profiles.\"openai-codex:default\")' %s/auth-profiles.json > %s/auth-profiles.json.tmp && mv %s/auth-profiles.json.tmp %s/auth-profiles.json 2>/dev/null || true",
-                $agentDir,
-                $agentDir,
-                $agentDir,
-                $agentDir,
-            ));
+            // Auth profiles live in the agent's SQLite store on 2026.7.x — the
+            // legacy auth-profiles.json is never read, so no file cleanup is
+            // needed here; the order pin above already outranks any stale
+            // api_key profile.
 
             $ssh->exec("tmux kill-session -t {$this->tmuxSession} 2>/dev/null; true");
 

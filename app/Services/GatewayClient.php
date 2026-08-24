@@ -3,11 +3,19 @@
 namespace App\Services;
 
 use App\Contracts\CommandExecutor;
-use App\Enums\HarnessType;
 use App\Models\Agent;
 use App\Models\Server;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Hermes-only chat transport (per-agent OpenAI-compatible API server).
+ *
+ * The former OpenClaw arm (curl to the gateway's /v1/responses on 18789 with
+ * the token scraped from openclaw.json) was retired: OpenClaw chat goes
+ * through OpenClawChatService's gateway RPC (`chat.send` with idempotency
+ * keys) — the documented transport — and both call sites gate on
+ * HarnessType before reaching this class.
+ */
 class GatewayClient
 {
     private CommandExecutor $executor;
@@ -157,12 +165,8 @@ class GatewayClient
             'stream' => $stream,
         ];
 
-        // Session continuity
-        if ($this->isHermes()) {
-            $payload['conversation'] = $sessionKey;
-        } else {
-            $payload['user'] = $sessionKey;
-        }
+        // Session continuity (Hermes conversation threading)
+        $payload['conversation'] = $sessionKey;
 
         $payloadJson = json_encode($payload);
 
@@ -235,55 +239,28 @@ class GatewayClient
     // -------------------------------------------------------------------------
 
     /**
-     * Resolve the API port for this agent.
-     *
-     * Hermes: per-agent port from DB (each agent runs its own API server)
-     * OpenClaw: always 18789 (gateway handles multi-agent routing)
+     * Resolve the per-agent Hermes API server port (each agent runs its own).
      */
     private function resolveApiPort(): int
     {
-        if ($this->isHermes() && $this->agent?->api_server_port) {
-            return $this->agent->api_server_port;
-        }
-
-        return $this->isHermes() ? 8642 : 18789;
+        return $this->agent?->api_server_port ?: 8642;
     }
 
     private function resolveApiToken(string $agentId): string
     {
-        if ($this->isHermes()) {
-            try {
-                $output = $this->executor->exec(
-                    'grep "^API_SERVER_KEY=" '.escapeshellarg("/root/.hermes-{$agentId}/.env").' 2>/dev/null || echo "API_SERVER_KEY="'
-                );
-
-                return trim(str_replace('API_SERVER_KEY=', '', $output)) ?: 'provision-local-dev';
-            } catch (\Throwable) {
-                return 'provision-local-dev';
-            }
-        }
-
         try {
-            $configContent = $this->executor->exec('cat /root/.openclaw/openclaw.json 2>/dev/null');
-            $config = json_decode($configContent, true);
+            $output = $this->executor->exec(
+                'grep "^API_SERVER_KEY=" '.escapeshellarg("/root/.hermes-{$agentId}/.env").' 2>/dev/null || echo "API_SERVER_KEY="'
+            );
 
-            return $config['gateway']['auth']['token'] ?? '';
+            return trim(str_replace('API_SERVER_KEY=', '', $output)) ?: 'provision-local-dev';
         } catch (\Throwable) {
-            return '';
+            return 'provision-local-dev';
         }
     }
 
     private function resolveModel(string $agentId): string
     {
-        return $this->isHermes() ? 'hermes-agent' : "openclaw/{$agentId}";
-    }
-
-    private function isHermes(): bool
-    {
-        if (isset($this->agent)) {
-            return $this->agent->harness_type === HarnessType::Hermes;
-        }
-
-        return $this->server->team?->harness_type === HarnessType::Hermes;
+        return 'hermes-agent';
     }
 }

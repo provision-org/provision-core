@@ -440,6 +440,123 @@ test('switching an agent to ChatGPT clears stale OpenRouter fallbacks', function
     expect($agent->model_fallbacks)->toBe([]);
 });
 
+test('creating an agent on the Claude subscription tier sets claude auth with no fallbacks', function () {
+    Bus::fake();
+    if (class_exists(MailboxKitService::class)) {
+        $mock = Mockery::mock(MailboxKitService::class);
+        $mock->shouldReceive('createInbox')->andReturn([
+            'data' => ['id' => 9, 'name' => 'Claude Agent', 'email' => 'claude_agent@provisionagents.com', 'created_at' => now()->toISOString()],
+        ]);
+        $mock->shouldReceive('createWebhook')->andReturn(['data' => ['id' => 'wh-9', 'secret' => 'wh-secret']]);
+        registerMailboxKitModule($mock);
+    }
+
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    subscribeCrudTeam($team);
+
+    $this->actingAs($user)->post(route('agents.store'), [
+        'name' => 'Claude Agent',
+        'role' => 'custom',
+        'model_tier' => 'claude_subscription',
+    ]);
+
+    $agent = Agent::where('name', 'Claude Agent')->first();
+    expect($agent)->not->toBeNull()
+        ->and($agent->auth_provider)->toBe('claude')
+        ->and($agent->model_primary)->toBe('claude-opus-4-6')
+        // Claude subscription bills the user's Anthropic plan — no managed
+        // OpenRouter fallbacks that would silently draw Provision credits.
+        ->and($agent->model_fallbacks)->toBe([]);
+});
+
+test('connect Claude page renders for an unconnected claude-subscription agent', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $agent = Agent::factory()->create([
+        'team_id' => $user->currentTeam->id,
+        'auth_provider' => 'claude',
+        'claude_connected_at' => null,
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('agents.connect-claude', $agent))
+        ->assertInertia(fn ($page) => $page->component('agents/connect-claude'));
+});
+
+test('connect Claude page bounces agents that are not on unconnected claude auth', function () {
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+
+    $openrouterAgent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'openrouter',
+    ]);
+    $connectedAgent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'claude',
+        'claude_connected_at' => now(),
+    ]);
+
+    $this->actingAs($user)
+        ->get(route('agents.connect-claude', $openrouterAgent))
+        ->assertRedirect(route('agents.setup', $openrouterAgent));
+
+    $this->actingAs($user)
+        ->get(route('agents.connect-claude', $connectedAgent))
+        ->assertRedirect(route('agents.setup', $connectedAgent));
+});
+
+test('updating a claude-subscription agent keeps claude auth on Anthropic models', function () {
+    Bus::fake();
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    subscribeCrudTeam($team);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'claude',
+        'claude_connected_at' => now(),
+        'model_primary' => 'claude-opus-4-6',
+        'model_fallbacks' => [],
+    ]);
+
+    $this->actingAs($user)->patch(route('agents.update', $agent), [
+        'model_primary' => 'claude-sonnet-4-6',
+    ]);
+
+    $agent->refresh();
+    // The same Anthropic model ids also run via managed OpenRouter, so the
+    // model alone must not knock the agent off its setup-token auth.
+    expect($agent->auth_provider)->toBe('claude')
+        ->and($agent->model_primary)->toBe('claude-sonnet-4-6')
+        ->and($agent->model_fallbacks)->toBe([]);
+});
+
+test('updating a claude-subscription agent to a non-Anthropic model switches to openrouter', function () {
+    Bus::fake();
+    $user = User::factory()->withPersonalTeam()->create();
+    $team = $user->currentTeam;
+    subscribeCrudTeam($team);
+    TeamApiKey::factory()->create([
+        'team_id' => $team->id,
+        'provider' => LlmProvider::OpenRouter,
+        'is_active' => true,
+    ]);
+    $agent = Agent::factory()->create([
+        'team_id' => $team->id,
+        'auth_provider' => 'claude',
+        'claude_connected_at' => now(),
+        'model_primary' => 'claude-opus-4-6',
+        'model_fallbacks' => [],
+    ]);
+
+    $response = $this->actingAs($user)->patch(route('agents.update', $agent), [
+        'model_primary' => 'z-ai/glm-4.7',
+    ]);
+
+    $response->assertSessionHasNoErrors();
+    expect($agent->fresh()->auth_provider)->toBe('openrouter');
+});
+
 test('new agents are forced to Chat mode while task agents are disabled', function () {
     Bus::fake();
     if (class_exists(MailboxKitService::class)) {

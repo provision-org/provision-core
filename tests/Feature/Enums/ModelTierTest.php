@@ -21,6 +21,12 @@ test('Subscription tier uses GPT-5.5 with no fallbacks', function () {
         ->and(ModelTier::Subscription->authProvider())->toBe('chatgpt');
 });
 
+test('Claude subscription tier uses Opus with no fallbacks on the claude auth provider', function () {
+    expect(ModelTier::ClaudeSubscription->primaryModel())->toBe('claude-opus-4-6')
+        ->and(ModelTier::ClaudeSubscription->fallbackModels())->toBe([])
+        ->and(ModelTier::ClaudeSubscription->authProvider())->toBe('claude');
+});
+
 test('Bedrock tier keeps every model — primary, fallback, heartbeat — inside the customer AWS account', function () {
     expect(ModelTier::Bedrock->label())->toBe('Bedrock (your AWS)')
         ->and(ModelTier::Bedrock->description())->toBe('Claude models running in your own AWS account via Amazon Bedrock. Model traffic never leaves your cloud.')
@@ -34,5 +40,6 @@ test('Bedrock tier keeps every model — primary, fallback, heartbeat — inside
 test('non-Bedrock tiers keep the existing heartbeat model', function () {
     expect(ModelTier::Efficient->heartbeatModel())->toBe('claude-haiku-4-5')
         ->and(ModelTier::Powerful->heartbeatModel())->toBe('claude-haiku-4-5')
-        ->and(ModelTier::Subscription->heartbeatModel())->toBe('claude-haiku-4-5');
+        ->and(ModelTier::Subscription->heartbeatModel())->toBe('claude-haiku-4-5')
+        ->and(ModelTier::ClaudeSubscription->heartbeatModel())->toBe('claude-haiku-4-5');
 });

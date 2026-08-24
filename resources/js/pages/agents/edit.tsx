@@ -1,6 +1,7 @@
 import { Transition } from '@headlessui/react';
 import { Form, Head, Link, usePage } from '@inertiajs/react';
 import { ChatGPTAuthCard } from '@/components/agents/chatgpt-auth-card';
+import { ClaudeAuthCard } from '@/components/agents/claude-auth-card';
 import Heading from '@/components/heading';
 import InputError from '@/components/input-error';
 import { Button } from '@/components/ui/button';
@@ -147,6 +148,10 @@ export default function EditAgent({
                                 {(requiresChatGptAuth(agent.model_primary) ||
                                     agent.chatgpt_email) && (
                                     <ChatGPTAuthCard agent={agent} />
+                                )}
+
+                                {agent.auth_provider === 'claude' && (
+                                    <ClaudeAuthCard agent={agent} />
                                 )}
 
                                 <Separator />

@@ -212,40 +212,38 @@ class AgentInstallScriptService
         }
         $lines[] = '';
 
-        // Write auth-profiles.json for OpenClaw's auth resolver.
-        // Includes openrouter always, and openai-codex only when the key is a
-        // real OpenAI key (not an OpenRouter `sk-or-...` key — those 401 against
-        // api.openai.com). For OpenRouter-only teams, ChatGPTAuthService later
-        // writes a proper OAuth openai-codex profile if/when the user signs in.
+        // Inject provider API keys into the agent's SQLite auth store via
+        // `openclaw models auth paste-api-key` (secret piped on stdin). The
+        // legacy auth-profiles.json files are never read by the 2026.7.x
+        // runtime — writing them corrupts auth-presence heuristics — so this
+        // is the only supported injection path. OpenRouter rides the BYO or
+        // managed key; real BYO OpenAI/Anthropic keys enable direct routing.
         $agent->loadMissing('server.team.apiKeys', 'server.team.managedApiKey');
         $team = $agent->server?->team;
         $managedKey = $team?->managedApiKey;
         $openAiKey = $team?->apiKeys()->where('provider', LlmProvider::OpenAi)->where('is_active', true)->first();
+        $anthropicKey = $team?->apiKeys()->where('provider', LlmProvider::Anthropic)->where('is_active', true)->first();
         $openRouterKey = $team?->apiKeys()->where('provider', LlmProvider::OpenRouter)->where('is_active', true)->first();
-        $apiKey = $openRouterKey?->api_key ?? $managedKey?->api_key;
-        $codexKey = $openAiKey?->api_key;
-        if ($apiKey) {
-            $profiles = [
-                'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $apiKey],
-            ];
-            $order = [
-                'openrouter' => ['openrouter:default'],
-            ];
-            if ($codexKey) {
-                $profiles['openai-codex:default'] = ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $codexKey];
-                $order['openai-codex'] = ['openai-codex:default'];
-            }
-            $authProfiles = json_encode([
-                'profiles' => $profiles,
-                'order' => $order,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
 
-            $lines[] = '# Write auth-profiles.json (OpenRouter always; openai-codex only with real OpenAI key)';
-            $lines[] = "mkdir -p {$agentDir}/agent";
-            $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
-            // Also write to 'main' agent path (OpenClaw bug #24016 workaround)
-            $lines[] = 'mkdir -p /root/.openclaw/agents/main/agent';
-            $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
+        // Subscription agents keep their OAuth/token profile as the sole
+        // credential for that provider — don't upsert an api_key profile
+        // that could outrank it (matters on reinstalls of paired agents).
+        $providerKeys = array_filter([
+            'openrouter' => $openRouterKey?->api_key ?? $managedKey?->api_key,
+            'openai' => $agent->usesChatGptSubscription() ? null : $openAiKey?->api_key,
+            'anthropic' => $agent->usesClaudeSubscription() ? null : $anthropicKey?->api_key,
+        ]);
+
+        if ($providerKeys !== []) {
+            $lines[] = '# Store provider API keys in the agent auth store (SQLite)';
+            foreach ($providerKeys as $providerId => $key) {
+                $lines[] = sprintf(
+                    'printf %%s\\\\n %s | openclaw models --agent %s auth paste-api-key --provider %s 2>&1 || true',
+                    escapeshellarg($key),
+                    escapeshellarg($agent->harness_agent_id),
+                    escapeshellarg($providerId),
+                );
+            }
             $lines[] = '';
         }
 
@@ -793,9 +791,12 @@ class AgentInstallScriptService
 
         sleep 2
 
-        # Register browser profile with cdpUrl in openclaw.json. Uses
-        # driver=existing-session + attachOnly so a missing Chrome surfaces
-        # as a loud error instead of silently spawning a fallback (issue #27).
+        # Register browser profile with cdpUrl in openclaw.json as a raw CDP
+        # attach-only profile (no driver key). attachOnly makes a missing
+        # Chrome surface as a loud error instead of silently spawning a
+        # fallback (issue #27); unlike driver=existing-session this speaks
+        # CDP directly — no npx/chrome-devtools-mcp subprocess — and keeps
+        # per-tab websockets, element screenshots, and download interception.
         node -e '
           const fs = require("fs");
           const f = "{$configFile}";
@@ -805,7 +806,6 @@ class AgentInstallScriptService
           const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
           const idx = Object.keys(c.browser.profiles).length;
           c.browser.profiles["{$profileName}"] = {
-            driver: "existing-session",
             attachOnly: true,
             cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
             color: colors[idx % colors.length],
@@ -904,9 +904,12 @@ class AgentInstallScriptService
         CADDY_EOF
         systemctl reload caddy
 
-        # Register browser profile with cdpUrl in openclaw.json. Uses
-        # driver=existing-session + attachOnly so a missing Chrome surfaces
-        # as a loud error instead of silently spawning a fallback (issue #27).
+        # Register browser profile with cdpUrl in openclaw.json as a raw CDP
+        # attach-only profile (no driver key). attachOnly makes a missing
+        # Chrome surface as a loud error instead of silently spawning a
+        # fallback (issue #27); unlike driver=existing-session this speaks
+        # CDP directly — no npx/chrome-devtools-mcp subprocess — and keeps
+        # per-tab websockets, element screenshots, and download interception.
         node -e '
           const fs = require("fs");
           const f = "{$configFile}";
@@ -916,7 +919,6 @@ class AgentInstallScriptService
           const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
           const idx = Object.keys(c.browser.profiles).length;
           c.browser.profiles["{$profileName}"] = {
-            driver: "existing-session",
             attachOnly: true,
             cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
             color: colors[idx % colors.length],
@@ -1011,7 +1013,7 @@ class AgentInstallScriptService
             $lines[] = '1. **Try to sign up yourself** — open the tool\'s website in the browser and create an account using your email + password from IDENTITY.md.';
             $lines[] = '2. **If the tool needs an API key** — sign in, find the API/integration settings, and grab the key. If you cannot create one without help, ask the user in the current chat.';
             $lines[] = '3. **If the tool requires OAuth** (e.g. Google Search Console, GitHub App install) — explain in the current chat what permission you need and ask the user to authorize it. They will return with a link or token for you to save.';
-            $lines[] = '4. **Store secrets** in your agent `.env` file or under `~/.openclaw/agents/'.$agent->harness_agent_id.'/agent/auth-profiles.json`. NEVER write secrets to MEMORY.md or any committed file.';
+            $lines[] = '4. **Store secrets** in your agent `.env` file (`~/.openclaw/agents/'.$agent->harness_agent_id.'/.env`). NEVER write secrets to MEMORY.md or any committed file.';
             $lines[] = '';
             $lines[] = '| Tool | Website | Status |';
             $lines[] = '|------|---------|--------|';

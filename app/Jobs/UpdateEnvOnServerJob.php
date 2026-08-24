@@ -6,12 +6,14 @@ use App\Contracts\CommandExecutor;
 use App\Enums\CloudProvider;
 use App\Enums\LlmProvider;
 use App\Models\Server;
+use App\Models\TeamApiKey;
 use App\Services\Aws\AwsCredentials;
 use App\Services\HarnessManager;
 use App\Services\OpenClawDefaultsService;
 use App\Support\OpenClawConfig;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
+use Illuminate\Support\Collection;
 
 class UpdateEnvOnServerJob implements ShouldQueue
 {
@@ -99,94 +101,83 @@ class UpdateEnvOnServerJob implements ShouldQueue
         // Recalculate agent defaults and set LLM provider keys in openclaw.json
         $this->updateAgentDefaults($executor, $defaultsService, $envConfigKeys);
 
-        // Write auth-profiles.json for each agent so OpenClaw's auth resolver
-        // can find API keys for all providers (openrouter, openai-codex, anthropic).
-        // OpenClaw v2026.4+ resolves keys from {agentDir}/agent/auth-profiles.json,
-        // not from the openclaw.json env block.
-        $this->deployAuthProfiles($executor, $envConfigKeys);
-
-        RestartGatewayJob::dispatch($this->server);
-    }
-
-    /**
-     * Deploy auth-profiles.json to each agent's directory and the default 'main' agent path.
-     *
-     * OpenClaw resolves API keys from {agentDir}/agent/auth-profiles.json.
-     * Due to OpenClaw bug #24016, the 'main' agent path is also checked even
-     * when no 'main' agent exists. We write to all paths to ensure coverage.
-     *
-     * @param  array<string, string>  $envKeys
-     */
-    private function deployAuthProfiles(CommandExecutor $executor, array $envKeys): void
-    {
-        $openRouterKey = $envKeys['OPENROUTER_API_KEY'] ?? null;
-
-        if (! $openRouterKey) {
-            return;
-        }
-
-        // Build auth-profiles with both openrouter and openai-codex providers.
-        // openai-codex is needed because OpenClaw's internal systems (compaction,
-        // hooks, crons) use it as a fallback even when the model is openrouter/*.
-        $authProfiles = json_encode([
-            'profiles' => [
-                'openrouter:default' => [
-                    'provider' => 'openrouter',
-                    'type' => 'api_key',
-                    'key' => $openRouterKey,
-                ],
-                'openai-codex:default' => [
-                    'provider' => 'openai-codex',
-                    'type' => 'api_key',
-                    'key' => $openRouterKey,
-                ],
-            ],
-            'order' => [
-                'openrouter' => ['openrouter:default'],
-                'openai-codex' => ['openai-codex:default'],
-            ],
-        ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-        // Write to every agent directory on this server
-        $agents = $this->server->agents()
-            ->whereNotNull('harness_agent_id')
-            ->where('harness_type', 'openclaw')
-            ->pluck('harness_agent_id');
-
-        foreach ($agents as $agentId) {
-            $agentDir = "/root/.openclaw/agents/{$agentId}/agent";
-            $executor->exec("mkdir -p {$agentDir}");
-            $executor->writeFile("{$agentDir}/auth-profiles.json", $authProfiles);
-        }
-
-        // Write to 'main' agent path (OpenClaw bug #24016 workaround)
-        $executor->exec('mkdir -p /root/.openclaw/agents/main/agent');
-        $executor->writeFile('/root/.openclaw/agents/main/agent/auth-profiles.json', $authProfiles);
-
-        // Register auth profiles in openclaw.json so OpenClaw's gateway knows
-        // which providers are configured (matches what `openclaw onboard` writes)
-        $configPath = '/root/.openclaw/openclaw.json';
-
-        try {
-            $config = json_decode($executor->readFile($configPath), true) ?? [];
-        } catch (\RuntimeException) {
-            $config = [];
-        }
-
-        $config['auth'] = [
-            'profiles' => [
-                'openrouter:default' => ['provider' => 'openrouter', 'mode' => 'api_key'],
-                'openai-codex:default' => ['provider' => 'openai-codex', 'mode' => 'api_key'],
-            ],
-        ];
-
-        $executor->writeFile($configPath, OpenClawConfig::toJson($config));
+        // Store the keys in each agent's SQLite auth store — the only place
+        // OpenClaw 2026.7.x reads credentials from. The env/.env writes above
+        // remain as the documented fallback (embeddings, utility lookups).
+        $this->deployAuthCredentials($executor, $activeKeys, $managedKey?->api_key);
 
         // Workaround for OpenClaw binary having hardcoded /home/sprite/ paths (#24016)
         $executor->exec('mkdir -p /home/sprite && ln -sfn /root/.openclaw /home/sprite/.openclaw');
 
         // Install dotenv for provision-tasks skill
         $executor->exec('npm install -g dotenv 2>/dev/null || true');
+
+        RestartGatewayJob::dispatch($this->server);
+    }
+
+    /**
+     * Inject provider API keys into each agent's auth store via
+     * `openclaw models auth paste-api-key` (reads the secret from piped
+     * stdin, upserts the per-agent SQLite auth_profile_store, and refreshes
+     * a running gateway).
+     *
+     * The legacy mechanism — writing auth-profiles.json files — is dead on
+     * OpenClaw 2026.7.x: the runtime never reads those files, and their
+     * presence flips "has auth" heuristics to true while actual key
+     * resolution still fails. Do not resurrect it.
+     *
+     * @param  Collection<int, TeamApiKey>  $activeKeys
+     */
+    private function deployAuthCredentials(CommandExecutor $executor, $activeKeys, ?string $managedKey): void
+    {
+        // provider-id => key, in OpenClaw's provider vocabulary.
+        $providerKeys = [];
+
+        foreach ($activeKeys as $apiKey) {
+            $providerId = match ($apiKey->provider) {
+                LlmProvider::Anthropic => 'anthropic',
+                LlmProvider::OpenAi, LlmProvider::OpenAiCodex => 'openai',
+                LlmProvider::OpenRouter => 'openrouter',
+                LlmProvider::Bedrock => null,
+            };
+
+            if ($providerId !== null) {
+                $providerKeys[$providerId] = $apiKey->api_key;
+            }
+        }
+
+        if ($managedKey && ! isset($providerKeys['openrouter'])) {
+            $providerKeys['openrouter'] = $managedKey;
+        }
+
+        if ($providerKeys === []) {
+            return;
+        }
+
+        $agents = $this->server->agents()
+            ->whereNotNull('harness_agent_id')
+            ->where('harness_type', 'openclaw')
+            ->get(['id', 'harness_agent_id', 'auth_provider']);
+
+        foreach ($agents as $agent) {
+            foreach ($providerKeys as $providerId => $key) {
+                // A subscription agent's provider slot is its OAuth/token
+                // profile; injecting an api_key profile could outrank it.
+                if ($providerId === 'openai' && $agent->auth_provider === 'chatgpt') {
+                    continue;
+                }
+                if ($providerId === 'anthropic' && $agent->auth_provider === 'claude') {
+                    continue;
+                }
+
+                $executor->exec(sprintf(
+                    'printf %%s\\\\n %s | openclaw models --agent %s auth paste-api-key --provider %s 2>&1 || true',
+                    escapeshellarg($key),
+                    escapeshellarg($agent->harness_agent_id),
+                    escapeshellarg($providerId),
+                ));
+            }
+        }
     }
 
     /**

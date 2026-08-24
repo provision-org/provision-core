@@ -138,12 +138,14 @@ export type Agent = {
     status: AgentStatus;
     model_primary: string | null;
     model_fallbacks: string[] | null;
-    auth_provider: 'openrouter' | 'chatgpt' | 'bedrock';
+    auth_provider: 'openrouter' | 'chatgpt' | 'claude' | 'bedrock';
     chatgpt_email: string | null;
     chatgpt_plan_type: string | null;
     chatgpt_account_id: string | null;
     chatgpt_connected_at: string | null;
     chatgpt_token_expires_at: string | null;
+    claude_connected_at: string | null;
+    claude_token_expires_at: string | null;
     system_prompt: string | null;
     identity: string | null;
     soul: string | null;

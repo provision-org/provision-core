@@ -274,76 +274,40 @@ class AgentUpdateScriptService
         $lines[] = $this->buildHeredoc("{$agentDir}/.env", $agentEnv);
         $lines[] = '';
 
-        // Write auth-profiles.json for OpenClaw's auth resolver.
-        // When auth_provider = 'chatgpt' we leave the openai-codex profile alone
-        // (managed by openclaw's own OAuth login flow) and only write the openrouter entry.
-        $envKeys = $this->collectLlmProviderEnvKeys($agent->server);
-        if (! empty($envKeys['OPENROUTER_API_KEY'])) {
-            $key = $envKeys['OPENROUTER_API_KEY'];
-            $usesChatGpt = $agent->usesChatGptSubscription();
+        // Refresh provider API keys in the agent's SQLite auth store via
+        // `openclaw models auth paste-api-key` (secret piped on stdin; upsert,
+        // so subscription OAuth/token profiles are never overwritten — we
+        // skip the matching provider slot for subscription agents). Keys come
+        // from the team's actual TeamApiKey rows, NOT from
+        // collectLlmProviderEnvKeys(): that helper deliberately aliases the
+        // OpenRouter key into OPENAI/ANTHROPIC env vars for embedding auth,
+        // and storing an sk-or-... key as a real anthropic/openai credential
+        // would 401 against the provider APIs while making OpenClaw's
+        // resolver believe direct auth exists. The legacy auth-profiles.json
+        // files are never read by the 2026.7.x runtime.
+        $team = $agent->server->team;
+        $byoKey = fn (LlmProvider $provider) => $team->apiKeys()
+            ->where('provider_type', 'llm')
+            ->where('provider', $provider)
+            ->where('is_active', true)
+            ->value('api_key');
 
-            $profiles = [
-                'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $key],
-            ];
-            $order = [
-                'openrouter' => ['openrouter:default'],
-            ];
+        $providerKeys = array_filter([
+            'openrouter' => $byoKey(LlmProvider::OpenRouter) ?? $team->managedApiKey?->api_key,
+            'anthropic' => $agent->usesClaudeSubscription() ? null : $byoKey(LlmProvider::Anthropic),
+            'openai' => $agent->usesChatGptSubscription() ? null : $byoKey(LlmProvider::OpenAi),
+        ]);
 
-            if (! $usesChatGpt) {
-                $profiles['openai-codex:default'] = ['provider' => 'openai-codex', 'type' => 'api_key', 'key' => $key];
-                $order['openai-codex'] = ['openai-codex:default'];
+        if ($providerKeys !== []) {
+            $lines[] = '# --- Store provider API keys in the agent auth store (SQLite) ---';
+            foreach ($providerKeys as $providerId => $key) {
+                $lines[] = sprintf(
+                    'printf %%s\\\\n %s | openclaw models --agent %s auth paste-api-key --provider %s 2>&1 || true',
+                    escapeshellarg($key),
+                    escapeshellarg($agent->harness_agent_id),
+                    escapeshellarg($providerId),
+                );
             }
-
-            $authProfiles = json_encode([
-                'profiles' => $profiles,
-                'order' => $order,
-            ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-            $lines[] = '# --- Write auth-profiles.json (OpenRouter'.($usesChatGpt ? '; ChatGPT OAuth managed by openclaw' : ' + openai-codex').') ---';
-            $lines[] = "mkdir -p {$agentDir}/agent";
-
-            if ($usesChatGpt) {
-                // Merge with existing file. We strip a stale `openai-codex:default`
-                // entry only when it is an `api_key` profile (e.g. left over from
-                // a previous pay-per-use run) so we never delete the OAuth profile
-                // that `openclaw models auth login` writes under the same key.
-                $lines[] = '# Merge with existing file; strip stale openai-codex api_key entry but preserve OAuth';
-                $lines[] = "if [ -f {$agentDir}/agent/auth-profiles.json ]; then";
-                $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json.new", $authProfiles);
-                $lines[] = "  jq -s '.[0] as \$base | .[1] as \$new | \$base | .profiles = ((.profiles // {}) | with_entries(select(.key != \"openai-codex:default\" or .value.type != \"api_key\")) + \$new.profiles | with_entries(select(.value != null))) | .order = ((.order // {}) + \$new.order)' {$agentDir}/agent/auth-profiles.json {$agentDir}/agent/auth-profiles.json.new > {$agentDir}/agent/auth-profiles.json.merged && mv {$agentDir}/agent/auth-profiles.json.merged {$agentDir}/agent/auth-profiles.json && rm -f {$agentDir}/agent/auth-profiles.json.new";
-                $lines[] = 'else';
-                $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
-                $lines[] = 'fi';
-            } else {
-                $lines[] = $this->buildHeredoc("{$agentDir}/agent/auth-profiles.json", $authProfiles);
-                // The shared `main` auth-profiles.json is read by gateway
-                // contexts that are not bound to a specific agent (heartbeat,
-                // server-side tools). Only seed `openrouter:default` here —
-                // the `openai-codex:default` profile is per-agent because
-                // ChatGPT OAuth tokens are user-specific, and writing an
-                // api_key version into `main` would clobber another agent's
-                // OAuth profile (e.g. a ChatGPT-OAuth chat agent like atlas).
-                $mainProfiles = json_encode([
-                    'profiles' => [
-                        'openrouter:default' => ['provider' => 'openrouter', 'type' => 'api_key', 'key' => $key],
-                    ],
-                    'order' => [
-                        'openrouter' => ['openrouter:default'],
-                    ],
-                ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
-
-                $lines[] = 'mkdir -p /root/.openclaw/agents/main/agent';
-                $lines[] = '# Merge into shared main auth-profiles.json — never overwrite, never inject openai-codex (per-agent OAuth)';
-                $lines[] = 'if [ -f /root/.openclaw/agents/main/agent/auth-profiles.json ]; then';
-                $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json.new', $mainProfiles);
-                // Strip any stale openai-codex:default api_key entry from main (left over from prior bug),
-                // then merge the new openrouter entry, preserving existing OAuth-style profiles.
-                $lines[] = "  jq -s '.[0] as \$base | .[1] as \$new | \$base | .profiles = ((.profiles // {}) | with_entries(select(.key != \"openai-codex:default\" or .value.type != \"api_key\")) | . + \$new.profiles) | .order = ((.order // {}) + \$new.order)' /root/.openclaw/agents/main/agent/auth-profiles.json /root/.openclaw/agents/main/agent/auth-profiles.json.new > /root/.openclaw/agents/main/agent/auth-profiles.json.merged && mv /root/.openclaw/agents/main/agent/auth-profiles.json.merged /root/.openclaw/agents/main/agent/auth-profiles.json && rm -f /root/.openclaw/agents/main/agent/auth-profiles.json.new";
-                $lines[] = 'else';
-                $lines[] = $this->buildHeredoc('/root/.openclaw/agents/main/agent/auth-profiles.json', $mainProfiles);
-                $lines[] = 'fi';
-            }
-
             $lines[] = '';
         }
 
@@ -388,11 +352,18 @@ class AgentUpdateScriptService
         $pinnedVersion = config('provision.openclaw_version');
         $lines[] = '# --- Step 7: Restart Gateway ---';
         $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
+        // `openclaw --version` output varies by build ("OpenClaw 2026.7.1
+        // (2d2ddc4)" vs bare "2026.7.1"), so extract the version token by
+        // regex — positional parses have silently broken against both shapes,
+        // reinstalling the binary on every update.
+        // The official updater stages + doctor-verifies the candidate and
+        // rolls back on failure, unlike the raw `npm install -g` swap it
+        // replaces (which upstream requires stopping the gateway for).
         $lines[] = "PINNED_OPENCLAW_VERSION='{$pinnedVersion}'";
-        $lines[] = 'CURRENT_OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | awk \'{print $2}\' | sed \'s/-.*//\')';
+        $lines[] = 'CURRENT_OPENCLAW_VERSION=$(openclaw --version 2>/dev/null | grep -oE "[0-9]{4}\\.[0-9]+\\.[0-9]+" | head -1)';
         $lines[] = 'if [ "$CURRENT_OPENCLAW_VERSION" != "$PINNED_OPENCLAW_VERSION" ]; then';
-        $lines[] = '  echo "openclaw binary is ${CURRENT_OPENCLAW_VERSION:-missing}, pinned is $PINNED_OPENCLAW_VERSION — upgrading"';
-        $lines[] = '  npm install -g "openclaw@$PINNED_OPENCLAW_VERSION"';
+        $lines[] = '  echo "openclaw binary is ${CURRENT_OPENCLAW_VERSION:-missing}, pinned is $PINNED_OPENCLAW_VERSION — updating"';
+        $lines[] = '  openclaw update --tag "$PINNED_OPENCLAW_VERSION" --yes --json || npm install -g "openclaw@$PINNED_OPENCLAW_VERSION"';
         $lines[] = 'fi';
         $lines[] = 'systemctl --user restart openclaw-gateway';
         $lines[] = 'sleep 5';
@@ -584,7 +555,7 @@ class AgentUpdateScriptService
         $allAgents = $server->agents()
             ->where('harness_type', 'openclaw')
             ->whereNotNull('harness_agent_id')
-            ->with(['slackConnection', 'telegramConnection', 'discordConnection', 'emailConnection'])
+            ->with(['slackConnection', 'telegramConnection', 'discordConnection', 'emailConnection', 'team'])
             ->get();
 
         $agentList = [];
@@ -776,9 +747,11 @@ class AgentUpdateScriptService
      * cannot find its profile and falls back to launching its own internal
      * Chromium (headless on Linux without DISPLAY) — issue #27.
      *
-     * Each profile uses driver=existing-session + attachOnly=true so a missing
-     * Chrome process surfaces as a loud error instead of silently spawning a
-     * fallback.
+     * Each profile is a raw CDP attach-only entry (no driver key):
+     * attachOnly=true makes a missing Chrome process surface as a loud error
+     * instead of silently spawning a fallback, and direct CDP keeps the
+     * capabilities (per-tab websockets, element screenshots, downloads) that
+     * the chrome-devtools-mcp path of driver=existing-session loses.
      *
      * @return array<string, array<string, mixed>>
      */
@@ -796,7 +769,6 @@ class AgentUpdateScriptService
 
         foreach ($agents as $i => $agent) {
             $profiles[AgentInstallScriptService::browserProfileName($agent)] = [
-                'driver' => 'existing-session',
                 'attachOnly' => true,
                 'cdpUrl' => 'http://127.0.0.1:'.(9222 + (int) $agent->browser_display_num),
                 'color' => $palette[$i % count($palette)],

@@ -5,6 +5,7 @@ use App\Jobs\CheckServerHealthJob;
 use App\Jobs\ProcessRoutinesJob;
 use App\Jobs\RecoverStaleChatMessagesJob;
 use App\Jobs\SyncAgentStatsJob;
+use App\Jobs\UpdateOpenClawVersionJob;
 use App\Jobs\VerifyEmailDomainsJob;
 use App\Models\Server;
 use App\Models\SlackConfigurationToken;
@@ -66,3 +67,20 @@ Schedule::job(new RecoverStaleChatMessagesJob)
 // Re-check unverified custom email domains so they flip to verified once DNS
 // propagates, without the admin returning to click "Verify".
 Schedule::job(new VerifyEmailDomainsJob)->hourly();
+
+// Fleet OpenClaw version reconciliation: converge every running server on the
+// pinned version via the official updater. Previously servers only upgraded
+// when an agent update happened to run, leaving the fleet version-skewed.
+// The job itself defers while a server has active runs or chats.
+Schedule::call(function () {
+    $pinned = (string) config('provision.openclaw_version');
+
+    Server::query()
+        ->where('status', ServerStatus::Running)
+        ->whereHas('agents', fn ($query) => $query->where('harness_type', 'openclaw'))
+        ->where(function ($query) use ($pinned) {
+            $query->whereNull('openclaw_version')
+                ->orWhere('openclaw_version', '!=', $pinned);
+        })
+        ->each(fn (Server $server) => UpdateOpenClawVersionJob::dispatch($server));
+})->name('reconcile-openclaw-versions')->hourly();

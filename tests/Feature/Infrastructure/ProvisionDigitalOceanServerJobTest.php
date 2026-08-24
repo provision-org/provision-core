@@ -13,6 +13,7 @@ uses(RefreshDatabase::class);
 function mockDoServiceWithVolume(string $volumeId = '55555555'): DigitalOceanService
 {
     $doService = Mockery::mock(DigitalOceanService::class);
+    $doService->shouldReceive('findVolumeIdByName')->andReturnNull()->byDefault();
     $doService->shouldReceive('createVolume')
         ->once()
         ->andReturn(['volume' => ['id' => $volumeId]]);

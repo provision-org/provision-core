@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Enums\CloudProvider;
 use App\Enums\GovernanceMode;
 use App\Enums\HarnessType;
+use App\Enums\LlmProvider;
 use App\Enums\TeamRole;
 use Database\Factories\TeamFactory;
 use Illuminate\Database\Eloquent\Concerns\HasUlids;
@@ -162,6 +163,30 @@ class Team extends Model
     public function llmApiKeys(): HasMany
     {
         return $this->apiKeys()->where('provider_type', 'llm');
+    }
+
+    /**
+     * @var array<string, bool>|null
+     */
+    private ?array $activeLlmProviderCache = null;
+
+    /**
+     * Whether the team brought its own active API key for the given provider.
+     * Drives direct model routing: with a BYO Anthropic/OpenAI key the model
+     * ref skips the OpenRouter prefix and hits the provider directly.
+     *
+     * Memoized per instance: config rebuilds call this once per model id per
+     * agent, which would otherwise issue the same exists() query repeatedly.
+     */
+    public function hasActiveLlmKey(LlmProvider $provider): bool
+    {
+        $this->activeLlmProviderCache ??= $this->llmApiKeys()
+            ->where('is_active', true)
+            ->pluck('provider')
+            ->mapWithKeys(fn ($p) => [($p instanceof LlmProvider ? $p->value : (string) $p) => true])
+            ->all();
+
+        return $this->activeLlmProviderCache[$provider->value] ?? false;
     }
 
     /**

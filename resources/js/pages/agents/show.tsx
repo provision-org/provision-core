@@ -1054,6 +1054,15 @@ function OverviewTab({
                                     : ''}
                             </span>
                         )}
+                        {agent.auth_provider === 'claude' &&
+                            agent.claude_connected_at && (
+                                <span
+                                    className="ml-2 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+                                    title="Billed via your Claude subscription"
+                                >
+                                    via Claude
+                                </span>
+                            )}
                     </dd>
                     <dt className="text-muted-foreground">Last synced</dt>
                     <dd className="font-medium">
