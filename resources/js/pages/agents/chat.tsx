@@ -313,6 +313,7 @@ export default function Chat({
         useState<ChatConnectionState>('ready');
     const [pendingRun, setPendingRun] = useState<PendingChatRun | null>(null);
     const pendingRunRef = useRef<PendingChatRun | null>(null);
+    const lastStreamSequence = useRef<number | null>(null);
     const pendingClientMessageRef = useRef<{
         signature: string;
         id: string;
@@ -383,6 +384,7 @@ export default function Chat({
             pendingRunRef.current = run;
             setPendingRun(run);
             activeStreamId.current = null;
+            lastStreamSequence.current = null;
             setChatError(null);
             setActivityLabel(null);
             setStreamingText(null);
@@ -548,6 +550,7 @@ export default function Chat({
             stream_id: string;
             cumulative: string;
             is_final: boolean;
+            sequence?: number | null;
         }) => {
             if (data.chat_conversation_id !== activeConversationRef.current) {
                 return;
@@ -566,7 +569,22 @@ export default function Chat({
             if (data.is_final) {
                 setStreamingText(null);
                 activeStreamId.current = null;
+                lastStreamSequence.current = null;
                 return;
+            }
+
+            // Drop a batch that arrives after a newer cumulative snapshot —
+            // synchronous broadcasts are near-ordered, but HTTP delivery can
+            // still reorder adjacent batches.
+            if (
+                typeof data.sequence === 'number' &&
+                lastStreamSequence.current !== null &&
+                data.sequence <= lastStreamSequence.current
+            ) {
+                return;
+            }
+            if (typeof data.sequence === 'number') {
+                lastStreamSequence.current = data.sequence;
             }
 
             activeStreamId.current = data.stream_id;

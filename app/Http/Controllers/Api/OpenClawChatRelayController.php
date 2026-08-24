@@ -170,6 +170,7 @@ class OpenClawChatRelayController extends Controller
                     $delta,
                     $cumulative,
                     false,
+                    is_int($event['sequence'] ?? null) ? $event['sequence'] : null,
                 ), $conversation);
             }
 
