@@ -254,7 +254,10 @@ export class OpenClawGatewayRelay {
             typeof event.data !== 'string' ||
             event.data.length > MAX_INBOUND_FRAME_CHARS
         ) {
-            this.socket?.close(1009, 'Gateway frame too large');
+            // Client-sent close codes must be 1000 or 3000-4999 (WHATWG); the
+        // reserved 1xxx codes previously used here made undici throw
+        // InvalidAccessError and crash the whole daemon on gateway restarts.
+        this.socket?.close(4009, 'Gateway frame too large');
             return;
         }
 
@@ -344,7 +347,7 @@ export class OpenClawGatewayRelay {
         if (frame.event === 'sessions.changed') {
             this.scheduleSessionSync(1000);
         } else if (frame.event === 'shutdown') {
-            this.socket?.close(1012, 'Gateway restarting');
+            this.socket?.close(4012, 'Gateway restarting');
         }
     }
 
@@ -587,7 +590,7 @@ export class OpenClawGatewayRelay {
         this.eventQueue.push(event);
 
         if (this.eventQueue.length > MAX_CRITICAL_EVENT_QUEUE) {
-            this.socket?.close(1013, 'Gateway event relay overloaded');
+            this.socket?.close(4013, 'Gateway event relay overloaded');
         }
 
         this.scheduleEventFlush(
@@ -816,7 +819,7 @@ export class OpenClawGatewayRelay {
         }
         this.watchdogTimer = setInterval(() => {
             if (Date.now() - this.lastFrameAt > SOCKET_STALE_AFTER_MS) {
-                this.socket?.close(1001, 'Gateway heartbeat timed out');
+                this.socket?.close(4000, 'Gateway heartbeat timed out');
             }
         }, 15_000);
     }

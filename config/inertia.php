@@ -16,8 +16,12 @@ return [
     */
 
     'ssr' => [
-        'enabled' => true,
-        'url' => 'http://127.0.0.1:13714',
+        // Env-driven so local dev can opt out: the default port 13714 is
+        // shared across every Inertia project on the machine, and a stray
+        // SSR server from another repo silently renders ITS pages into this
+        // app's responses.
+        'enabled' => env('INERTIA_SSR_ENABLED', true),
+        'url' => env('INERTIA_SSR_URL', 'http://127.0.0.1:13714'),
         'bundle' => base_path('bootstrap/ssr/ssr.js'),
     ],
 

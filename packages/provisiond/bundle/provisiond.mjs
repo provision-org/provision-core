@@ -542,7 +542,7 @@ var ProvisionApiClient = class {
 };
 
 // src/version.ts
-var VERSION = "0.4.0";
+var VERSION = "0.4.1";
 var CAPABILITIES = ["chat-relay-v1", "session-discovery-v1"];
 
 // src/poller.ts
@@ -825,7 +825,7 @@ var OpenClawGatewayRelay = class {
       return;
     }
     if (typeof event.data !== "string" || event.data.length > MAX_INBOUND_FRAME_CHARS) {
-      this.socket?.close(1009, "Gateway frame too large");
+      this.socket?.close(4009, "Gateway frame too large");
       return;
     }
     let frame;
@@ -900,7 +900,7 @@ var OpenClawGatewayRelay = class {
     if (frame.event === "sessions.changed") {
       this.scheduleSessionSync(1e3);
     } else if (frame.event === "shutdown") {
-      this.socket?.close(1012, "Gateway restarting");
+      this.socket?.close(4012, "Gateway restarting");
     }
   }
   challengeResolver = null;
@@ -1087,7 +1087,7 @@ var OpenClawGatewayRelay = class {
     }
     this.eventQueue.push(event);
     if (this.eventQueue.length > MAX_CRITICAL_EVENT_QUEUE) {
-      this.socket?.close(1013, "Gateway event relay overloaded");
+      this.socket?.close(4013, "Gateway event relay overloaded");
     }
     this.scheduleEventFlush(
       this.eventQueue.length >= MAX_EVENT_QUEUE ? 0 : EVENT_FLUSH_DELAY_MS
@@ -1253,7 +1253,7 @@ var OpenClawGatewayRelay = class {
     }
     this.watchdogTimer = setInterval(() => {
       if (Date.now() - this.lastFrameAt > SOCKET_STALE_AFTER_MS) {
-        this.socket?.close(1001, "Gateway heartbeat timed out");
+        this.socket?.close(4e3, "Gateway heartbeat timed out");
       }
     }, 15e3);
   }
