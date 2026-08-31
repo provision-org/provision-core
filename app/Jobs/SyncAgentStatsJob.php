@@ -24,25 +24,29 @@ class SyncAgentStatsJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     private const STATS_SCRIPT = <<<'JS'
+// Session index lives in per-agent SQLite since OpenClaw 2026.8.1 (no more
+// sessions/sessions.json), so token totals come from the gateway's
+// sessions.list RPC. Transcripts remain sessions/*.jsonl files on disk and
+// are still counted directly — chat.history would cap long sessions.
 const fs = require('fs');
+const path = require('path');
 const readline = require('readline');
+const { execFileSync } = require('child_process');
 
 const agentId = process.argv[2];
 if (!agentId) { console.error('Usage: node agent-stats.js <agentId>'); process.exit(1); }
 
-const sessionsPath = `/mnt/openclaw-data/agents/${agentId}/sessions/sessions.json`;
+const sessionsDir = `/mnt/openclaw-data/agents/${agentId}/sessions`;
 
 async function main() {
-    let sessions;
+    let allSessions = [];
     try {
-        sessions = JSON.parse(fs.readFileSync(sessionsPath, 'utf8'));
-    } catch (e) {
-        console.log(JSON.stringify({ totalSessions: 0, totalMessages: 0, tokensInput: 0, tokensOutput: 0, lastActiveAt: null }));
-        return;
-    }
+        const params = JSON.stringify({ agentId, limit: 1000 });
+        const raw = execFileSync('openclaw', ['gateway', 'call', 'sessions.list', '--json', '--params', params, '--timeout', '15000'], { encoding: 'utf8' });
+        const result = JSON.parse(raw);
+        allSessions = Array.isArray(result.sessions) ? result.sessions : [];
+    } catch (e) { /* gateway down: report zero tokens, still count transcripts */ }
 
-    const allSessions = Object.values(sessions);
-    let totalMessages = 0;
     let tokensInput = 0;
     let tokensOutput = 0;
     let lastActiveAt = null;
@@ -55,12 +59,17 @@ async function main() {
             const ts = typeof session.updatedAt === 'number' ? session.updatedAt : Date.parse(session.updatedAt);
             if (!lastActiveAt || ts > lastActiveAt) lastActiveAt = ts;
         }
+    }
 
-        if (!session.sessionFile) continue;
-        if (!fs.existsSync(session.sessionFile)) continue;
+    let totalMessages = 0;
+    let transcriptFiles = [];
+    try {
+        transcriptFiles = fs.readdirSync(sessionsDir).filter(f => f.endsWith('.jsonl'));
+    } catch (e) { /* no transcript dir yet */ }
 
+    for (const file of transcriptFiles) {
         try {
-            const rl = readline.createInterface({ input: fs.createReadStream(session.sessionFile), crlfDelay: Infinity });
+            const rl = readline.createInterface({ input: fs.createReadStream(path.join(sessionsDir, file)), crlfDelay: Infinity });
             for await (const line of rl) {
                 if (!line.trim()) continue;
                 try {
@@ -72,7 +81,7 @@ async function main() {
     }
 
     console.log(JSON.stringify({
-        totalSessions: allSessions.length,
+        totalSessions: allSessions.length || transcriptFiles.length,
         totalMessages,
         tokensInput,
         tokensOutput,

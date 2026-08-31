@@ -39,7 +39,7 @@ class FinalizeChatGPTAuthJob implements ShouldQueue
 
         try {
             $ssh->exec(sprintf(
-                'openclaw models --agent %s auth order set --provider openai-codex %s 2>&1',
+                'openclaw models --agent %s auth order set --provider openai %s 2>&1',
                 escapeshellarg($this->agent->harness_agent_id),
                 escapeshellarg($this->profileId),
             ));

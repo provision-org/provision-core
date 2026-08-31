@@ -358,8 +358,20 @@ class AgentInstallScriptService
           if (c.tools) delete c.tools.profile;
           c.agents = c.agents || {};
           const agentData = JSON.parse(Buffer.from("{$encodedData}", "base64").toString());
-          c.agents.list = (c.agents.list || []).filter(a => a.id !== agentData.id);
-          c.agents.list.push(agentData);
+          // 2026.8.1 roster: keyed agents.entries map with explicit ownership.
+          // A leftover agents.list next to entries fails the strict schema and
+          // takes the gateway down, so migrate any legacy list on the way.
+          c.agents.entries = c.agents.entries || {};
+          for (const legacy of (Array.isArray(c.agents.list) ? c.agents.list : [])) {
+            if (legacy && legacy.id && !c.agents.entries[legacy.id]) {
+              const { id, ...body } = legacy;
+              c.agents.entries[id] = body;
+            }
+          }
+          delete c.agents.list;
+          const { id: agentId, ...agentEntry } = agentData;
+          c.agents.entries[agentId] = agentEntry;
+          c.agents.ownership = "explicit";
           // Heartbeat: cheap model, light context, 55-min interval (stays in cache window)
           c.agents.defaults = c.agents.defaults || {};
           c.agents.defaults.heartbeat = c.agents.defaults.heartbeat || {};
@@ -803,12 +815,10 @@ class AgentInstallScriptService
           const c = JSON.parse(fs.readFileSync(f));
           c.browser = c.browser || {};
           c.browser.profiles = c.browser.profiles || {};
-          const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
-          const idx = Object.keys(c.browser.profiles).length;
+          // No color field: 2026.8.1 strictObject profiles reject it.
           c.browser.profiles["{$profileName}"] = {
             attachOnly: true,
             cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
-            color: colors[idx % colors.length],
           };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
@@ -916,12 +926,10 @@ class AgentInstallScriptService
           const c = JSON.parse(fs.readFileSync(f));
           c.browser = c.browser || {};
           c.browser.profiles = c.browser.profiles || {};
-          const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
-          const idx = Object.keys(c.browser.profiles).length;
+          // No color field: 2026.8.1 strictObject profiles reject it.
           c.browser.profiles["{$profileName}"] = {
             attachOnly: true,
             cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
-            color: colors[idx % colors.length],
           };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
@@ -1435,7 +1443,7 @@ class AgentInstallScriptService
         return <<<BASH
         # Install provision-openclaw-web. Failing this aborts the install —
         # without the plugin, the agent's web chat is dead in the water.
-        PROVWEB_OUT=\$(openclaw plugins install --force {$spec} 2>&1)
+        PROVWEB_OUT=\$(openclaw plugins install --force --accept-capabilities {$spec} 2>&1)
         echo "\$PROVWEB_OUT"
         # Verify the plugin actually landed on disk before we move on. The
         # install path changed across OpenClaw versions: <=2026.6 dropped the

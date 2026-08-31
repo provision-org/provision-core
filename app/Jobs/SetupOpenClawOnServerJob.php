@@ -384,7 +384,7 @@ class SetupOpenClawOnServerJob implements ShouldQueue
     {
         try {
             // Install the OpenClaw plugin (per-agent brv init happens in agent install script)
-            $sshService->exec('export XDG_RUNTIME_DIR=/run/user/$(id -u) && openclaw plugins install @byterover/byterover 2>&1 || true');
+            $sshService->exec('export XDG_RUNTIME_DIR=/run/user/$(id -u) && openclaw plugins install --force --accept-capabilities @byterover/byterover 2>&1 || true');
 
             Log::info("ByteRover installed on server {$this->server->id}");
         } catch (\RuntimeException $e) {

@@ -364,6 +364,14 @@ class AgentUpdateScriptService
         $lines[] = 'if [ "$CURRENT_OPENCLAW_VERSION" != "$PINNED_OPENCLAW_VERSION" ]; then';
         $lines[] = '  echo "openclaw binary is ${CURRENT_OPENCLAW_VERSION:-missing}, pinned is $PINNED_OPENCLAW_VERSION — updating"';
         $lines[] = '  openclaw update --tag "$PINNED_OPENCLAW_VERSION" --yes --json || npm install -g "openclaw@$PINNED_OPENCLAW_VERSION"';
+        // 2026.8.1 refuses to boot while a legacy sessions.json exists (the
+        // session store moved to per-agent SQLite) — doctor migrates it.
+        // Must run between the package swap and the restart, or the gateway
+        // stays down and takes chat + fast-send + the task bridge with it.
+        $lines[] = '  openclaw doctor --fix --non-interactive 2>&1 || true';
+        // Plugins installed pre-2026.8.1 have no recorded capability surface;
+        // their first update needs explicit consent or they stay pinned old.
+        $lines[] = '  openclaw plugins update --all --accept-capabilities 2>&1 || true';
         $lines[] = 'fi';
         $lines[] = 'systemctl --user restart openclaw-gateway';
         $lines[] = 'sleep 5';
@@ -558,11 +566,13 @@ class AgentUpdateScriptService
             ->with(['slackConnection', 'telegramConnection', 'discordConnection', 'emailConnection', 'team'])
             ->get();
 
-        $agentList = [];
+        // 2026.8.1 roster shape: keyed agents.entries (no `id` inside the
+        // entry body — the strict schema rejects it) with explicit ownership.
+        // The legacy agents.list next to entries fails validation outright.
+        $agentEntries = [];
         foreach ($allAgents as $serverAgent) {
             $agentDir = "/root/.openclaw/agents/{$serverAgent->harness_agent_id}";
             $entry = [
-                'id' => $serverAgent->harness_agent_id,
                 'name' => $serverAgent->name,
                 'workspace' => $agentDir,
                 'agentDir' => "{$agentDir}/agent",
@@ -573,10 +583,11 @@ class AgentUpdateScriptService
             if ($heartbeat = $serverAgent->openclawHeartbeatConfig()) {
                 $entry['heartbeat'] = $heartbeat;
             }
-            $agentList[] = $entry;
+            $agentEntries[$serverAgent->harness_agent_id] = $entry;
         }
 
-        $config['agents']['list'] = $agentList;
+        $config['agents']['entries'] = $agentEntries;
+        $config['agents']['ownership'] = 'explicit';
 
         // Heartbeat defaults: cheap model, light context. All-Bedrock AWS
         // servers heartbeat in-cloud on Bedrock Haiku instead of the managed
@@ -697,8 +708,15 @@ class AgentUpdateScriptService
             ],
         ];
 
+        // This is a full-file rebuild, so re-emit the enabled markers the
+        // 2026.8.1 installer records under plugins.entries for the plugins
+        // server setup installs — losing them can get a plugin blocked once
+        // an allowlist exists. Bedrock entries are added below by
+        // applyBedrockPluginConfig when applicable.
         $config['plugins'] = ['entries' => [
             'device-pair' => ['enabled' => false],
+            'provision-web' => ['enabled' => true],
+            'byterover' => ['enabled' => true],
         ]];
 
         // Bedrock (BYO-AWS): enable instance-profile discovery for the
@@ -757,7 +775,6 @@ class AgentUpdateScriptService
      */
     private function buildBrowserProfiles(Server $server): array
     {
-        $palette = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
         $profiles = [];
 
         $agents = $server->agents()
@@ -767,11 +784,12 @@ class AgentUpdateScriptService
             ->orderBy('browser_display_num')
             ->get();
 
-        foreach ($agents as $i => $agent) {
+        foreach ($agents as $agent) {
+            // No `color`: 2026.8.1's strict profile schema rejects it, leaving
+            // the config invalid until the gateway's startup auto-repair runs.
             $profiles[AgentInstallScriptService::browserProfileName($agent)] = [
                 'attachOnly' => true,
                 'cdpUrl' => 'http://127.0.0.1:'.(9222 + (int) $agent->browser_display_num),
-                'color' => $palette[$i % count($palette)],
             ];
         }
 

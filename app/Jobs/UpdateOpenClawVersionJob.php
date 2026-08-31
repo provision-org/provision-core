@@ -93,6 +93,15 @@ class UpdateOpenClawVersionJob implements ShouldBeUniqueUntilProcessing, ShouldQ
                 escapeshellarg($pinnedVersion),
             ));
 
+            // 2026.8.1's gateway refuses to boot while a legacy sessions.json
+            // exists (session store moved to per-agent SQLite); doctor
+            // migrates it. Run before the updater-triggered restart settles so
+            // the box never sits gateway-down. Plugins installed pre-2026.8.1
+            // also need a one-time consented update or they stay pinned old.
+            $executor->exec('openclaw doctor --fix --non-interactive 2>&1 || true');
+            $executor->exec('openclaw plugins update --all --accept-capabilities 2>&1 || true');
+            $executor->exec('export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user restart openclaw-gateway 2>&1 || true');
+
             $after = $this->parseVersion($executor->exec('openclaw --version 2>/dev/null || true'));
 
             if ($after !== $pinnedVersion) {

@@ -31,7 +31,7 @@ class ChatGPTAuthService
 
         $session = self::TMUX_SESSION_PREFIX.$agent->harness_agent_id;
         $command = sprintf(
-            'openclaw models --agent %s auth login --provider openai-codex --method device-code; sleep %d',
+            'openclaw models --agent %s auth login --provider openai --method device-code; sleep %d',
             escapeshellarg($agent->harness_agent_id),
             self::DEVICE_CODE_TIMEOUT_SECONDS,
         );
@@ -262,9 +262,10 @@ class ChatGPTAuthService
     }
 
     /**
-     * `--method device-code` for openai-codex landed in 2026.5.2. If the box
-     * is on an older release, upgrade in-place and restart the gateway before
-     * we kick off the flow. Caller already holds an SSH connection.
+     * `--method device-code` on the OpenAI provider landed in 2026.5.2 (as
+     * `openai-codex`, merged into `openai` in 2026.8.1). If the box is on an
+     * older release, upgrade in-place and restart the gateway before we kick
+     * off the flow. Caller already holds an SSH connection.
      */
     private function ensureOpenclawSupportsDeviceCode(): void
     {
@@ -290,6 +291,11 @@ class ChatGPTAuthService
             .' || npm install -g openclaw@'.escapeshellarg($required).' 2>&1',
             600,
         );
+
+        // 2026.8.1 refuses to boot while a legacy sessions.json exists —
+        // doctor migrates it into the per-agent SQLite store. Must run before
+        // the gateway restart or the box comes back with no gateway at all.
+        $this->sshService->exec('openclaw doctor --fix --non-interactive 2>&1 || true', 300);
 
         // No pairing re-seed needed: since 2026.7.1 (#95997) a loopback CLI
         // call with the gateway token bypasses device pairing entirely.

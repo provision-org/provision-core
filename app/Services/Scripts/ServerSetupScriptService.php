@@ -129,7 +129,9 @@ class ServerSetupScriptService
             $lines[] = '# --- Step 3: Install ByteRover (non-fatal) ---';
             $lines[] = 'ping_progress "installing_advanced_memory"';
             $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
-            $lines[] = 'openclaw plugins install @byterover/byterover 2>&1 || true';
+            // 2026.8.1: headless installs need --accept-capabilities (no TTY =
+            // no consent handler) and non-ClawHub npm sources need --force.
+            $lines[] = 'openclaw plugins install --force --accept-capabilities @byterover/byterover 2>&1 || true';
             $lines[] = '';
 
             // 3b. Install the Amazon Bedrock provider plugin (AWS teams only).
@@ -142,7 +144,7 @@ class ServerSetupScriptService
             if ($server->team?->cloudProvider() === CloudProvider::Aws) {
                 $lines[] = '# --- Step 3b: Install Amazon Bedrock provider plugins (AWS teams) ---';
                 // Classic ConverseStream provider (bedrock: models).
-                $lines[] = 'openclaw plugins install @openclaw/amazon-bedrock-provider 2>&1 || true';
+                $lines[] = 'openclaw plugins install --accept-capabilities @openclaw/amazon-bedrock-provider 2>&1 || true';
 
                 // Mantle provider (mantle: models) is a SEPARATE, non-bundled
                 // plugin. It auto-mints a bearer token from the instance-profile
@@ -150,7 +152,7 @@ class ServerSetupScriptService
                 // endpoint — the BYO-AWS path that needs no use-case form. Only
                 // available in Mantle regions.
                 if (in_array(AwsCredentials::regionForTeam($server->team), MantleCatalogService::SUPPORTED_REGIONS, true)) {
-                    $lines[] = 'openclaw plugins install @openclaw/amazon-bedrock-mantle-provider 2>&1 || true';
+                    $lines[] = 'openclaw plugins install --accept-capabilities @openclaw/amazon-bedrock-mantle-provider 2>&1 || true';
                 }
                 $lines[] = '';
             }
@@ -278,6 +280,11 @@ WRAPPER);
                 'Environment=DISPLAY=:99',
                 'Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache',
                 'Environment=OPENCLAW_NO_RESPAWN=1',
+                // 2026.8.1: tell OpenClaw an external supervisor (this systemd
+                // unit) owns the gateway lifecycle — `openclaw gateway
+                // restart/stop` and self-update then defer to systemd instead
+                // of double-supervising or surprise-updating the fleet pin.
+                'Environment=OPENCLAW_SUPERVISOR_MODE=external',
             ];
 
             // AWS teams: the Bedrock/Mantle providers sign requests (and Mantle
