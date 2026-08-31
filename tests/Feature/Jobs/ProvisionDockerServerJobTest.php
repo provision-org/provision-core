@@ -36,6 +36,7 @@ test('Docker provisioning persists and configures a token-authenticated OpenClaw
 
     $defaults = Mockery::mock(OpenClawDefaultsService::class);
     $defaults->shouldReceive('buildDefaults')->once()->withArgs(fn (Server $value) => $value->is($server))->andReturn([]);
+    $defaults->shouldReceive('buildMemoryConfig')->withArgs(fn (Server $value) => $value->is($server))->andReturn(['search' => ['enabled' => false]]);
 
     (new ProvisionDockerServerJob($server))->handle($executor, $defaults);
 

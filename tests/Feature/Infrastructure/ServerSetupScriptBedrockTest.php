@@ -32,8 +32,8 @@ test('setup script installs both bedrock plugins and sets AWS_REGION for a mantl
 
     // Both providers installed: classic (bedrock:) + the separate, non-bundled
     // Mantle plugin (mantle:) — us-east-1 is a Mantle region.
-    expect($script)->toContain('openclaw plugins install @openclaw/amazon-bedrock-provider')
-        ->and($script)->toContain('openclaw plugins install @openclaw/amazon-bedrock-mantle-provider');
+    expect($script)->toContain('openclaw plugins install --accept-capabilities @openclaw/amazon-bedrock-provider')
+        ->and($script)->toContain('openclaw plugins install --accept-capabilities @openclaw/amazon-bedrock-mantle-provider');
 
     // The gateway daemon needs AWS_REGION in its own env or the Mantle SigV4
     // bearer-token mint fails and discovery silently skips every model.
@@ -44,7 +44,7 @@ test('setup script installs both bedrock plugins and sets AWS_REGION for a mantl
 test('setup script skips the mantle plugin outside mantle regions but still sets AWS_REGION', function () {
     $script = app(ServerSetupScriptService::class)->generateScript(awsOpenClawServerInRegion('ca-central-1'));
 
-    expect($script)->toContain('openclaw plugins install @openclaw/amazon-bedrock-provider')
+    expect($script)->toContain('openclaw plugins install --accept-capabilities @openclaw/amazon-bedrock-provider')
         ->and($script)->not->toContain('amazon-bedrock-mantle-provider')
         ->and($script)->toContain('Environment=AWS_REGION=ca-central-1');
 });

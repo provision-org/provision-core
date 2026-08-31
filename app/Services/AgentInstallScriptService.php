@@ -358,18 +358,31 @@ class AgentInstallScriptService
           if (c.tools) delete c.tools.profile;
           c.agents = c.agents || {};
           const agentData = JSON.parse(Buffer.from("{$encodedData}", "base64").toString());
-          c.agents.list = (c.agents.list || []).filter(a => a.id !== agentData.id);
-          c.agents.list.push(agentData);
+          // 2026.8.1 roster: keyed agents.entries map with explicit ownership.
+          // A leftover agents.list next to entries fails the strict schema and
+          // takes the gateway down, so migrate any legacy list on the way.
+          c.agents.entries = c.agents.entries || {};
+          for (const legacy of (Array.isArray(c.agents.list) ? c.agents.list : [])) {
+            if (legacy && legacy.id && !c.agents.entries[legacy.id]) {
+              const { id, ...body } = legacy;
+              c.agents.entries[id] = body;
+            }
+          }
+          delete c.agents.list;
+          const { id: agentId, ...agentEntry } = agentData;
+          c.agents.entries[agentId] = agentEntry;
+          c.agents.ownership = "explicit";
           // Heartbeat: cheap model, light context, 55-min interval (stays in cache window)
           c.agents.defaults = c.agents.defaults || {};
           c.agents.defaults.heartbeat = c.agents.defaults.heartbeat || {};
           c.agents.defaults.heartbeat.model = "{$automationModel}";
           c.agents.defaults.heartbeat.lightContext = true;
           c.agents.defaults.heartbeat.every = "55m";
-          // Compaction: higher reserve floor + memory flush before compaction
+          // Compaction: memory flush before compaction. (reserveTokensFloor
+          // was retired in 2026.8.1 — strict schema rejects it.)
           c.agents.defaults.compaction = c.agents.defaults.compaction || {};
           c.agents.defaults.compaction.mode = "default";
-          c.agents.defaults.compaction.reserveTokensFloor = 40000;
+          delete c.agents.defaults.compaction.reserveTokensFloor;
           c.agents.defaults.compaction.memoryFlush = c.agents.defaults.compaction.memoryFlush || {};
           c.agents.defaults.compaction.memoryFlush.enabled = true;
           c.agents.defaults.compaction.memoryFlush.softThresholdTokens = 4000;
@@ -405,15 +418,25 @@ class AgentInstallScriptService
         $assignments = '';
         foreach ($envKeys as $key => $value) {
             $escapedValue = str_replace("'", "'\\''", $value);
-            $assignments .= "c.env[\"{$key}\"] = \"{$escapedValue}\";\n          ";
+            $assignments .= "c.env.vars[\"{$key}\"] = \"{$escapedValue}\";\n          ";
         }
 
+        // 2026.8.1's strict env schema is {shellEnv, vars}: keys live under
+        // env.vars and any legacy flat entries must migrate or the whole
+        // config fails validation and the gateway refuses to boot.
         return <<<BASH
         node -e '
           const fs = require("fs");
           const f = "{$configFile}";
           const c = JSON.parse(fs.readFileSync(f));
-          c.env = c.env || {};
+          c.env = (c.env && typeof c.env === "object") ? c.env : {};
+          c.env.vars = (c.env.vars && typeof c.env.vars === "object") ? c.env.vars : {};
+          for (const [k, v] of Object.entries(c.env)) {
+            if (k !== "vars" && k !== "shellEnv" && typeof v === "string") {
+              if (!(k in c.env.vars)) c.env.vars[k] = v;
+              delete c.env[k];
+            }
+          }
           {$assignments}fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;
@@ -803,12 +826,10 @@ class AgentInstallScriptService
           const c = JSON.parse(fs.readFileSync(f));
           c.browser = c.browser || {};
           c.browser.profiles = c.browser.profiles || {};
-          const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
-          const idx = Object.keys(c.browser.profiles).length;
+          // No color field: 2026.8.1 strictObject profiles reject it.
           c.browser.profiles["{$profileName}"] = {
             attachOnly: true,
             cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
-            color: colors[idx % colors.length],
           };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
@@ -916,12 +937,10 @@ class AgentInstallScriptService
           const c = JSON.parse(fs.readFileSync(f));
           c.browser = c.browser || {};
           c.browser.profiles = c.browser.profiles || {};
-          const colors = ["#3b82f6","#ef4444","#10b981","#f59e0b","#8b5cf6","#ec4899","#06b6d4","#f97316"];
-          const idx = Object.keys(c.browser.profiles).length;
+          // No color field: 2026.8.1 strictObject profiles reject it.
           c.browser.profiles["{$profileName}"] = {
             attachOnly: true,
             cdpUrl: "http://127.0.0.1:" + process.env.CDP_PORT,
-            color: colors[idx % colors.length],
           };
           fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
@@ -1435,7 +1454,7 @@ class AgentInstallScriptService
         return <<<BASH
         # Install provision-openclaw-web. Failing this aborts the install —
         # without the plugin, the agent's web chat is dead in the water.
-        PROVWEB_OUT=\$(openclaw plugins install --force {$spec} 2>&1)
+        PROVWEB_OUT=\$(openclaw plugins install --force --accept-capabilities {$spec} 2>&1)
         echo "\$PROVWEB_OUT"
         # Verify the plugin actually landed on disk before we move on. The
         # install path changed across OpenClaw versions: <=2026.6 dropped the
@@ -1444,7 +1463,9 @@ class AgentInstallScriptService
         # or an explicit "Installed plugin" confirmation from the installer.
         provweb_present() {
           [ -d /root/.openclaw/npm/node_modules/provision-openclaw-web/dist ] && return 0
-          ls -d /root/.openclaw/npm/projects/provision-openclaw-web__*/ >/dev/null 2>&1 && return 0
+          # 2026.7 used <pkg>__openclaw-generation__g-<hash>/, 2026.8.1 uses the
+          # bare package name — accept both.
+          ls -d /root/.openclaw/npm/projects/provision-openclaw-web*/ >/dev/null 2>&1 && return 0
           return 1
         }
         for _ in \$(seq 1 20); do

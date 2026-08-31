@@ -200,9 +200,33 @@ class UpdateEnvOnServerJob implements ShouldQueue
             $defaults,
         );
 
-        // Set LLM provider API keys in the env section for model auth
-        if (! empty($envKeys)) {
-            $config['env'] = array_merge($config['env'] ?? [], $envKeys);
+        // 2026.8.1: memory-search config lives at the root `memory` key.
+        $config['memory'] = array_replace_recursive(
+            $config['memory'] ?? [],
+            $defaultsService->buildMemoryConfig($this->server),
+        );
+
+        // Set LLM provider API keys under env.vars for model auth.
+        // 2026.8.1's strict env schema is {shellEnv, vars} — flat keys fail
+        // validation, so migrate any legacy flat entries on the way.
+        $existingEnv = is_array($config['env'] ?? null) ? $config['env'] : [];
+        $legacyFlat = array_filter(
+            $existingEnv,
+            fn ($v, $k) => is_string($v) && ! in_array($k, ['vars', 'shellEnv'], true),
+            ARRAY_FILTER_USE_BOTH,
+        );
+        $env = array_filter([
+            'shellEnv' => $existingEnv['shellEnv'] ?? null,
+            'vars' => array_merge(
+                $legacyFlat,
+                is_array($existingEnv['vars'] ?? null) ? $existingEnv['vars'] : [],
+                $envKeys,
+            ),
+        ]);
+        if ($env === []) {
+            unset($config['env']);
+        } else {
+            $config['env'] = $env;
         }
 
         // Ensure device-pair plugin stays disabled (auto-approve all channel senders)

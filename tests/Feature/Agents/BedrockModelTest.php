@@ -106,7 +106,7 @@ test('chatgpt-subscription agents still heartbeat on their own model', function 
     ]);
 
     expect($agent->openclawHeartbeatConfig())->toBe([
-        'model' => 'openai-codex/gpt-5.5',
+        'model' => 'openai/gpt-5.5',
         'lightContext' => true,
     ]);
 });

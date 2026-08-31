@@ -16,9 +16,9 @@ return [
         'container' => env('PROVISION_DOCKER_CONTAINER', 'provision-agent-runtime-1'),
     ],
 
-    'provisiond_version' => env('PROVISIOND_VERSION', '0.5.0'),
+    'provisiond_version' => env('PROVISIOND_VERSION', '0.5.1'),
 
-    'openclaw_version' => env('OPENCLAW_VERSION', '2026.7.1'),
+    'openclaw_version' => env('OPENCLAW_VERSION', '2026.8.1'),
 
     'provision_web_plugin_version' => env('PROVISION_WEB_PLUGIN_VERSION', 'latest'),
 ];

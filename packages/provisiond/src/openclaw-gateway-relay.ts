@@ -186,7 +186,10 @@ export class OpenClawGatewayRelay {
                     instanceId: `provisiond:${this.config.serverId}`,
                 },
                 role: 'operator',
-                scopes: ['operator.read', 'operator.write'],
+                // operator.admin short-circuits 2026.8.1's canReceiveSessionEvent
+                // visibility filter: without it, a future gateway.roles config
+                // write would silently stop ALL chat events reaching the relay.
+                scopes: ['operator.read', 'operator.write', 'operator.admin'],
                 caps: [],
                 commands: [],
                 permissions: {},
@@ -752,15 +755,12 @@ export class OpenClawGatewayRelay {
                 }
             }
 
-            const nextOffset = this.integerValue(result.nextOffset);
-            if (
-                nextOffset === undefined ||
-                result.hasMore !== true ||
-                nextOffset <= offset
-            ) {
+            // sessions.list has never returned nextOffset/hasMore (verified at
+            // 2026.7.1 and 2026.8.1) — page on row count until a short page.
+            if (rows.length < 100) {
                 break;
             }
-            offset = nextOffset;
+            offset += rows.length;
         }
 
         for (let index = 0; index < snapshots.length; index += 100) {

@@ -13,8 +13,9 @@ use App\Models\AgentSlackConnection;
  * so writes are optimistically locked against OpenClaw's own writers and the
  * gateway stamps `meta.lastTouchedVersion` itself — raw file rewrites race
  * the gateway and can trip its clobber detector, which silently restores
- * openclaw.json.bak. A JSON merge patch merges `agents.list` entries by id
- * (objects merge, null deletes), so add and update are the same operation.
+ * openclaw.json.bak. The roster is the keyed `agents.entries` map
+ * (OpenClaw 2026.8.1+): objects merge, null deletes, so add and update are
+ * the same operation and removal is a null-keyed patch.
  *
  * If the gateway is unreachable after retries, the command falls back to a
  * direct `node -e` file edit of the same patch so provisioning flows still
@@ -24,33 +25,32 @@ class ConfigPatchService
 {
     public function buildAddAgentPatch(Agent $agent): string
     {
-        return $this->buildRpcPatchCommand(['agents' => ['list' => [$this->agentEntry($agent)]]]);
+        return $this->buildRpcPatchCommand([
+            'agents' => [
+                // Multi-agent rosters fail 2026.8.1 schema validation without
+                // explicit ownership, and a leftover legacy `list` key next to
+                // `entries` fails its strict shape — delete it on every write.
+                'ownership' => 'explicit',
+                'entries' => [$agent->harness_agent_id => $this->agentEntry($agent)],
+                'list' => null,
+            ],
+        ]);
     }
 
     public function buildUpdateAgentPatch(Agent $agent): string
     {
-        // Merge-by-id: identical to add — an existing entry deep-merges.
+        // Keyed map merge: identical to add — an existing entry deep-merges.
         return $this->buildAddAgentPatch($agent);
     }
 
-    /**
-     * Removal from a merge-patched array requires replacing the whole list,
-     * which would need the full desired state. The agent entry is instead
-     * filtered out with a direct file edit — a rare, teardown-only operation
-     * that runs right before a gateway restart. The edit preserves all other
-     * keys (including meta), so the clobber detector's missing-meta check is
-     * not triggered.
-     */
     public function buildRemoveAgentPatch(string $agentId): string
     {
-        $encodedId = json_encode($agentId);
-
-        return 'node -e '.escapeshellarg(
-            "const fs=require('fs');const f='/root/.openclaw/openclaw.json';"
-            .'const c=JSON.parse(fs.readFileSync(f));'
-            ."c.agents=c.agents||{};c.agents.list=(c.agents.list||[]).filter(a=>a.id!=={$encodedId});"
-            .'fs.writeFileSync(f,JSON.stringify(c,null,2));'
-        );
+        return $this->buildRpcPatchCommand([
+            'agents' => [
+                'entries' => [$agentId => null],
+                'list' => null,
+            ],
+        ]);
     }
 
     public function buildSetSlackTokensPatch(AgentSlackConnection $slack): string
@@ -111,8 +111,9 @@ class ConfigPatchService
         $agentId = $agent->harness_agent_id;
         $agentDir = "/root/.openclaw/agents/{$agentId}";
 
+        // No `id` field: 2026.8.1's strict AgentEntryConfigSchema keys entries
+        // by id and rejects it inside the entry body.
         return [
-            'id' => $agentId,
             'name' => $agent->name,
             'workspace' => $agentDir,
             'agentDir' => "{$agentDir}/agent",

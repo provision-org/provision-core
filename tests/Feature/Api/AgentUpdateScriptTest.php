@@ -201,7 +201,7 @@ test('openclaw config snapshot wires bedrock discovery, models, and heartbeat fo
         ]);
 
     // Agent entry: inference-profile model refs + in-cloud heartbeat override
-    $entry = collect($config['agents']['list'])->firstWhere('id', 'agent-bdrk');
+    $entry = $config['agents']['entries']['agent-bdrk'];
     expect($entry['model'])->toBe([
         'primary' => 'amazon-bedrock/us.anthropic.claude-sonnet-4-6',
         'fallbacks' => ['amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0'],
@@ -213,7 +213,7 @@ test('openclaw config snapshot wires bedrock discovery, models, and heartbeat fo
     // All-bedrock server: defaults route heartbeat + subagents + memory search in-cloud
     expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
-        ->and($config['agents']['defaults']['memorySearch']['provider'])->toBe('bedrock');
+        ->and($config['memory']['search']['provider'])->toBe('bedrock');
 
     // The IAM key/secret never appear anywhere in the config
     $json = json_encode($config);
@@ -557,7 +557,7 @@ test('chatgpt-subscription agents heartbeat on their own model, not openrouter',
         'model_fallbacks' => [],
     ]);
     expect($chatgpt->openclawHeartbeatConfig())
-        ->toBe(['model' => 'openai-codex/gpt-5.5', 'lightContext' => true]);
+        ->toBe(['model' => 'openai/gpt-5.5', 'lightContext' => true]);
 
     $managed = Agent::factory()->make([
         'auth_provider' => 'openrouter',
@@ -581,10 +581,10 @@ test('openclaw config gives chatgpt agents a per-agent heartbeat override', func
     ]);
 
     $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
-    $entry = collect($config['agents']['list'])->firstWhere('id', 'agent-gpt');
+    $entry = $config['agents']['entries']['agent-gpt'];
 
     // Per-agent heartbeat uses the ChatGPT model (billed via OpenAI)…
-    expect($entry['heartbeat'])->toBe(['model' => 'openai-codex/gpt-5.5', 'lightContext' => true]);
+    expect($entry['heartbeat'])->toBe(['model' => 'openai/gpt-5.5', 'lightContext' => true]);
     // …while the server-wide default still uses the managed automation model.
     expect($config['agents']['defaults']['heartbeat']['model'])
         ->toBe(LlmProvider::AUTOMATION_MODEL);
@@ -640,7 +640,7 @@ test('managed agents keep the default heartbeat (no per-agent override)', functi
     ]);
 
     $config = app(AgentUpdateScriptService::class)->buildOpenClawConfigSnapshot($agent);
-    $entry = collect($config['agents']['list'])->firstWhere('id', 'agent-mgd');
+    $entry = $config['agents']['entries']['agent-mgd'];
 
     expect($entry)->not->toHaveKey('heartbeat');
 });

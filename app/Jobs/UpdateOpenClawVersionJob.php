@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Contracts\CommandExecutor;
 use App\Models\ChatMessage;
 use App\Models\OpenClawSessionDiscovery;
 use App\Models\Server;
@@ -34,6 +35,12 @@ class UpdateOpenClawVersionJob implements ShouldBeUniqueUntilProcessing, ShouldQ
     public int $timeout = 600;
 
     public int $uniqueFor = 900;
+
+    /**
+     * Convert the legacy persistent-volume symlinks to bind mounts.
+     * Idempotent; no-op on servers without the volume layout.
+     */
+    private const SYMLINK_TO_BIND_MOUNT_SCRIPT = 'if [ -d /mnt/openclaw-data ]; then for D in agents logs; do if [ -L "/root/.openclaw/$D" ]; then rm "/root/.openclaw/$D"; fi; mkdir -p "/root/.openclaw/$D" "/mnt/openclaw-data/$D"; mountpoint -q "/root/.openclaw/$D" || mount --bind "/mnt/openclaw-data/$D" "/root/.openclaw/$D"; grep -q " /root/.openclaw/$D " /etc/fstab || echo "/mnt/openclaw-data/$D /root/.openclaw/$D none bind,nofail 0 0" >> /etc/fstab; done; fi';
 
     public function __construct(public Server $server) {}
 
@@ -79,6 +86,11 @@ class UpdateOpenClawVersionJob implements ShouldBeUniqueUntilProcessing, ShouldQ
             }
 
             if ($installed === $pinnedVersion) {
+                // Converged binary is not a converged box: an interrupted
+                // earlier run can leave the package updated but the gateway
+                // refusing to boot on an unmigrated legacy session store
+                // (2026.8.1 startup gate). Repair before declaring victory.
+                $this->repairGatewayIfDown($executor);
                 $this->recordVersion($installed);
 
                 return;
@@ -87,13 +99,29 @@ class UpdateOpenClawVersionJob implements ShouldBeUniqueUntilProcessing, ShouldQ
             // --tag both upgrades and rolls back to the exact pin; the updater
             // verifies the candidate with doctor and restores the previous
             // package if activation fails, so a failed run leaves the box on
-            // its current version.
-            $executor->exec(sprintf(
+            // its current version. A real upgrade downloads + stages the npm
+            // package — minutes, not seconds — so it needs an explicit long
+            // timeout: at the 30s default phpseclib times out mid-command and
+            // leaves the SSH channel open, poisoning every subsequent exec on
+            // the connection (E2E-verified failure mode).
+            $this->execLong($executor, sprintf(
                 'openclaw update --tag %s --yes --json 2>&1',
                 escapeshellarg($pinnedVersion),
-            ));
+            ), 600);
 
-            $after = $this->parseVersion($executor->exec('openclaw --version 2>/dev/null || true'));
+            // 2026.8.1's gateway refuses to boot while a legacy sessions.json
+            // exists (session store moved to per-agent SQLite); doctor
+            // migrates it. Plugins installed pre-2026.8.1 also need a one-time
+            // consented update or they stay pinned old.
+            $this->runDoctorMigration($executor);
+            $this->execLong($executor, 'openclaw plugins update --all --accept-capabilities 2>&1 || true', 600);
+            // Bundled plugins (e.g. perplexity) can lack recorded capability
+            // consent after an upgrade — gateway then refuses readiness with
+            // "plugin verification failed". `update repair` records consent.
+            $this->execLong($executor, 'openclaw update repair --accept-capabilities --yes 2>&1 || true', 300);
+            $this->execLong($executor, 'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user reset-failed openclaw-gateway 2>/dev/null; systemctl --user restart openclaw-gateway 2>&1 || true', 60);
+
+            $after = $this->parseVersion($this->execLong($executor, 'openclaw --version 2>/dev/null || true', 60));
 
             if ($after !== $pinnedVersion) {
                 throw new RuntimeException(
@@ -113,6 +141,64 @@ class UpdateOpenClawVersionJob implements ShouldBeUniqueUntilProcessing, ShouldQ
                 $executor->disconnect();
             }
         }
+    }
+
+    /**
+     * If the gateway service is not active (e.g. crash-looping on the
+     * 2026.8.1 legacy-session-store startup gate), run the doctor migration
+     * and restart it. Best-effort: any failure surfaces via the next health
+     * check rather than failing the version job.
+     */
+    private function repairGatewayIfDown(CommandExecutor $executor): void
+    {
+        $state = trim($this->execLong(
+            $executor,
+            'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user is-active openclaw-gateway 2>&1 || true',
+            30,
+        ));
+
+        if ($state === 'active') {
+            return;
+        }
+
+        Log::warning('OpenClaw binary matches pin but gateway is not active — running doctor repair.', [
+            'server_id' => $this->server->id,
+            'state' => $state,
+        ]);
+
+        $this->runDoctorMigration($executor);
+    }
+
+    /**
+     * Run the 2026.8.1 legacy-store migration correctly. Two E2E-verified
+     * requirements: (1) the volume dirs must be bind mounts, not symlinks —
+     * the SQLite import refuses symbolic-link path components; (2) the
+     * gateway must be STOPPED while doctor runs — a live (even crash-looping)
+     * gateway owns the state-dir lock and doctor silently skips automatic
+     * state migrations.
+     */
+    private function runDoctorMigration(CommandExecutor $executor): void
+    {
+        $this->execLong($executor, self::SYMLINK_TO_BIND_MOUNT_SCRIPT, 60);
+        $this->execLong($executor, 'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user stop openclaw-gateway 2>&1; systemctl --user reset-failed openclaw-gateway 2>/dev/null || true', 60);
+        $this->execLong($executor, 'openclaw doctor --fix --non-interactive 2>&1 || true', 300);
+        $this->execLong($executor, 'openclaw update repair --accept-capabilities --yes 2>&1 || true', 300);
+        $this->execLong($executor, 'export XDG_RUNTIME_DIR=/run/user/$(id -u) && systemctl --user start openclaw-gateway 2>&1 || true', 60);
+    }
+
+    /**
+     * Run a potentially long command with an explicit SSH timeout. The
+     * CommandExecutor contract has no timeout parameter, so pass it only on
+     * the SSH implementation; DockerExecutor runs locally and does not hold
+     * a channel open across commands.
+     */
+    private function execLong(CommandExecutor $executor, string $command, int $timeoutSeconds): string
+    {
+        if ($executor instanceof SshService) {
+            return $executor->exec($command, $timeoutSeconds);
+        }
+
+        return $executor->exec($command);
     }
 
     /**

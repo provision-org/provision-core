@@ -138,7 +138,9 @@ enum LlmProvider: string
             self::OpenRouter => "openrouter/{$modelId}",
             self::Anthropic => $direct ? "anthropic/{$modelId}" : "openrouter/anthropic/{$forOpenRouter}",
             self::OpenAi => $direct ? "openai/{$modelId}" : "openrouter/openai/{$forOpenRouter}",
-            self::OpenAiCodex => "openai-codex/{$modelId}",
+            // OpenClaw 2026.8.1 merged the Codex route into the "openai"
+            // provider id; "openai-codex/*" refs hard-error at runtime.
+            self::OpenAiCodex => "openai/{$modelId}",
             // Direct Bedrock routing — never via OpenRouter. Model traffic
             // stays inside the customer's AWS account. OpenClaw's provider
             // prefix is "amazon-bedrock" and the model reference is a US

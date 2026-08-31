@@ -8,9 +8,18 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
+use RuntimeException;
 
+/**
+ * Read-only session browser backed by the gateway's sessions.list and
+ * chat.history RPCs. OpenClaw 2026.8.1 moved the session store from
+ * sessions/sessions.json into per-agent SQLite, so the RPC surface is the
+ * only stable read path — direct file reads return nothing on 2026.8.1+.
+ */
 class AgentSessionController extends Controller
 {
+    private const GATEWAY_TIMEOUT_MS = 15000;
+
     public function __construct(public SshService $sshService) {}
 
     public function index(Agent $agent, Request $request): JsonResponse
@@ -29,22 +38,32 @@ class AgentSessionController extends Controller
             $sessions = Cache::remember("agent-sessions-{$agent->id}", 30, function () use ($agent, $server) {
                 $this->sshService->connect($server);
 
-                $path = "/mnt/openclaw-data/agents/{$agent->harness_agent_id}/sessions/sessions.json";
-                $content = $this->sshService->readFile($path);
-                $this->sshService->disconnect();
+                try {
+                    $result = $this->callGateway('sessions.list', [
+                        'agentId' => $agent->harness_agent_id,
+                        'limit' => 200,
+                        'sortBy' => 'updatedAt',
+                        'includeDerivedTitles' => true,
+                    ]);
+                } finally {
+                    $this->sshService->disconnect();
+                }
 
-                $data = json_decode($content, true) ?? [];
+                $rows = $result['sessions'] ?? $result['rows'] ?? [];
 
-                // sessions.json is a keyed object: { "session-id": { ...session data } }
-                $mapped = collect($data)->map(fn (array $session, string $key) => [
-                    'session_id' => $key,
-                    'inputTokens' => $session['inputTokens'] ?? 0,
-                    'outputTokens' => $session['outputTokens'] ?? 0,
-                    'updatedAt' => $session['updatedAt'] ?? null,
-                    'sessionFile' => $session['sessionFile'] ?? null,
-                ])->sortByDesc('updatedAt')->values()->all();
-
-                return $mapped;
+                return collect(is_array($rows) ? $rows : [])
+                    ->filter(fn ($row) => is_array($row) && isset($row['key']))
+                    ->map(fn (array $row) => [
+                        'session_id' => $row['key'],
+                        'title' => $row['title'] ?? $row['derivedTitle'] ?? null,
+                        'inputTokens' => $row['inputTokens'] ?? 0,
+                        'outputTokens' => $row['outputTokens'] ?? 0,
+                        'updatedAt' => $row['updatedAt'] ?? null,
+                        'hasActiveRun' => (bool) ($row['hasActiveRun'] ?? false),
+                    ])
+                    ->sortByDesc('updatedAt')
+                    ->values()
+                    ->all();
             });
 
             return response()->json(['sessions' => $sessions]);
@@ -73,36 +92,35 @@ class AgentSessionController extends Controller
         try {
             $this->sshService->connect($server);
 
-            $sessionsPath = "/mnt/openclaw-data/agents/{$agent->harness_agent_id}/sessions/sessions.json";
-            $sessionsContent = $this->sshService->readFile($sessionsPath);
-            $sessions = json_decode($sessionsContent, true) ?? [];
-
-            // sessions.json is keyed by session ID
-            $session = $sessions[$sessionId] ?? null;
-
-            if (! $session || empty($session['sessionFile'])) {
+            try {
+                $history = $this->callGateway('chat.history', [
+                    'sessionKey' => $sessionId,
+                    'agentId' => $agent->harness_agent_id,
+                    'limit' => 1000,
+                ]);
+            } finally {
                 $this->sshService->disconnect();
-
-                return response()->json(['error' => 'Session not found.'], 404);
             }
 
-            $jsonlContent = $this->sshService->readFile($session['sessionFile']);
-            $this->sshService->disconnect();
-
-            $lines = array_filter(explode("\n", trim($jsonlContent)));
-            $messages = collect($lines)
-                ->map(fn (string $line) => json_decode($line, true))
-                ->filter(fn ($entry) => $entry && ($entry['type'] ?? null) === 'message')
+            $messages = collect($history['messages'] ?? [])
+                ->filter(fn ($entry) => is_array($entry))
                 ->map(function (array $entry) {
-                    $msg = $entry['message'] ?? $entry;
+                    // chat.history replays session.message rows; tolerate both
+                    // the flat shape and a nested `message` envelope.
+                    $msg = is_array($entry['message'] ?? null) ? $entry['message'] : $entry;
 
                     return [
                         'role' => $msg['role'] ?? 'unknown',
-                        'content' => $this->extractTextContent($msg['content'] ?? ''),
+                        'content' => $this->extractTextContent($msg['content'] ?? ($msg['text'] ?? '')),
                         'timestamp' => $entry['timestamp'] ?? $msg['timestamp'] ?? null,
                     ];
                 })
+                ->filter(fn (array $msg) => $msg['content'] !== '')
                 ->values();
+
+            if ($messages->isEmpty() && empty($history['sessionInfo'])) {
+                return response()->json(['error' => 'Session not found.'], 404);
+            }
 
             $page = max(1, (int) $request->query('page', '1'));
             $perPage = 100;
@@ -124,6 +142,28 @@ class AgentSessionController extends Controller
 
             return response()->json(['error' => 'Failed to fetch session from server.'], 500);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $params
+     * @return array<string, mixed>
+     */
+    private function callGateway(string $method, array $params): array
+    {
+        $payload = json_encode($params, JSON_THROW_ON_ERROR | JSON_UNESCAPED_SLASHES);
+        $output = trim($this->sshService->exec(
+            'openclaw gateway call '.escapeshellarg($method)
+            .' --json --params '.escapeshellarg($payload)
+            .' --timeout '.self::GATEWAY_TIMEOUT_MS.' 2>&1',
+        ));
+
+        $decoded = json_decode($output, true);
+
+        if (! is_array($decoded) || ($decoded['ok'] ?? true) === false || array_key_exists('error', $decoded)) {
+            throw new RuntimeException("Gateway {$method} call failed.");
+        }
+
+        return $decoded;
     }
 
     private function extractTextContent(mixed $content): string

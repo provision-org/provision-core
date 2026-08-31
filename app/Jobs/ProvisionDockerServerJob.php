@@ -111,6 +111,8 @@ class ProvisionDockerServerJob implements ShouldQueue
 
         return [
             'bindings' => [],
+            // 2026.8.1: memory-search config lives at the root memory key.
+            'memory' => $defaultsService->buildMemoryConfig($this->server),
             'agents' => [
                 'defaults' => array_replace_recursive([
                     'sandbox' => ['mode' => 'off'],

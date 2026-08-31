@@ -21,10 +21,10 @@ test('defaults include memory search with native OpenAI when team has OpenAI key
 
     $defaults = $this->service->buildDefaults($this->server);
 
-    expect($defaults['memorySearch']['enabled'])->toBeTrue()
-        ->and($defaults['memorySearch']['provider'])->toBe('openai')
-        ->and($defaults['memorySearch']['model'])->toBe('text-embedding-3-small')
-        ->and($defaults['memorySearch'])->not->toHaveKey('remote');
+    expect($this->service->buildMemoryConfig($this->server)['search']['enabled'])->toBeTrue()
+        ->and($this->service->buildMemoryConfig($this->server)['search']['provider'])->toBe('openai')
+        ->and($this->service->buildMemoryConfig($this->server)['search']['model'])->toBe('text-embedding-3-small')
+        ->and($this->service->buildMemoryConfig($this->server)['search'])->not->toHaveKey('remote');
 });
 
 test('defaults include memory search via OpenRouter when team has only OpenRouter key', function () {
@@ -32,9 +32,9 @@ test('defaults include memory search via OpenRouter when team has only OpenRoute
 
     $defaults = $this->service->buildDefaults($this->server);
 
-    expect($defaults['memorySearch']['enabled'])->toBeTrue()
-        ->and($defaults['memorySearch']['provider'])->toBe('openai')
-        ->and($defaults['memorySearch']['remote']['baseUrl'])->toBe('https://openrouter.ai/api/v1/');
+    expect($this->service->buildMemoryConfig($this->server)['search']['enabled'])->toBeTrue()
+        ->and($this->service->buildMemoryConfig($this->server)['search']['provider'])->toBe('openai')
+        ->and($this->service->buildMemoryConfig($this->server)['search']['remote']['baseUrl'])->toBe('https://openrouter.ai/api/v1/');
 });
 
 test('defaults disable memory search when team has only Anthropic key', function () {
@@ -42,7 +42,7 @@ test('defaults disable memory search when team has only Anthropic key', function
 
     $defaults = $this->service->buildDefaults($this->server);
 
-    expect($defaults['memorySearch']['enabled'])->toBeFalse();
+    expect($this->service->buildMemoryConfig($this->server)['search']['enabled'])->toBeFalse();
 });
 
 test('defaults include compaction and context pruning always', function () {
@@ -55,7 +55,8 @@ test('defaults include compaction and context pruning always', function () {
         ->and($defaults['compaction']['memoryFlush']['softThresholdTokens'])->toBe(40000)
         ->and($defaults['contextPruning']['mode'])->toBe('cache-ttl')
         ->and($defaults['contextPruning']['ttl'])->toBe('6h')
-        ->and($defaults['contextPruning']['keepLastAssistants'])->toBe(3);
+        // keepLastAssistants retired in 2026.8.1 — must not be emitted
+        ->and($defaults['contextPruning'])->not->toHaveKey('keepLastAssistants');
 });
 
 test('defaults route heartbeat to cheap model when OpenAI available', function () {
@@ -109,18 +110,13 @@ test('defaults omit prompt caching when no Anthropic key', function () {
     expect($defaults)->not->toHaveKey('models');
 });
 
-test('OpenRouter memory search config includes hybrid search settings', function () {
+test('memory search config omits the retired hybrid query tuning block', function () {
     TeamApiKey::factory()->create(['team_id' => $this->team->id, 'provider' => LlmProvider::OpenRouter]);
 
-    $defaults = $this->service->buildDefaults($this->server);
-
-    $hybrid = $defaults['memorySearch']['query']['hybrid'];
-    expect($hybrid['enabled'])->toBeTrue()
-        ->and($hybrid['vectorWeight'])->toBe(0.7)
-        ->and($hybrid['textWeight'])->toBe(0.3)
-        ->and($hybrid['mmr']['enabled'])->toBeTrue()
-        ->and($hybrid['temporalDecay']['enabled'])->toBeTrue()
-        ->and($defaults['memorySearch']['experimental']['sessionMemory'])->toBeTrue();
+    // 2026.8.1 retired memory.search.query.* — emitting it fails validation.
+    $search = $this->service->buildMemoryConfig($this->server)['search'];
+    expect($search)->not->toHaveKey('query')
+        ->and($search['experimental']['sessionMemory'])->toBeTrue();
 });
 
 test('defaults include all features when team has Anthropic + OpenAI keys', function () {
@@ -130,8 +126,8 @@ test('defaults include all features when team has Anthropic + OpenAI keys', func
     $defaults = $this->service->buildDefaults($this->server);
 
     // Memory search via native OpenAI (no remote override)
-    expect($defaults['memorySearch']['enabled'])->toBeTrue()
-        ->and($defaults['memorySearch'])->not->toHaveKey('remote');
+    expect($this->service->buildMemoryConfig($this->server)['search']['enabled'])->toBeTrue()
+        ->and($this->service->buildMemoryConfig($this->server)['search'])->not->toHaveKey('remote');
 
     // Prompt caching for Anthropic models
     expect($defaults['models'])->toHaveKey('anthropic/claude-opus-4-6');
@@ -151,7 +147,7 @@ test('defaults ignore inactive API keys', function () {
     $defaults = $this->service->buildDefaults($this->server);
 
     // OpenAI key is inactive, so no native memory search
-    expect($defaults['memorySearch']['enabled'])->toBeFalse()
+    expect($this->service->buildMemoryConfig($this->server)['search']['enabled'])->toBeFalse()
         ->and($defaults)->not->toHaveKey('heartbeat');
 });
 
@@ -181,14 +177,15 @@ test('all-bedrock AWS servers route heartbeat, subagents, and memory search to B
 
     $defaults = $this->service->buildDefaults($server);
 
+    $search = $this->service->buildMemoryConfig($server)['search'];
     expect($defaults['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($defaults['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($defaults['subagents']['maxSpawnDepth'])->toBe(1)
-        ->and($defaults['memorySearch']['enabled'])->toBeTrue()
-        ->and($defaults['memorySearch']['provider'])->toBe('bedrock')
+        ->and($search['enabled'])->toBeTrue()
+        ->and($search['provider'])->toBe('bedrock')
         // No model override — the bedrock provider defaults to amazon.titan-embed-text-v2:0
-        ->and($defaults['memorySearch'])->not->toHaveKey('model')
-        ->and($defaults['memorySearch'])->not->toHaveKey('remote');
+        ->and($search)->not->toHaveKey('model')
+        ->and($search)->not->toHaveKey('remote');
 });
 
 test('mixed AWS servers keep managed memory search and heartbeat defaults', function () {
@@ -199,7 +196,7 @@ test('mixed AWS servers keep managed memory search and heartbeat defaults', func
 
     // Documented limitation: mixed teams stay on the managed provider for
     // memory search; the bedrock agent heartbeats via its per-agent override.
-    expect($defaults['memorySearch']['provider'])->toBe('openai')
+    expect($this->service->buildMemoryConfig($server)['search']['provider'])->toBe('openai')
         ->and($defaults['heartbeat']['model'])->toBe('openrouter/z-ai/glm-4.7')
         ->and($defaults['subagents']['model'])->toBe('openrouter/z-ai/glm-4.7');
 });
@@ -216,7 +213,7 @@ test('bedrock defaults are not applied for non-AWS teams', function () {
 
     $defaults = $this->service->buildDefaults($server);
 
-    expect($defaults['memorySearch']['enabled'])->toBeFalse()
+    expect($this->service->buildMemoryConfig($server)['search']['enabled'])->toBeFalse()
         ->and($defaults)->not->toHaveKey('heartbeat');
 });
 

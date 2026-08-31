@@ -364,6 +364,29 @@ class AgentUpdateScriptService
         $lines[] = 'if [ "$CURRENT_OPENCLAW_VERSION" != "$PINNED_OPENCLAW_VERSION" ]; then';
         $lines[] = '  echo "openclaw binary is ${CURRENT_OPENCLAW_VERSION:-missing}, pinned is $PINNED_OPENCLAW_VERSION — updating"';
         $lines[] = '  openclaw update --tag "$PINNED_OPENCLAW_VERSION" --yes --json || npm install -g "openclaw@$PINNED_OPENCLAW_VERSION"';
+        // 2026.8.1 refuses to boot while a legacy sessions.json exists (the
+        // session store moved to per-agent SQLite) — doctor migrates it.
+        // E2E-verified requirements: the volume dirs must be bind mounts,
+        // not symlinks (the SQLite import refuses symlinked path
+        // components), and the gateway must be STOPPED while doctor runs
+        // (a live gateway owns the state-dir lock and doctor silently
+        // skips automatic state migrations).
+        $lines[] = '  if [ -d /mnt/openclaw-data ]; then for D in agents logs; do';
+        $lines[] = '    [ -L "/root/.openclaw/$D" ] && rm "/root/.openclaw/$D"';
+        $lines[] = '    mkdir -p "/root/.openclaw/$D" "/mnt/openclaw-data/$D"';
+        $lines[] = '    mountpoint -q "/root/.openclaw/$D" || mount --bind "/mnt/openclaw-data/$D" "/root/.openclaw/$D"';
+        $lines[] = '    grep -q " /root/.openclaw/$D " /etc/fstab || echo "/mnt/openclaw-data/$D /root/.openclaw/$D none bind,nofail 0 0" >> /etc/fstab';
+        $lines[] = '  done; fi';
+        $lines[] = '  systemctl --user stop openclaw-gateway 2>&1 || true';
+        $lines[] = '  systemctl --user reset-failed openclaw-gateway 2>/dev/null || true';
+        $lines[] = '  openclaw doctor --fix --non-interactive 2>&1 || true';
+        // Plugins installed pre-2026.8.1 have no recorded capability surface;
+        // their first update needs explicit consent or they stay pinned old.
+        $lines[] = '  openclaw plugins update --all --accept-capabilities 2>&1 || true';
+        // Bundled plugins can lack recorded capability consent after the
+        // upgrade — the gateway then refuses readiness ("plugin verification
+        // failed"); update repair records the consent.
+        $lines[] = '  openclaw update repair --accept-capabilities --yes 2>&1 || true';
         $lines[] = 'fi';
         $lines[] = 'systemctl --user restart openclaw-gateway';
         $lines[] = 'sleep 5';
@@ -558,11 +581,13 @@ class AgentUpdateScriptService
             ->with(['slackConnection', 'telegramConnection', 'discordConnection', 'emailConnection', 'team'])
             ->get();
 
-        $agentList = [];
+        // 2026.8.1 roster shape: keyed agents.entries (no `id` inside the
+        // entry body — the strict schema rejects it) with explicit ownership.
+        // The legacy agents.list next to entries fails validation outright.
+        $agentEntries = [];
         foreach ($allAgents as $serverAgent) {
             $agentDir = "/root/.openclaw/agents/{$serverAgent->harness_agent_id}";
             $entry = [
-                'id' => $serverAgent->harness_agent_id,
                 'name' => $serverAgent->name,
                 'workspace' => $agentDir,
                 'agentDir' => "{$agentDir}/agent",
@@ -573,10 +598,11 @@ class AgentUpdateScriptService
             if ($heartbeat = $serverAgent->openclawHeartbeatConfig()) {
                 $entry['heartbeat'] = $heartbeat;
             }
-            $agentList[] = $entry;
+            $agentEntries[$serverAgent->harness_agent_id] = $entry;
         }
 
-        $config['agents']['list'] = $agentList;
+        $config['agents']['entries'] = $agentEntries;
+        $config['agents']['ownership'] = 'explicit';
 
         // Heartbeat defaults: cheap model, light context. All-Bedrock AWS
         // servers heartbeat in-cloud on Bedrock Haiku instead of the managed
@@ -601,7 +627,7 @@ class AgentUpdateScriptService
 
         // Clean up legacy/invalid keys
         foreach (['MAILBOXKIT_API_KEY', 'MAILBOXKIT_INBOX_ID', 'MAILBOXKIT_EMAIL', 'GH_CONFIG_DIR', 'GIT_CONFIG_GLOBAL', 'PROVISION_API_URL', 'PROVISION_AGENT_TOKEN'] as $key) {
-            unset($config['env'][$key]);
+            unset($config['env'][$key], $config['env']['vars'][$key]);
         }
         unset($config['config']);
         unset($config['tools']['profile']);
@@ -645,6 +671,9 @@ class AgentUpdateScriptService
                 'heartbeat' => ['lightContext' => true],
             ], $defaults),
         ];
+
+        // 2026.8.1: memory-search config lives at the root memory key.
+        $config['memory'] = $this->defaultsService->buildMemoryConfig($server);
 
         $config['browser'] = [
             'enabled' => true,
@@ -697,8 +726,15 @@ class AgentUpdateScriptService
             ],
         ];
 
+        // This is a full-file rebuild, so re-emit the enabled markers the
+        // 2026.8.1 installer records under plugins.entries for the plugins
+        // server setup installs — losing them can get a plugin blocked once
+        // an allowlist exists. Bedrock entries are added below by
+        // applyBedrockPluginConfig when applicable.
         $config['plugins'] = ['entries' => [
             'device-pair' => ['enabled' => false],
+            'provision-web' => ['enabled' => true],
+            'byterover' => ['enabled' => true],
         ]];
 
         // Bedrock (BYO-AWS): enable instance-profile discovery for the
@@ -732,10 +768,12 @@ class AgentUpdateScriptService
             ],
         ];
 
-        // LLM provider env keys (shared across all agents on this server)
+        // LLM provider env keys (shared across all agents on this server).
+        // 2026.8.1's strict env schema is {shellEnv, vars} — flat keys fail
+        // validation and take the gateway down.
         $envKeys = $this->collectLlmProviderEnvKeys($server);
         if (! empty($envKeys)) {
-            $config['env'] = $envKeys;
+            $config['env'] = ['vars' => $envKeys];
         }
 
         return $config;
@@ -757,7 +795,6 @@ class AgentUpdateScriptService
      */
     private function buildBrowserProfiles(Server $server): array
     {
-        $palette = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4', '#f97316'];
         $profiles = [];
 
         $agents = $server->agents()
@@ -767,11 +804,12 @@ class AgentUpdateScriptService
             ->orderBy('browser_display_num')
             ->get();
 
-        foreach ($agents as $i => $agent) {
+        foreach ($agents as $agent) {
+            // No `color`: 2026.8.1's strict profile schema rejects it, leaving
+            // the config invalid until the gateway's startup auto-repair runs.
             $profiles[AgentInstallScriptService::browserProfileName($agent)] = [
                 'attachOnly' => true,
                 'cdpUrl' => 'http://127.0.0.1:'.(9222 + (int) $agent->browser_display_num),
-                'color' => $palette[$i % count($palette)],
             ];
         }
 

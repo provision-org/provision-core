@@ -129,7 +129,9 @@ class ServerSetupScriptService
             $lines[] = '# --- Step 3: Install ByteRover (non-fatal) ---';
             $lines[] = 'ping_progress "installing_advanced_memory"';
             $lines[] = 'export XDG_RUNTIME_DIR=/run/user/$(id -u)';
-            $lines[] = 'openclaw plugins install @byterover/byterover 2>&1 || true';
+            // 2026.8.1: headless installs need --accept-capabilities (no TTY =
+            // no consent handler) and non-ClawHub npm sources need --force.
+            $lines[] = 'openclaw plugins install --force --accept-capabilities @byterover/byterover 2>&1 || true';
             $lines[] = '';
 
             // 3b. Install the Amazon Bedrock provider plugin (AWS teams only).
@@ -142,7 +144,7 @@ class ServerSetupScriptService
             if ($server->team?->cloudProvider() === CloudProvider::Aws) {
                 $lines[] = '# --- Step 3b: Install Amazon Bedrock provider plugins (AWS teams) ---';
                 // Classic ConverseStream provider (bedrock: models).
-                $lines[] = 'openclaw plugins install @openclaw/amazon-bedrock-provider 2>&1 || true';
+                $lines[] = 'openclaw plugins install --accept-capabilities @openclaw/amazon-bedrock-provider 2>&1 || true';
 
                 // Mantle provider (mantle: models) is a SEPARATE, non-bundled
                 // plugin. It auto-mints a bearer token from the instance-profile
@@ -150,7 +152,7 @@ class ServerSetupScriptService
                 // endpoint — the BYO-AWS path that needs no use-case form. Only
                 // available in Mantle regions.
                 if (in_array(AwsCredentials::regionForTeam($server->team), MantleCatalogService::SUPPORTED_REGIONS, true)) {
-                    $lines[] = 'openclaw plugins install @openclaw/amazon-bedrock-mantle-provider 2>&1 || true';
+                    $lines[] = 'openclaw plugins install --accept-capabilities @openclaw/amazon-bedrock-mantle-provider 2>&1 || true';
                 }
                 $lines[] = '';
             }
@@ -277,6 +279,12 @@ WRAPPER);
                 "Environment=OPENCLAW_TZ={$timezone}",
                 'Environment=DISPLAY=:99',
                 'Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache',
+                // NO_RESPAWN keeps routine restarts in-process under systemd.
+                // Deliberately NOT setting OPENCLAW_SUPERVISOR_MODE=external:
+                // the 2026.8.1 CLI honors it by REFUSING `openclaw update`
+                // entirely ("use that supervisor to manage the gateway service
+                // during update"), which would break every future fleet pin
+                // bump — E2E-verified on a live box.
                 'Environment=OPENCLAW_NO_RESPAWN=1',
             ];
 
@@ -334,14 +342,18 @@ WRAPPER);
             $lines[] = '';
         }
 
-        // 9. Volume symlinks
+        // 9. Volume bind mounts (NOT symlinks: 2026.8.1's SQLite session
+        // import refuses symbolic-link path components, bricking migration)
         if ($server->provider_volume_id) {
-            $lines[] = '# --- Step 9: Volume Symlinks ---';
+            $lines[] = '# --- Step 9: Volume Bind Mounts ---';
             $lines[] = 'ping_progress "finalizing"';
-            $lines[] = 'rm -rf /root/.openclaw/agents /root/.openclaw/logs';
             $lines[] = 'mkdir -p /mnt/openclaw-data/agents /mnt/openclaw-data/logs';
-            $lines[] = 'ln -sfn /mnt/openclaw-data/agents /root/.openclaw/agents';
-            $lines[] = 'ln -sfn /mnt/openclaw-data/logs /root/.openclaw/logs';
+            $lines[] = 'for D in agents logs; do';
+            $lines[] = '  [ -L "/root/.openclaw/$D" ] && rm "/root/.openclaw/$D"';
+            $lines[] = '  mkdir -p "/root/.openclaw/$D"';
+            $lines[] = '  mountpoint -q "/root/.openclaw/$D" || mount --bind "/mnt/openclaw-data/$D" "/root/.openclaw/$D"';
+            $lines[] = '  grep -q " /root/.openclaw/$D " /etc/fstab || echo "/mnt/openclaw-data/$D /root/.openclaw/$D none bind,nofail 0 0" >> /etc/fstab';
+            $lines[] = 'done';
             $lines[] = '';
         }
 
@@ -449,6 +461,9 @@ WRAPPER);
                 'heartbeat' => ['lightContext' => true],
             ], $defaults),
         ];
+
+        // 2026.8.1: memory-search config lives at the root memory key.
+        $config['memory'] = $this->defaultsService->buildMemoryConfig($server);
 
         // Browser — managed Chrome, no sandbox (running as root)
         $config['browser'] = [

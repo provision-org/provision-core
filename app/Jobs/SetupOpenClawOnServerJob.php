@@ -360,6 +360,12 @@ class SetupOpenClawOnServerJob implements ShouldQueue
             $defaults,
         );
 
+        // 2026.8.1: memory-search config lives at the root `memory` key.
+        $config['memory'] = array_replace_recursive(
+            $config['memory'] ?? [],
+            $defaultsService->buildMemoryConfig($this->server),
+        );
+
         // Ensure object-type keys encode as {} not [] when empty
         $objectKeys = ['plugins', 'plugins.entries', 'channels', 'skills', 'skills.entries', 'skills.load', 'env', 'tools'];
         foreach ($objectKeys as $path) {
@@ -384,7 +390,7 @@ class SetupOpenClawOnServerJob implements ShouldQueue
     {
         try {
             // Install the OpenClaw plugin (per-agent brv init happens in agent install script)
-            $sshService->exec('export XDG_RUNTIME_DIR=/run/user/$(id -u) && openclaw plugins install @byterover/byterover 2>&1 || true');
+            $sshService->exec('export XDG_RUNTIME_DIR=/run/user/$(id -u) && openclaw plugins install --force --accept-capabilities @byterover/byterover 2>&1 || true');
 
             Log::info("ByteRover installed on server {$this->server->id}");
         } catch (\RuntimeException $e) {

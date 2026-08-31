@@ -217,7 +217,7 @@ describe('OpenClaw Gateway v4 connection', () => {
                 instanceId: 'provisiond:server-01',
             },
             role: 'operator',
-            scopes: ['operator.read', 'operator.write'],
+            scopes: ['operator.read', 'operator.write', 'operator.admin'],
             caps: [],
             auth: { token: 'gateway-secret' },
         });

@@ -104,11 +104,12 @@ class VerifyAgentChannelsJob implements ShouldQueue
         $issues = [];
         $agentId = $this->agent->harness_agent_id;
 
-        // Check agent exists in agents.list
-        $agentList = $config['agents']['list'] ?? [];
-        $agentFound = collect($agentList)->contains('id', $agentId);
+        // Check agent exists in the roster — keyed agents.entries on
+        // 2026.8.1+, legacy agents.list on not-yet-migrated boxes.
+        $agentFound = isset($config['agents']['entries'][$agentId])
+            || collect($config['agents']['list'] ?? [])->contains('id', $agentId);
         if (! $agentFound) {
-            $issues[] = "Agent {$agentId} not found in agents.list";
+            $issues[] = "Agent {$agentId} not found in the agents roster";
         }
 
         // Build expected config from database
