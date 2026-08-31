@@ -213,7 +213,7 @@ test('openclaw config snapshot wires bedrock discovery, models, and heartbeat fo
     // All-bedrock server: defaults route heartbeat + subagents + memory search in-cloud
     expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
-        ->and($config['agents']['defaults']['memorySearch']['provider'])->toBe('bedrock');
+        ->and($config['memory']['search']['provider'])->toBe('bedrock');
 
     // The IAM key/secret never appear anywhere in the config
     $json = json_encode($config);

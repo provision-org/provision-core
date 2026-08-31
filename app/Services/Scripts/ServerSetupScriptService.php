@@ -279,12 +279,13 @@ WRAPPER);
                 "Environment=OPENCLAW_TZ={$timezone}",
                 'Environment=DISPLAY=:99',
                 'Environment=NODE_COMPILE_CACHE=/var/tmp/openclaw-compile-cache',
+                // NO_RESPAWN keeps routine restarts in-process under systemd.
+                // Deliberately NOT setting OPENCLAW_SUPERVISOR_MODE=external:
+                // the 2026.8.1 CLI honors it by REFUSING `openclaw update`
+                // entirely ("use that supervisor to manage the gateway service
+                // during update"), which would break every future fleet pin
+                // bump — E2E-verified on a live box.
                 'Environment=OPENCLAW_NO_RESPAWN=1',
-                // 2026.8.1: tell OpenClaw an external supervisor (this systemd
-                // unit) owns the gateway lifecycle — `openclaw gateway
-                // restart/stop` and self-update then defer to systemd instead
-                // of double-supervising or surprise-updating the fleet pin.
-                'Environment=OPENCLAW_SUPERVISOR_MODE=external',
             ];
 
             // AWS teams: the Bedrock/Mantle providers sign requests (and Mantle
@@ -341,14 +342,18 @@ WRAPPER);
             $lines[] = '';
         }
 
-        // 9. Volume symlinks
+        // 9. Volume bind mounts (NOT symlinks: 2026.8.1's SQLite session
+        // import refuses symbolic-link path components, bricking migration)
         if ($server->provider_volume_id) {
-            $lines[] = '# --- Step 9: Volume Symlinks ---';
+            $lines[] = '# --- Step 9: Volume Bind Mounts ---';
             $lines[] = 'ping_progress "finalizing"';
-            $lines[] = 'rm -rf /root/.openclaw/agents /root/.openclaw/logs';
             $lines[] = 'mkdir -p /mnt/openclaw-data/agents /mnt/openclaw-data/logs';
-            $lines[] = 'ln -sfn /mnt/openclaw-data/agents /root/.openclaw/agents';
-            $lines[] = 'ln -sfn /mnt/openclaw-data/logs /root/.openclaw/logs';
+            $lines[] = 'for D in agents logs; do';
+            $lines[] = '  [ -L "/root/.openclaw/$D" ] && rm "/root/.openclaw/$D"';
+            $lines[] = '  mkdir -p "/root/.openclaw/$D"';
+            $lines[] = '  mountpoint -q "/root/.openclaw/$D" || mount --bind "/mnt/openclaw-data/$D" "/root/.openclaw/$D"';
+            $lines[] = '  grep -q " /root/.openclaw/$D " /etc/fstab || echo "/mnt/openclaw-data/$D /root/.openclaw/$D none bind,nofail 0 0" >> /etc/fstab';
+            $lines[] = 'done';
             $lines[] = '';
         }
 
@@ -456,6 +461,9 @@ WRAPPER);
                 'heartbeat' => ['lightContext' => true],
             ], $defaults),
         ];
+
+        // 2026.8.1: memory-search config lives at the root memory key.
+        $config['memory'] = $this->defaultsService->buildMemoryConfig($server);
 
         // Browser — managed Chrome, no sandbox (running as root)
         $config['browser'] = [

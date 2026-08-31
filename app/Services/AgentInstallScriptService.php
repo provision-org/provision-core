@@ -378,10 +378,11 @@ class AgentInstallScriptService
           c.agents.defaults.heartbeat.model = "{$automationModel}";
           c.agents.defaults.heartbeat.lightContext = true;
           c.agents.defaults.heartbeat.every = "55m";
-          // Compaction: higher reserve floor + memory flush before compaction
+          // Compaction: memory flush before compaction. (reserveTokensFloor
+          // was retired in 2026.8.1 — strict schema rejects it.)
           c.agents.defaults.compaction = c.agents.defaults.compaction || {};
           c.agents.defaults.compaction.mode = "default";
-          c.agents.defaults.compaction.reserveTokensFloor = 40000;
+          delete c.agents.defaults.compaction.reserveTokensFloor;
           c.agents.defaults.compaction.memoryFlush = c.agents.defaults.compaction.memoryFlush || {};
           c.agents.defaults.compaction.memoryFlush.enabled = true;
           c.agents.defaults.compaction.memoryFlush.softThresholdTokens = 4000;
@@ -417,15 +418,25 @@ class AgentInstallScriptService
         $assignments = '';
         foreach ($envKeys as $key => $value) {
             $escapedValue = str_replace("'", "'\\''", $value);
-            $assignments .= "c.env[\"{$key}\"] = \"{$escapedValue}\";\n          ";
+            $assignments .= "c.env.vars[\"{$key}\"] = \"{$escapedValue}\";\n          ";
         }
 
+        // 2026.8.1's strict env schema is {shellEnv, vars}: keys live under
+        // env.vars and any legacy flat entries must migrate or the whole
+        // config fails validation and the gateway refuses to boot.
         return <<<BASH
         node -e '
           const fs = require("fs");
           const f = "{$configFile}";
           const c = JSON.parse(fs.readFileSync(f));
-          c.env = c.env || {};
+          c.env = (c.env && typeof c.env === "object") ? c.env : {};
+          c.env.vars = (c.env.vars && typeof c.env.vars === "object") ? c.env.vars : {};
+          for (const [k, v] of Object.entries(c.env)) {
+            if (k !== "vars" && k !== "shellEnv" && typeof v === "string") {
+              if (!(k in c.env.vars)) c.env.vars[k] = v;
+              delete c.env[k];
+            }
+          }
           {$assignments}fs.writeFileSync(f, JSON.stringify(c, null, 2));
         '
         BASH;
@@ -1452,7 +1463,9 @@ class AgentInstallScriptService
         # or an explicit "Installed plugin" confirmation from the installer.
         provweb_present() {
           [ -d /root/.openclaw/npm/node_modules/provision-openclaw-web/dist ] && return 0
-          ls -d /root/.openclaw/npm/projects/provision-openclaw-web__*/ >/dev/null 2>&1 && return 0
+          # 2026.7 used <pkg>__openclaw-generation__g-<hash>/, 2026.8.1 uses the
+          # bare package name — accept both.
+          ls -d /root/.openclaw/npm/projects/provision-openclaw-web*/ >/dev/null 2>&1 && return 0
           return 1
         }
         for _ in \$(seq 1 20); do

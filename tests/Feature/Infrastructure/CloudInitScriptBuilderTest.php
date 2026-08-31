@@ -13,7 +13,7 @@ it('interpolates hetzner volume device path', function () {
 
     expect($script)->toContain('/dev/disk/by-id/scsi-0HC_Volume_12345')
         ->and($script)->toContain('/mnt/openclaw-data')
-        ->and($script)->toContain('ln -sfn /mnt/openclaw-data/agents /root/.openclaw/agents');
+        ->and($script)->toContain('mount --bind /mnt/openclaw-data/agents /root/.openclaw/agents');
 });
 
 it('interpolates digitalocean volume device path', function () {
@@ -92,10 +92,12 @@ it('uses snapshot-backed root storage without formatting a device', function () 
         ->and($script)->toContain('/etc/tmpfiles.d/provision-storage.conf')
         ->and($script)->toContain('L+ /mnt/openclaw-data - - - - /srv/provision/openclaw-data')
         ->and($script)->toContain('L+ /mnt/provision-shared - - - - /srv/provision/shared')
-        ->and($script)->toContain('ln -sfn /srv/provision/openclaw-data/agents /root/.openclaw/agents')
-        ->and($script)->toContain('ln -sfn /srv/provision/openclaw-data/logs /root/.openclaw/logs')
+        ->and($script)->toContain('mount --bind /srv/provision/openclaw-data/agents /root/.openclaw/agents')
+        ->and($script)->toContain('mount --bind /srv/provision/openclaw-data/logs /root/.openclaw/logs')
         ->and($script)->not->toContain('mkfs.ext4')
-        ->and($script)->not->toContain('/etc/fstab');
+        // Bind-mount fstab entries are fine (reboot persistence); block-device
+        // mounts are not — there is no attached volume on this provider.
+        ->and($script)->not->toContain('/dev/disk/by-id');
 });
 
 it('rewrites the flaky EC2 regional apt mirror to the canonical mirror', function () {

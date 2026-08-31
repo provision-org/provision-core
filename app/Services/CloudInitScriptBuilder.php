@@ -120,11 +120,17 @@ class CloudInitScriptBuilder
         # Install ByteRover CLI for persistent agent memory
         curl -fsSL https://byterover.dev/install.sh | sh || true
 
-        # Symlink to persistent volume
-        mkdir -p /root/.openclaw
+        # Bind-mount persistent volume dirs into the OpenClaw state dir.
+        # Bind mounts, NOT symlinks: OpenClaw 2026.8.1's SQLite session import
+        # refuses symbolic-link path components (FsSafeError: path alias
+        # escape), which leaves the gateway unable to boot after migration.
+        mkdir -p /root/.openclaw {$openClawDataPath}/agents {$openClawDataPath}/logs
         rm -rf /root/.openclaw/agents /root/.openclaw/logs
-        ln -sfn {$openClawDataPath}/agents /root/.openclaw/agents
-        ln -sfn {$openClawDataPath}/logs /root/.openclaw/logs
+        mkdir -p /root/.openclaw/agents /root/.openclaw/logs
+        mount --bind {$openClawDataPath}/agents /root/.openclaw/agents
+        mount --bind {$openClawDataPath}/logs /root/.openclaw/logs
+        grep -q ' /root/.openclaw/agents ' /etc/fstab || echo "{$openClawDataPath}/agents /root/.openclaw/agents none bind,nofail 0 0" >> /etc/fstab
+        grep -q ' /root/.openclaw/logs ' /etc/fstab || echo "{$openClawDataPath}/logs /root/.openclaw/logs none bind,nofail 0 0" >> /etc/fstab
 
         # Configure firewall
         ping_progress "configuring_firewall"

@@ -565,7 +565,7 @@ var ProvisionApiClient = class {
 };
 
 // src/version.ts
-var VERSION = "0.5.0";
+var VERSION = "0.5.1";
 var CAPABILITIES = ["chat-relay-v1", "chat-send-v1", "session-discovery-v1"];
 
 // src/poller.ts
@@ -890,7 +890,10 @@ var OpenClawGatewayRelay = class {
           instanceId: `provisiond:${this.config.serverId}`
         },
         role: "operator",
-        scopes: ["operator.read", "operator.write"],
+        // operator.admin short-circuits 2026.8.1's canReceiveSessionEvent
+        // visibility filter: without it, a future gateway.roles config
+        // write would silently stop ALL chat events reaching the relay.
+        scopes: ["operator.read", "operator.write", "operator.admin"],
         caps: [],
         commands: [],
         permissions: {},
@@ -1316,11 +1319,10 @@ var OpenClawGatewayRelay = class {
           snapshots.push(snapshot);
         }
       }
-      const nextOffset = this.integerValue(result.nextOffset);
-      if (nextOffset === void 0 || result.hasMore !== true || nextOffset <= offset) {
+      if (rows.length < 100) {
         break;
       }
-      offset = nextOffset;
+      offset += rows.length;
     }
     for (let index = 0; index < snapshots.length; index += 100) {
       await this.api.syncOpenClawSessions(

@@ -42,7 +42,9 @@ test('it records the version and skips the updater when already on the pin', fun
     $server = Server::factory()->running()->create(['team_id' => $team->id, 'openclaw_version' => null]);
 
     $commands = [];
-    $executor = mockUpdateExecutor(['--version' => "2026.7.1\n"], $commands);
+    // A healthy converged box: version matches and the gateway is active,
+    // so neither the updater nor the doctor repair may run.
+    $executor = mockUpdateExecutor(['--version' => "2026.7.1\n", 'is-active' => "active\n"], $commands);
 
     (new UpdateOpenClawVersionJob($server))->handle(updateJobHarness($executor));
 

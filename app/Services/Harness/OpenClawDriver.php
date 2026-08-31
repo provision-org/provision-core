@@ -269,7 +269,9 @@ BASH;
     {
         try {
             $agentId = $agent->harness_agent_id;
-            $output = $executor->exec("node -e 'const c = JSON.parse(require(\"fs\").readFileSync(\"/root/.openclaw/openclaw.json\")); const found = (c.agents?.list || []).some(a => a.id === \"{$agentId}\"); console.log(found ? \"FOUND\" : \"MISSING\");'");
+            // 2026.8.1 roster is the keyed agents.entries map; fall back to
+            // the legacy agents.list for not-yet-migrated boxes.
+            $output = $executor->exec("node -e 'const c = JSON.parse(require(\"fs\").readFileSync(\"/root/.openclaw/openclaw.json\")); const found = Boolean(c.agents?.entries?.[\"{$agentId}\"]) || (c.agents?.list || []).some(a => a.id === \"{$agentId}\"); console.log(found ? \"FOUND\" : \"MISSING\");'");
 
             return str_contains($output, 'FOUND');
         } catch (\RuntimeException $e) {

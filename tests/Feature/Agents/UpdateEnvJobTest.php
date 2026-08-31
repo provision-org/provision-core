@@ -85,7 +85,7 @@ test('it generates env file content from api keys and env vars', function () {
 
     // Verify API keys are also in openclaw.json env section
     $config = json_decode($writtenConfigJson, true);
-    expect($config['env']['ANTHROPIC_API_KEY'])->toBe('sk-ant-test-key');
+    expect($config['env']['vars']['ANTHROPIC_API_KEY'])->toBe('sk-ant-test-key');
 
     Bus::assertDispatched(RestartGatewayJob::class);
 });
@@ -227,7 +227,7 @@ test('it pushes AWS_REGION but never the AWS key or secret for BYO-AWS teams', f
         ->and($writtenContent)->not->toContain('leak-canary-secret');
 
     $config = json_decode($writtenConfigJson, true);
-    expect($config['env']['AWS_REGION'])->toBe('eu-central-1')
+    expect($config['env']['vars']['AWS_REGION'])->toBe('eu-central-1')
         ->and($config['plugins']['entries']['amazon-bedrock']['config']['discovery'])->toBe([
             'enabled' => true,
             'region' => 'eu-central-1',
@@ -238,5 +238,5 @@ test('it pushes AWS_REGION but never the AWS key or secret for BYO-AWS teams', f
     // All-bedrock server: defaults route heartbeat + subagents in-cloud too
     expect($config['agents']['defaults']['heartbeat']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
         ->and($config['agents']['defaults']['subagents']['model'])->toBe('amazon-bedrock/us.anthropic.claude-haiku-4-5-20251001-v1:0')
-        ->and($config['agents']['defaults']['memorySearch']['provider'])->toBe('bedrock');
+        ->and($config['memory']['search']['provider'])->toBe('bedrock');
 });

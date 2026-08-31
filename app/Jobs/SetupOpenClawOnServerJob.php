@@ -360,6 +360,12 @@ class SetupOpenClawOnServerJob implements ShouldQueue
             $defaults,
         );
 
+        // 2026.8.1: memory-search config lives at the root `memory` key.
+        $config['memory'] = array_replace_recursive(
+            $config['memory'] ?? [],
+            $defaultsService->buildMemoryConfig($this->server),
+        );
+
         // Ensure object-type keys encode as {} not [] when empty
         $objectKeys = ['plugins', 'plugins.entries', 'channels', 'skills', 'skills.entries', 'skills.load', 'env', 'tools'];
         foreach ($objectKeys as $path) {

@@ -38,10 +38,10 @@ test('install script patches openclaw.json env section with BYOK api keys', func
 
     // Env section patch should set keys in openclaw.json
     expect($script)
-        ->toContain('c.env["OPENROUTER_API_KEY"] = "sk-or-test-key"')
-        ->toContain('c.env["ANTHROPIC_API_KEY"] = "sk-ant-test-key"')
+        ->toContain('c.env.vars["OPENROUTER_API_KEY"] = "sk-or-test-key"')
+        ->toContain('c.env.vars["ANTHROPIC_API_KEY"] = "sk-ant-test-key"')
         // OpenRouter aliased as OpenAI since no native OpenAI key
-        ->toContain('c.env["OPENAI_API_KEY"] = "sk-or-test-key"');
+        ->toContain('c.env.vars["OPENAI_API_KEY"] = "sk-or-test-key"');
 
     // .env file should still be written for skills
     expect($script)
@@ -70,8 +70,8 @@ test('install script patches openclaw.json env section with managed key when no 
     $script = app(AgentInstallScriptService::class)->generateScript($agent);
 
     expect($script)
-        ->toContain('c.env["OPENROUTER_API_KEY"] = "sk-or-managed-key"')
-        ->toContain('c.env["OPENAI_API_KEY"] = "sk-or-managed-key"');
+        ->toContain('c.env.vars["OPENROUTER_API_KEY"] = "sk-or-managed-key"')
+        ->toContain('c.env.vars["OPENAI_API_KEY"] = "sk-or-managed-key"');
 });
 
 test('install script skips env config patch when no api keys exist', function () {
@@ -117,6 +117,6 @@ test('install script does not alias OpenAI key when team has native OpenAI key',
 
     // Should use native OpenAI key, not alias from OpenRouter
     expect($script)
-        ->toContain('c.env["OPENAI_API_KEY"] = "sk-openai-native"')
-        ->toContain('c.env["OPENROUTER_API_KEY"] = "sk-or-key"');
+        ->toContain('c.env.vars["OPENAI_API_KEY"] = "sk-openai-native"')
+        ->toContain('c.env.vars["OPENROUTER_API_KEY"] = "sk-or-key"');
 });

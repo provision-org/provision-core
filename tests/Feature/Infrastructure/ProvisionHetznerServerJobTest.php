@@ -116,7 +116,7 @@ it('persists provider_volume_id on the server record', function () {
     expect($server->provider_volume_id)->toBe('77777777');
 });
 
-it('includes volume mount and symlink instructions in cloud-init', function () {
+it('includes volume mount and bind-mount instructions in cloud-init', function () {
     $server = Server::factory()->create();
 
     $hetznerService = mockHetznerServiceWithVolume('88888888');
@@ -125,8 +125,8 @@ it('includes volume mount and symlink instructions in cloud-init', function () {
         ->withArgs(function ($team, $cloudInit) {
             return str_contains($cloudInit, '/dev/disk/by-id/scsi-0HC_Volume_88888888')
                 && str_contains($cloudInit, '/mnt/openclaw-data')
-                && str_contains($cloudInit, 'ln -sfn /mnt/openclaw-data/agents /root/.openclaw/agents')
-                && str_contains($cloudInit, 'ln -sfn /mnt/openclaw-data/logs /root/.openclaw/logs');
+                && str_contains($cloudInit, 'mount --bind /mnt/openclaw-data/agents /root/.openclaw/agents')
+                && str_contains($cloudInit, 'mount --bind /mnt/openclaw-data/logs /root/.openclaw/logs');
         })
         ->andReturn([
             'server' => [

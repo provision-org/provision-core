@@ -31,6 +31,31 @@ class OpenClawDefaultsService
      *
      * @return array<string, mixed>
      */
+    /**
+     * Root `memory` block for openclaw.json. 2026.8.1 moved memory-search
+     * config out of agents.defaults.memorySearch to the root memory.search
+     * key; the old location fails strict validation.
+     *
+     * @return array<string, mixed>
+     */
+    public function buildMemoryConfig(Server $server): array
+    {
+        $activeProviders = $server->team->llmApiKeys()
+            ->where('is_active', true)
+            ->pluck('provider')
+            ->unique()
+            ->all();
+
+        $search = $this->serverIsAllBedrock($server)
+            ? $this->buildBedrockMemorySearch()
+            : $this->buildMemorySearch(
+                in_array(LlmProvider::OpenAi, $activeProviders, true),
+                in_array(LlmProvider::OpenRouter, $activeProviders, true),
+            );
+
+        return ['search' => $search];
+    }
+
     public function buildDefaults(Server $server): array
     {
         $team = $server->team;
@@ -49,9 +74,9 @@ class OpenClawDefaultsService
             'sandbox' => ['mode' => 'off'],
         ];
 
-        $defaults['memorySearch'] = $allBedrock
-            ? $this->buildBedrockMemorySearch()
-            : $this->buildMemorySearch($hasOpenAi, $hasOpenRouter);
+        // No memorySearch here: 2026.8.1 moved memory-search config to the
+        // ROOT `memory.search` key (see buildMemoryConfig) and rejects it
+        // under agents.defaults.
         $defaults['compaction'] = $this->buildCompaction();
         $defaults['contextPruning'] = $this->buildContextPruning();
 
@@ -436,12 +461,13 @@ class OpenClawDefaultsService
             return ['enabled' => false];
         }
 
+        // No `query` tuning block: 2026.8.1 retired the hybrid query knobs
+        // (memory.search.query.* are doctor-stripped legacy paths).
         $config = [
             'enabled' => true,
             'provider' => 'openai',
             'model' => 'text-embedding-3-small',
             'sources' => ['memory', 'sessions'],
-            'query' => $this->buildMemorySearchQuery(),
             'experimental' => ['sessionMemory' => true],
         ];
 
@@ -465,24 +491,7 @@ class OpenClawDefaultsService
             'enabled' => true,
             'provider' => 'bedrock',
             'sources' => ['memory', 'sessions'],
-            'query' => $this->buildMemorySearchQuery(),
             'experimental' => ['sessionMemory' => true],
-        ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    private function buildMemorySearchQuery(): array
-    {
-        return [
-            'hybrid' => [
-                'enabled' => true,
-                'vectorWeight' => 0.7,
-                'textWeight' => 0.3,
-                'mmr' => ['enabled' => true, 'lambda' => 0.7],
-                'temporalDecay' => ['enabled' => true, 'halfLifeDays' => 30],
-            ],
         ];
     }
 
@@ -505,10 +514,10 @@ class OpenClawDefaultsService
      */
     private function buildContextPruning(): array
     {
+        // keepLastAssistants was retired in 2026.8.1 (doctor-stripped path).
         return [
             'mode' => 'cache-ttl',
             'ttl' => '6h',
-            'keepLastAssistants' => 3,
         ];
     }
 
